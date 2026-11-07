@@ -58,7 +58,7 @@ namespace PetCalendarDesktop {
             Point cursor=Cursor.Position;
             try {
                 foreach(var species in Species.All) {
-                    Check(PetVoice.ChatterCount(species.Id)==5&&Enumerable.Range(0,5).Select(i=>PetVoice.Chatter(species.Id,i)).Distinct().Count()==5,species.Id+" has five distinct casual lines");
+                    Check(PetVoice.ChatterCount(species.Id)==20&&Enumerable.Range(0,20).Select(i=>PetVoice.Chatter(species.Id,i)).Distinct().Count()==20,species.Id+" has twenty distinct casual lines");
                     var sample=new PetSummary{Kind="next",Title="회의 다냥 <태그> & 멍!",Time="11:00",Count=3};
                     string spoken=PetVoice.Summary(sample,species.Id);
                     Check(spoken.Contains(sample.Title)&&spoken.Contains("11:00")&&spoken.Contains("3개"),species.Id+" voice preserves title, time and count");

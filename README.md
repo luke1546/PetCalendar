@@ -20,6 +20,10 @@
 - 펫별 이름과 일상 대화, 오늘 일정 안내 및 알림 말풍선
 - 위젯과 펫 표시 여부, 알림 소리와 안내 주기 설정
 
+## 다운로드
+
+[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest)
+
 ## 실행 환경
 
 Windows x64, .NET Framework 4.8, Microsoft Edge WebView2 Runtime이 필요합니다. 일정과 설정은 사용자 PC의 `%LOCALAPPDATA%\\PetCalendar`에 저장됩니다.

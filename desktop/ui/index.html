@@ -2,15 +2,15 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="나만의 업무 공간. 일정과 할 일을 한눈에 정리하는 오프라인 업무 캘린더.">
-  <title>업무 캘린더 · 나만의 업무 공간</title>
+  <meta name="description" content="나만의 업무 공간. 일정과 할 일을 한눈에 정리하는 오프라인 펫 캘린더.">
+  <title>펫 캘린더 · 나만의 업무 공간</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
 <div class="app-shell">
   <header class="masthead">
-    <div class="brand"><img src="/icon.svg" width="46" height="46" alt=""><div><span class="eyebrow">조금의 계획으로, 여유로운 하루</span><h1>업무 캘린더<span class="brand-dot">.</span></h1></div></div>
+    <div class="brand"><img src="/icon.svg" width="46" height="46" alt=""><div><span class="eyebrow">조금의 계획으로, 여유로운 하루</span><h1>펫 캘린더 <svg class="brand-paw" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="5" cy="8" rx="2.2" ry="3" transform="rotate(-25 5 8)"/><ellipse cx="10" cy="4.5" rx="2.2" ry="3" transform="rotate(-8 10 4.5)"/><ellipse cx="15" cy="4.5" rx="2.2" ry="3" transform="rotate(8 15 4.5)"/><ellipse cx="20" cy="8" rx="2.2" ry="3" transform="rotate(25 20 8)"/><path d="M12.5 10c-3.1 0-3.8 2.3-6 4.2-2.1 1.8-1.5 5.3 1.2 5.8 1.7.3 3-.8 4.8-.8s3.1 1.1 4.8.8c2.7-.5 3.3-4 1.2-5.8-2.2-1.9-2.9-4.2-6-4.2Z"/></svg></h1></div></div>
     <div class="header-actions"><div class="today-stamp"><span id="todayLabel"></span><span id="clockLabel" class="mono"></span></div><button id="settingsButton" class="button icon-button" title="설정 및 백업" aria-label="설정 및 백업"><span data-icon="settings"></span></button><div id="windowControls" class="window-controls" role="group" aria-label="창 제어" hidden><button id="windowMinimize" class="window-button" aria-label="최소화" title="최소화"><span data-icon="minimize"></span></button><button id="windowMaximize" class="window-button" aria-label="최대화" title="최대화"><span data-icon="maximize"></span></button><button id="windowClose" class="window-button window-close" aria-label="창 닫기" title="트레이로 숨기기"><span data-icon="close"></span></button></div></div>
   </header>
   <section class="summary-grid" aria-label="업무 요약">
@@ -42,7 +42,7 @@
 </div>
 <dialog id="eventDialog" class="event-dialog">
   <form id="eventForm"><div class="dialog-header"><div><span class="eyebrow">나의 새로운 계획</span><h2 id="eventDialogTitle">새 일정</h2></div><button type="button" class="button icon-button" data-close="eventDialog" aria-label="닫기"><span data-icon="close"></span></button></div>
-    <p id="repeatNotice" class="inline-note" hidden>반복 일정입니다. 수정·삭제하면 전체 반복 일정에 적용됩니다.</p>
+    <p id="repeatNotice" class="inline-note" hidden>반복 일정입니다. 저장하거나 삭제할 때 적용 범위를 선택할 수 있습니다.</p>
     <label class="field title-field">어떤 일정인가요?<input name="title" id="eventTitle" placeholder="예: 주간 회의, 보고서 제출" maxlength="200" required autocomplete="off"></label>
     <div class="field-row"><label class="field">시작일<input name="startDate" id="eventStart" type="date" required></label><label class="field">종료일<input name="endDate" id="eventEnd" type="date" required></label></div>
     <label class="checkbox-label all-day"><input name="allDay" id="eventAllDay" type="checkbox" checked> 종일 일정</label>
@@ -64,7 +64,7 @@
   <section id="widgetSettings" class="settings-section" hidden><h3>바탕화면 위젯</h3><p>작은 달력과 일정을 바탕화면에 띄워두세요. 위치와 크기를 기억합니다.</p><button id="toggleWidget" class="button">위젯 열기</button><label class="checkbox-label"><input id="widgetTopmost" type="checkbox"> 항상 위에 표시</label><label class="checkbox-label"><input id="widgetLocked" type="checkbox"> 위젯 위치·크기 고정</label><p id="widgetStatus" class="field-hint">날짜를 눌러 일정을 확인하고, 일정을 누르면 수정할 수 있습니다. 위젯의 ×는 위젯만 닫습니다.</p></section>
   </details>
   <details id="petSettings" class="settings-group" hidden><summary>데스크톱 펫</summary>
-  <section class="settings-section"><h3>데스크톱 펫</h3><p>작은 친구가 바탕화면과 창 위를 산책해요. 각 펫이 1~2분마다 자기 말투로 짧은 잡담도 해요.</p>
+  <section class="settings-section"><h3>데스크톱 펫</h3><p>작은 친구가 바탕화면과 창 위를 산책해요. 펫마다 성격에 맞는 주기로 짧은 잡담도 해요.</p>
   <label class="checkbox-label"><input id="petsEnabled" type="checkbox"> 데스크톱 펫 사용</label>
   <div class="settings-actions pets-controls"><label class="field">추가할 펫<select id="petSpecies" aria-label="추가할 펫 종류"><option value="cat">고양이</option><option value="dog">포메라니안</option><option value="redPanda">레서판다</option><option value="capybara">카피바라</option><option value="squirrel">다람쥐</option><option value="alpaca">알파카</option><option value="elephant">코끼리</option><option value="random">랜덤</option></select></label><button id="addPet" class="button" disabled>한 마리 추가</button><button id="homePets" class="button" disabled>바닥으로 데려오기</button></div>
   <div class="pet-speech-settings"><h3>오늘 일정 말풍선</h3><label class="checkbox-label"><input id="petSummaryEnabled" type="checkbox" checked> 오늘 일정 정기 안내</label><p class="field-hint">미완료 일정 수와 진행 중이거나 다음에 시작할 일정을 알려드려요. 20초 동안 표시되며, 말풍선 본문이나 말하던 펫을 누르면 다음 미완료 일정으로 넘어갑니다.</p><div class="settings-actions pets-controls"><label class="field">안내 주기 (분)<input id="petSummaryMinutes" type="number" min="1" max="1440" step="1" value="3" required></label><button id="savePetSpeech" class="button">주기 적용</button><button id="previewPetSpeech" class="button" disabled>지금 안내 듣기</button></div><p class="field-hint">1~1,440분 사이로 설정하세요. 시간 알림은 확인할 때까지 말풍선에 남고, 펫을 끄면 기존 알림창으로 알려드립니다.</p></div>
@@ -75,7 +75,7 @@
   <section class="settings-section"><h3>일정 알림</h3><p id="notificationDescription">캘린더를 열어둔 동안 화면과 윈도우 알림으로 알려드립니다. PC 절전 중에는 알림이 지연될 수 있습니다.</p><div class="settings-actions"><button id="enableNotifications" class="button">윈도우 알림 켜기</button><button id="testNotification" class="button">알림 테스트</button></div><p id="permissionStatus" class="field-hint"></p><label id="desktopSoundRow" class="checkbox-label" hidden><input id="notificationSound" type="checkbox"> 알림 소리</label><label class="field">새 일정의 기본 알림<select id="defaultReminder"><option value="null">알림 없음</option><option value="0">정시</option><option value="10">10분 전</option><option value="30">30분 전</option><option value="60">1시간 전</option></select></label></section>
   </details>
   <details class="settings-group" open><summary>데이터 · 백업</summary>
-  <section class="settings-section"><h3>소중한 기록, 안전하게</h3><p>모든 기록은 이 PC에만 저장됩니다. 저장 전 사본도 최근 30개까지 자동 보관합니다.</p><div class="backup-actions"><button id="exportBackup" class="button"><span data-icon="download"></span> 백업 내보내기</button><button id="importBackup" class="button"><span data-icon="upload"></span> 백업 복원</button></div><input id="backupFile" type="file" accept="application/json,.json" hidden><p class="field-hint">복원하면 현재 기록을 교체합니다. 교체 전 기록은 자동 백업에 남습니다.</p></section>
+  <section class="settings-section"><h3>소중한 기록, 안전하게</h3><p>일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다.</p><div class="backup-actions"><button id="exportBackup" class="button"><span data-icon="download"></span> 백업 내보내기</button><button id="importBackup" class="button"><span data-icon="upload"></span> 백업 복원</button></div><input id="backupFile" type="file" accept="application/json,.json" hidden><p class="field-hint">복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다.</p></section>
   </details>
 
 
@@ -83,7 +83,8 @@
 
 </dialog>
 <dialog id="confirmDialog" class="confirm-dialog"><div class="dialog-header"><h2 id="confirmTitle">확인</h2></div><p id="confirmText"></p><div class="confirm-actions"><button id="confirmCancel" class="button">취소</button><button id="confirmAccept" class="button primary">확인</button></div></dialog>
-<dialog id="helpDialog"><div class="dialog-header"><h2>가볍게 시작하세요</h2><button class="button icon-button" data-close="helpDialog" aria-label="닫기"><span data-icon="close"></span></button></div><div class="help-content"><p>날짜 숫자를 누르면 오른쪽에 일정이 표시됩니다. 빈 공간을 누르면 해당 날짜가 선택되고, 이미 선택한 날짜의 빈 공간을 다시 누르면 새 일정 입력창이 열립니다. <strong>+ 일정 추가</strong>로도 추가할 수 있어요.</p><p>일정을 누르면 수정·복제·삭제할 수 있습니다. 반복 일정은 전체 묶음으로 수정됩니다. 상단 ‘중요한 일정 · D-DAY’를 누르면 기존 일정 중 하나를 직접 고를 수 있습니다. 오른쪽 일정의 깃발이나 일정 입력창의 ‘D-day로 표시’로도 선택할 수 있습니다. 반복 일정은 선택한 회차의 시작일을 기준으로 표시합니다. 카드에서 선택을 바꾸거나 해제할 수 있습니다.</p><p>검색은 모든 기간의 제목과 메모를 찾습니다. 분류 버튼은 한 번 더 누르면 전체로 돌아갑니다.</p><dl><dt><kbd>N</kbd></dt><dd>선택한 날짜에 새 일정</dd><dt><kbd>/</kbd></dt><dd>일정 검색</dd><dt><kbd>T</kbd></dt><dd>오늘로 이동</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>이전 달 · 다음 달</dd><dt><kbd>Esc</kbd></dt><dd>입력창 닫기</dd></dl><p class="field-hint">윈도우 알림은 최초 한 번 허용이 필요합니다. 브라우저를 닫으면 알림이 멈추며, PC 알림 설정에 따라 표시가 제한될 수 있습니다.</p></div></dialog>
+<dialog id="repeatScopeDialog" class="confirm-dialog"><div class="dialog-header"><h2>반복 일정 적용 범위</h2></div><p id="repeatScopeText"></p><div class="confirm-actions"><button id="repeatScopeCancel" class="button">취소</button><button id="repeatScopeAll" class="button">전체 일정</button><button id="repeatScopeOne" class="button primary">이번 일정만</button></div></dialog>
+<dialog id="helpDialog"><div class="dialog-header"><h2>가볍게 시작하세요</h2><button class="button icon-button" data-close="helpDialog" aria-label="닫기"><span data-icon="close"></span></button></div><div class="help-content"><p>날짜 숫자를 누르면 오른쪽에 일정이 표시됩니다. 빈 공간을 누르면 해당 날짜가 선택되고, 이미 선택한 날짜의 빈 공간을 다시 누르면 새 일정 입력창이 열립니다. <strong>+ 일정 추가</strong>로도 추가할 수 있어요.</p><p>일정을 누르면 수정·복제·삭제할 수 있습니다. 반복 일정은 이번 회차만 또는 전체를 수정·삭제할 수 있습니다. 상단 ‘중요한 일정 · D-DAY’를 누르면 기존 일정 중 하나를 직접 고를 수 있습니다. 오른쪽 일정의 깃발이나 일정 입력창의 ‘D-day로 표시’로도 선택할 수 있습니다. 반복 일정은 선택한 회차의 시작일을 기준으로 표시합니다. 카드에서 선택을 바꾸거나 해제할 수 있습니다.</p><p>검색은 모든 기간의 제목과 메모를 찾습니다. 분류 버튼은 한 번 더 누르면 전체로 돌아갑니다.</p><dl><dt><kbd>N</kbd></dt><dd>선택한 날짜에 새 일정</dd><dt><kbd>/</kbd></dt><dd>일정 검색</dd><dt><kbd>T</kbd></dt><dd>오늘로 이동</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>이전 달 · 다음 달</dd><dt><kbd>Esc</kbd></dt><dd>입력창 닫기</dd></dl><p class="field-hint">윈도우 알림은 최초 한 번 허용이 필요합니다. 브라우저를 닫으면 알림이 멈추며, PC 알림 설정에 따라 표시가 제한될 수 있습니다.</p></div></dialog>
 <div id="toastRegion" class="toast-region" aria-live="polite"></div>
 <div id="loadingScreen" class="loading-screen"><img src="/icon.svg" width="52" height="52" alt=""><p>나만의 업무 공간을 여는 중…</p></div>
 </body></html>

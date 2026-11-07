@@ -15,6 +15,7 @@ namespace PetCalendarDesktop {
         readonly PetSpeechClock clock=new PetSpeechClock();
         readonly Action<Alarm> openAlarm;
         readonly Action<string> acknowledge;
+        readonly Action<string,int> snooze;
         readonly Action<string,string> openSchedule;
         List<Alarm> alerts=new List<Alarm>();
         PetBubble bubble;
@@ -24,13 +25,14 @@ namespace PetCalendarDesktop {
         DateTime expires,lastTick,manualUntil;
         bool running,summaryEnabled=true,chatterEnabled=true,manual;
         int minutes=3,speakerIndex;
-        internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error) {
-            pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;
+        internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error,Action<string,int> snoozeAlarm=null) {
+            pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;snooze=snoozeAlarm;
             timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);ClearBubble();}};
         }
         internal void Start(bool enabled,int interval,bool useChatter=true) {running=true;Configure(enabled,interval);ConfigureChatter(useChatter);chatter.Reset();timer.Start();}
         internal void Configure(bool enabled,int interval) {summaryEnabled=enabled;minutes=interval;clock.Reset(now(),minutes);if(!enabled && current==null)ClearBubble();}
         internal void ConfigureChatter(bool enabled){if(chatterEnabled==enabled)return;chatterEnabled=enabled;chatter.Reset();}
+        internal void PersonalityChanged(PetHost pet){chatter.Reschedule(pet,now());}
         internal void Resume() {chatter.Reset();clock.Reset(now(),minutes);lastTick=now();Tick();}
         internal void SetAlerts(List<Alarm> values) {
             bool had=alerts.Count>0;
@@ -59,6 +61,7 @@ namespace PetCalendarDesktop {
             if(bubble!=null)return;
             bubble=new PetBubble();
             bubble.DismissRequested+=Dismiss;
+            bubble.SnoozeRequested+=minutes=>{if(current!=null&&snooze!=null)snooze(current.id,minutes);};
             bubble.OpenRequested+=delegate {
                 if(current!=null){var alarm=current;openAlarm(alarm);}
                 else NextSummary();
@@ -121,7 +124,8 @@ namespace PetCalendarDesktop {
         readonly Random random=new Random();
         DateTime observed;
         internal int ActiveCount {get{return entries.Values.Count(e=>e.Bubble!=null);}}
-        DateTime Next(DateTime utc){return utc.AddSeconds(random.Next(60,121));}
+        DateTime Next(PetHost pet,DateTime utc){int[] minimum={30,60,120,180,300},maximum={60,120,180,300,600};int level=Math.Max(1,Math.Min(5,pet.Personality))-1;return utc.AddSeconds(random.Next(minimum[level],maximum[level]+1));}
+        internal void Reschedule(PetHost pet,DateTime utc){Entry entry;if(entries.TryGetValue(pet,out entry))entry.Next=Next(pet,utc);}
         static void Close(Entry entry){if(entry.Bubble!=null){entry.Bubble.Dispose();entry.Bubble=null;}}
         internal void Tick(PetHost[] pets,DateTime utc,bool busy) {
             if(observed!=default(DateTime)&&(utc<observed||utc-observed>TimeSpan.FromMinutes(5))){Reset();}
@@ -129,13 +133,13 @@ namespace PetCalendarDesktop {
             foreach(var pet in entries.Keys.Where(p=>p.IsDisposed||!pets.Contains(p)).ToArray()){Close(entries[pet]);entries.Remove(pet);}
             foreach(var pet in pets) {
                 if(pet.IsDisposed)continue;
-                Entry entry;if(!entries.TryGetValue(pet,out entry)){entry=new Entry{Next=Next(utc)};entries.Add(pet,entry);}
+                Entry entry;if(!entries.TryGetValue(pet,out entry)){entry=new Entry{Next=Next(pet,utc)};entries.Add(pet,entry);}
                 if(entry.Bubble!=null) {
                     if(busy||utc>=entry.Expires)Close(entry);
                     else if(pet.Visible)entry.Bubble.Follow(pet);else entry.Bubble.Hide();
                 }
                 if(utc<entry.Next)continue;
-                entry.Next=Next(utc);
+                entry.Next=Next(pet,utc);
                 if(busy||!pet.ReadyForSpeech||pet.Cat.Support==null||pet.Cat.State==Pose.Crouch)continue;
                 Close(entry);
                 int count=PetVoice.ChatterCount(pet.Kind.Id);if(count==0)continue;

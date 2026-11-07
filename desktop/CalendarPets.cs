@@ -9,7 +9,7 @@ using System.Windows.Forms;
 using DesktopPet;
 
 namespace PetCalendarDesktop {
-    public sealed class PetRecord {public string species="cat",palette="치즈",name="";}
+    public sealed class PetRecord {public string species="cat",palette="치즈",name="";public int personality;}
     public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];}
 
     // The engine runs on the existing calendar UI thread. No extra process, tray or browser.
@@ -24,6 +24,7 @@ namespace PetCalendarDesktop {
         DateTime? testUtc;
         internal event Action<Alarm> OpenAlarm;
         internal event Action<string> Acknowledge;
+        internal event Action<string,int> Snooze;
         internal event Action<string,string> OpenSchedule;
         readonly Func<string,Stream> previousLoader;
         readonly string previousSettings,previousPrefix,previousClose,previousNoun;
@@ -34,16 +35,17 @@ namespace PetCalendarDesktop {
         public event Action Changed;
         internal bool Enabled {get {return enabled;}}
         internal bool CanNotify {get{return enabled&&active.Count>0;}}
-        internal CalendarPets(string dataDir,Func<CalendarState> snapshot,Action<Exception> error) {
+        internal CalendarPets(string dataDir,Func<CalendarState> snapshot,Action<Exception> error,bool fresh=false) {
             path=Path.Combine(dataDir,"pets.json");log=error;
-            try {preferences=File.Exists(path)?Codec.Read<PetPreferences>(File.ReadAllText(path)):new PetPreferences();}
+            try {preferences=File.Exists(path)?Codec.Read<PetPreferences>(File.ReadAllText(path)):new PetPreferences{enabled=fresh};}
             catch(Exception e) {log(e);preferences=new PetPreferences();}
             if(preferences==null)preferences=new PetPreferences();
             if(preferences.summaryIntervalMinutes<1||preferences.summaryIntervalMinutes>1440)preferences.summaryIntervalMinutes=3;
-            speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log);
+            if(fresh&&!File.Exists(path))Save();
+            speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log,(id,minutes)=>{if(Snooze!=null)Snooze(id,minutes);});
             preferences.pets=(preferences.pets??new PetRecord[0]).Where(p=>p!=null&&Species.Find(p.species)!=null).Take(256).ToArray();
             previousLoader=Sprites.ResourceOpen;previousSettings=PetHost.SettingsDirectory;previousPrefix=PetHost.WindowPrefix;previousClose=PetHost.CloseAllLabel;previousNoun=PetMenu.Noun;PetMenu.Noun="펫";
-            Sprites.ResourceOpen=OpenImage;PetHost.SettingsDirectory=Path.Combine(dataDir,"pets");PetHost.WindowPrefix="업무 캘린더 · 데스크톱 펫";PetHost.CloseAllLabel="펫 모두 보내기";
+            Sprites.ResourceOpen=OpenImage;PetHost.SettingsDirectory=Path.Combine(dataDir,"pets");PetHost.WindowPrefix="펫 캘린더 · 데스크톱 펫";PetHost.CloseAllLabel="펫 모두 보내기";
         }
         Stream OpenImage(string name) {
             if(!enabled)throw new InvalidOperationException("데스크톱 펫이 꺼져 있습니다.");
@@ -60,8 +62,21 @@ namespace PetCalendarDesktop {
             catch {result.Dispose();throw;}
         }
         void Save() {StateStore.Atomic(path,Codec.Json(preferences),null);}
+        internal PetPreferences BackupPreferences(){return Codec.Read<PetPreferences>(Codec.Json(preferences));}
+        internal static PetPreferences CheckBackup(object value){
+            PetPreferences p;try{p=Codec.Read<PetPreferences>(Codec.Json(value));}catch{throw new AppError(400,"펫 백업 설정을 확인해 주세요.");}
+            if(p==null||p.pets==null||p.pets.Length>256||p.summaryIntervalMinutes<1||p.summaryIntervalMinutes>1440)throw new AppError(400,"펫 백업 설정을 확인해 주세요.");
+            foreach(var record in p.pets){var kind=record==null?null:Species.Find(record.species);if(kind==null||record.name==null||record.name!=CleanName(record.name)||record.personality<0||record.personality>5||!Array.Exists(Palette.For(kind),x=>x.Name==record.palette))throw new AppError(400,"펫 종류, 색상, 성격 또는 이름을 확인해 주세요.");}
+            return p;
+        }
+        internal void RestorePreferences(PetPreferences value){
+            if(enabled)SetEnabled(false);
+            preferences=Codec.Read<PetPreferences>(Codec.Json(value));bool shouldEnable=preferences.enabled;preferences.enabled=false;
+            if(shouldEnable)SetEnabled(true);else{Save();Notify();}
+        }
         void Notify() {if(Changed!=null)Changed();}
-        PetRecord[] Records() {return active.Select(p=>new PetRecord{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName}).ToArray();}
+        PetRecord Record(PetHost pet){return new PetRecord{species=pet.Kind.Id,palette=pet.PaletteName,name=pet.PetName,personality=pet.Personality};}
+        PetRecord[] Records() {return active.Select(Record).ToArray();}
         internal void Restore() {
             if(!preferences.enabled)return;
             try {SetEnabled(true);}
@@ -77,7 +92,7 @@ namespace PetCalendarDesktop {
                     else foreach(var record in saved) {
                         var kind=Species.Find(record.species);
                         var palette=Array.Find(Palette.For(kind),p=>p.Name==record.palette);
-                        SpawnInternal(kind,palette??Palette.For(kind)[0],CleanName(record.name));
+                        SpawnInternal(kind,palette??Palette.For(kind)[0],CleanName(record.name),record.personality);
                     }
                     preferences.enabled=true;preferences.pets=Records();Save();if(active.Count>0)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);
                 }catch {enabled=false;speech.Stop();CloseActive();CloseArchive();throw;}
@@ -92,11 +107,12 @@ namespace PetCalendarDesktop {
             if(kind==null)throw new AppError(400,"동물 종류를 확인해 주세요.");
             bool wasEmpty=active.Count==0;SpawnInternal(kind,null);preferences.pets=Records();Save();if(wasEmpty)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);Notify();
         }
-        void SpawnInternal(Species kind,Palette selected,string name="") {
+        void SpawnInternal(Species kind,Palette selected,string name="",int personality=0) {
             PaletteBag bag;if(!colors.TryGetValue(kind.Id,out bag)){bag=new PaletteBag(kind);colors.Add(kind.Id,bag);}
             double position=.1+random.NextDouble()*.8;
             var pet=new PetHost(kind,selected??bag.Next(),false,position);
-            pet.PetName=name;pet.RenameRequested=()=>EditName(pet);
+            pet.PetName=name;pet.Personality=personality>=1&&personality<=5?personality:random.Next(1,6);pet.RenameRequested=()=>EditName(pet);
+            pet.PersonalityRequested=value=>NativeAction(()=>SetPersonality(pet.Handle.ToInt64(),value));
             pet.AddSpeciesRequested=choice=>NativeAction(()=>Add(choice==null?"random":choice.Id));
             pet.CloseAllRequested=()=>NativeAction(ConfirmSendUnnamed);
             pet.FormClosed+=delegate {
@@ -122,7 +138,7 @@ namespace PetCalendarDesktop {
             var send=active.Where(p=>String.IsNullOrWhiteSpace(p.PetName)).ToArray();
             if(send.Length==0)return;
             var previous=preferences.pets;bool oldEmpty=preferences.allowEmpty;
-            preferences.pets=active.Except(send).Select(p=>new PetRecord{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName}).ToArray();preferences.allowEmpty=true;
+            preferences.pets=active.Except(send).Select(Record).ToArray();preferences.allowEmpty=true;
             try{Save();}catch{preferences.pets=previous;preferences.allowEmpty=oldEmpty;throw;}
             stopping=true;
             try{foreach(var pet in send){pet.Close();pet.Dispose();}}
@@ -138,6 +154,13 @@ namespace PetCalendarDesktop {
             string old=pet.PetName;pet.PetName=value.Trim();
             try{preferences.pets=Records();Save();}catch{pet.PetName=old;preferences.pets=Records();throw;}
             Notify();
+        }
+        internal void SetPersonality(long window,int value) {
+            if(value<1||value>5)throw new AppError(400,"펫 성격을 확인해 주세요.");
+            var pet=active.FirstOrDefault(p=>p.Handle.ToInt64()==window);if(pet==null)throw new AppError(404,"이 펫을 찾지 못했습니다.");
+            int previous=pet.Personality;pet.Personality=value;
+            try{preferences.pets=Records();Save();}catch{pet.Personality=previous;preferences.pets=Records();throw;}
+            speech.PersonalityChanged(pet);Notify();
         }
         void EditName(PetHost pet) {
             using(var dialog=new PetNameDialog(pet.PetName,pet.Kind.Name)) {
@@ -174,7 +197,7 @@ namespace PetCalendarDesktop {
         }
         internal void Home() {foreach(var pet in active)pet.BringToFloor();}
         internal object Inspect() {return new {enabled,count=active.Count,chatterEnabled=preferences.chatterEnabled,summaryEnabled=preferences.summaryEnabled,summaryIntervalMinutes=preferences.summaryIntervalMinutes,species=Species.All.Select(s=>new{id=s.Id,label=s.Name}).ToArray()};}
-        internal object Diagnostic() {return new {enabled,count=active.Count,packLoaded=archive!=null,decodedAtlases=Sprites.SourceCount,loopCount=SimulationLoop.Count,cacheBytes=Sprites.CachedBytes,speech=speech.Inspect(),pets=active.Select(p=>new{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName,window=p.Handle.ToInt64(),x=p.Cat.X,y=p.Cat.Y,size=p.Cat.Size,pose=p.Cat.State.ToString()}).ToArray()};}
+        internal object Diagnostic() {return new {enabled,count=active.Count,packLoaded=archive!=null,decodedAtlases=Sprites.SourceCount,loopCount=SimulationLoop.Count,cacheBytes=Sprites.CachedBytes,speech=speech.Inspect(),pets=active.Select(p=>new{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName,personality=p.Personality,window=p.Handle.ToInt64(),x=p.Cat.X,y=p.Cat.Y,size=p.Cat.Size,pose=p.Cat.State.ToString()}).ToArray()};}
         void CloseActive() {
             stopping=true;
             try {foreach(var pet in active.ToArray()){pet.Close();pet.Dispose();}active.Clear();}

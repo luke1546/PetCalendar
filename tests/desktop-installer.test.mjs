@@ -13,12 +13,17 @@ test('설치 파일: 사용자 설치, 업데이트, 제거 후 데이터 보존
   const data=defaultState();data.settings.hotkey.enabled=false;data.tasks=[{id:'kept',title:'설치 후에도 보존',dueDate:dateKey(),done:false,createdAt:new Date().toISOString()}];
   const file=path.join(dataDir,'calendar.json'),original=JSON.stringify(data);await fs.writeFile(file,original);
   const setup=path.join(root,'dist/PetCalendar-Setup-QA-Final.exe');
-  const startup=path.join(process.env.APPDATA,'Microsoft/Windows/Start Menu/Programs/Startup/업무 캘린더 QA.lnk');let app;
+  const startup=path.join(process.env.APPDATA,'Microsoft/Windows/Start Menu/Programs/Startup/펫 캘린더 QA.lnk');let app;
+  const oldStartup=path.join(path.dirname(startup),'업무 캘린더 QA.lnk');
   try{
     console.log('CHECK per-user install');
     assert.equal(await run(setup,['/S','/DATA='+dataDir,'/D='+appDir]),0);
     assert.ok((await fs.stat(path.join(appDir,'PetCalendar.exe'))).size>0);
     assert.equal(await fs.readFile(file,'utf8'),original);
+    await fs.rename(startup,oldStartup);
+    assert.equal(await run(setup,['/S','/DATA='+dataDir,'/D='+appDir]),0,'upgrade recognizes the old startup shortcut');
+    assert.ok(await fs.stat(startup),'enabled startup remains enabled under the new name');
+    assert.equal(await fs.stat(oldStartup).then(()=>true,()=>false),false,'old owned shortcut is removed');
     app=new DesktopDriver(dataDir,path.join(temp,'profile'),path.join(appDir,'PetCalendar.exe'));await app.ready;
     await fs.unlink(startup);
     console.log('CHECK update with app running');assert.equal(await run(setup,['/S','/DATA='+dataDir,'/D='+appDir]),0);

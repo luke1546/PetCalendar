@@ -9,7 +9,8 @@ namespace PetCalendarDesktop {
         readonly Label body=new Label();
         readonly Timer typing=new Timer{Interval=30};
         int revealed;
-        readonly Button open=new Button(),dismiss=new Button(),close=new Button();
+        readonly Button open=new Button(),dismiss=new Button(),close=new Button(),snooze=new Button();
+        readonly ContextMenuStrip snoozeMenu=new ContextMenuStrip();
         readonly Font textFont=new Font("Segoe UI",10);
         bool alarm,tailBelow=true;
         int tailX,tailSize=10;
@@ -23,6 +24,7 @@ namespace PetCalendarDesktop {
         float layoutFontSize;
         internal int FollowMoves,LayoutPasses;
         internal event Action OpenRequested,DismissRequested;
+        internal event Action<int> SnoozeRequested;
         internal bool Hovered {get {return Visible&&Bounds.Contains(Cursor.Position);}}
         internal string MessageText {get {return value;}}
         internal PetBubble() {
@@ -32,12 +34,13 @@ namespace PetCalendarDesktop {
             Text="데스크톱 펫 · 말풍선";BackColor=DesktopTheme.Card;ForeColor=DesktopTheme.Ink;DoubleBuffered=true;
             typing.Tick+=delegate {revealed=Math.Min(value.Length,revealed+2);if(revealed<value.Length&&Char.IsHighSurrogate(value[revealed-1]))revealed++;body.Text=value.Substring(0,revealed);if(revealed>=value.Length)typing.Stop();};
             body.UseMnemonic=false;body.AutoEllipsis=true;
-            foreach(var button in new[]{open,dismiss,close}) {button.FlatStyle=FlatStyle.Flat;button.FlatAppearance.BorderSize=0;button.BackColor=DesktopTheme.Card;button.ForeColor=DesktopTheme.Ink;button.TabStop=false;}
+            foreach(var button in new[]{open,dismiss,close,snooze}) {button.FlatStyle=FlatStyle.Flat;button.FlatAppearance.BorderSize=0;button.BackColor=DesktopTheme.Card;button.ForeColor=DesktopTheme.Ink;button.TabStop=false;}
             open.Text="일정 열기";dismiss.Text="확인";close.Text="×";
+            snooze.Text="미루기 ▾";foreach(int minutes in new[]{5,10}){int delay=minutes;snoozeMenu.Items.Add(minutes+"분 미루기",null,(s,e)=>{if(SnoozeRequested!=null)SnoozeRequested(delay);});}snooze.Click+=delegate{snoozeMenu.Show(snooze,0,snooze.Height);};
             open.Click+=delegate{if(OpenRequested!=null)OpenRequested();};
             dismiss.Click+=delegate{if(DismissRequested!=null)DismissRequested();};
             close.Click+=delegate{if(DismissRequested!=null)DismissRequested();};
-            Controls.AddRange(new Control[]{body,open,dismiss,close});
+            Controls.AddRange(new Control[]{body,open,dismiss,close,snooze});
             body.Cursor=Cursors.Hand;body.Click+=delegate{if(OpenRequested!=null)OpenRequested();};
             close.AccessibleName="말풍선 닫기";body.AccessibleName="데스크톱 펫 일정 안내";
         }
@@ -51,7 +54,7 @@ namespace PetCalendarDesktop {
             Text=chatter?"데스크톱 펫 · 잡담":"데스크톱 펫 · 말풍선";
             body.AccessibleName=chatter?"데스크톱 펫 잡담":"데스크톱 펫 일정 안내";
             alarm=isAlarm;
-            open.Visible=dismiss.Visible=isAlarm;
+            open.Visible=dismiss.Visible=snooze.Visible=isAlarm;
             dismiss.Text=count>1?"확인 · 다음 "+(count-1)+"개":"확인했어!";
             open.Text=hasEvent?"일정 보기":"캘린더 보기";
             close.AccessibleName=isAlarm?"현재 알림 확인하고 닫기":"일정 안내 닫기";
@@ -80,7 +83,7 @@ namespace PetCalendarDesktop {
             edgeColor=Mix(Color.FromArgb(178,157,133),furColor,.30);
             accentColor=Mix(Color.FromArgb(105,76,59),furColor,.35);
             BackColor=fillColor;body.ForeColor=Color.FromArgb(67,51,42);
-            foreach(var button in new[]{open,dismiss,close}){button.BackColor=fillColor;button.ForeColor=accentColor;button.FlatAppearance.MouseOverBackColor=Mix(fillColor,furColor,.12);button.FlatAppearance.MouseDownBackColor=Mix(fillColor,furColor,.22);}
+            foreach(var button in new[]{open,dismiss,close,snooze}){button.BackColor=fillColor;button.ForeColor=accentColor;button.FlatAppearance.MouseOverBackColor=Mix(fillColor,furColor,.12);button.FlatAppearance.MouseDownBackColor=Mix(fillColor,furColor,.22);}
             layoutValue=null;Invalidate();
         }
         void FollowedPetClosed(object sender,FormClosedEventArgs args){Hide();Unfollow();}
@@ -124,9 +127,10 @@ namespace PetCalendarDesktop {
                 close.SetBounds(width-DesktopTheme.Px(this,28),top+DesktopTheme.Px(this,6),DesktopTheme.Px(this,22),DesktopTheme.Px(this,22));
                 body.SetBounds(pad,top+pad,Math.Max(1,width-pad*2-closeSpace),bodyHeight);
                 int buttonY=top+pad+bodyHeight+DesktopTheme.Px(this,6);
-                int buttonWidth=DesktopTheme.Px(this,112),gap=DesktopTheme.Px(this,8);
-                open.SetBounds(width-pad-buttonWidth*2-gap,buttonY,buttonWidth,DesktopTheme.Px(this,30));
-                dismiss.SetBounds(width-pad-buttonWidth,buttonY,buttonWidth,DesktopTheme.Px(this,30));
+                int buttonWidth=Math.Max(1,(width-pad*2)/3);
+                open.SetBounds(pad,buttonY,buttonWidth,DesktopTheme.Px(this,30));
+                snooze.SetBounds(pad+buttonWidth,buttonY,buttonWidth,DesktopTheme.Px(this,30));
+                dismiss.SetBounds(pad+buttonWidth*2,buttonY,buttonWidth,DesktopTheme.Px(this,30));
             }
             if(shape)Shape();
             if(!Visible){Show();if(revealed<value.Length)typing.Start();}
@@ -146,7 +150,7 @@ namespace PetCalendarDesktop {
             }
         }
         protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(!Visible){typing.Stop();Unfollow();}}
-        protected override void Dispose(bool disposing){if(disposing){Unfollow();typing.Dispose();}base.Dispose(disposing);if(disposing)textFont.Dispose();}
+        protected override void Dispose(bool disposing){if(disposing){Unfollow();typing.Dispose();snoozeMenu.Dispose();}base.Dispose(disposing);if(disposing)textFont.Dispose();}
         internal object Inspect(){return new{visible=Visible,text=value,alarm,window=IsHandleCreated?Handle.ToInt64():0,dpi=DeviceDpi,species=lookSpecies,fill=ColorTranslator.ToHtml(fillColor),edge=ColorTranslator.ToHtml(edgeColor),fur=ColorTranslator.ToHtml(furColor),followMoves=FollowMoves,layoutPasses=LayoutPasses,x=Left,y=Top,width=Width,height=Height};}
         internal void ActivateOpen(){open.PerformClick();}
         internal void ActivateDismiss(){dismiss.PerformClick();}

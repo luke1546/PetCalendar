@@ -10,7 +10,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("업무 캘린더 제거")]
+[assembly: AssemblyTitle("펫 캘린더 제거")]
 [assembly: AssemblyProduct("PetCalendar")]
 [assembly: AssemblyVersion("2.0.0.0")]
 
@@ -39,7 +39,7 @@ static class CalendarRemoval {
         Stop(data);
         string product=Path.Combine(root,"PetCalendar.exe");
         if(File.Exists(product)&&FileVersionInfo.GetVersionInfo(product).ProductName!="PetCalendar")throw new IOException("설치된 캘린더 파일을 확인하지 못했습니다.");
-        string link="업무 캘린더"+(qa?" QA":"")+".lnk";
+        string link="펫 캘린더"+(qa?" QA":"")+".lnk";
         foreach(var folder in new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup})Delete(Path.Combine(Environment.GetFolderPath(folder),link));
         string start=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),Path.GetFileNameWithoutExtension(link));
         Delete(Path.Combine(start,link));Empty(start);
@@ -56,7 +56,7 @@ static class CalendarRemoval {
                 if(String.IsNullOrEmpty(root)||String.IsNullOrEmpty(data))throw new IOException("설치 정보를 읽지 못했습니다.");
                 root=Normal(root);
                 if(!Same(root,AppDomain.CurrentDomain.BaseDirectory))throw new IOException("설치 폴더의 제거 프로그램을 실행해 주세요.");
-                if(!silent&&MessageBox.Show("업무 캘린더를 제거할까요?\n일정·할 일·설정과 백업은 보존됩니다.","업무 캘린더 제거",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return 0;
+                if(!silent&&MessageBox.Show("펫 캘린더를 제거할까요?\n일정·할 일·설정과 백업은 보존됩니다.","펫 캘린더 제거",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return 0;
                 Stop(data);
                 // Windows permits renaming a running image on the same volume.
                 // Relocate it first, then finish removal in this process so callers
@@ -66,6 +66,6 @@ static class CalendarRemoval {
                 Remove(root,data,qa);
                 return 0;
             }
-        }catch(Exception error){if(!silent)MessageBox.Show(error.Message,"업무 캘린더 제거",MessageBoxButtons.OK,MessageBoxIcon.Error);else Console.Error.WriteLine(error.Message);return 1;}
+        }catch(Exception error){if(!silent)MessageBox.Show(error.Message,"펫 캘린더 제거",MessageBoxButtons.OK,MessageBoxIcon.Error);else Console.Error.WriteLine(error.Message);return 1;}
     }
 }

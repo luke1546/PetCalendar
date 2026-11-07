@@ -207,3 +207,5 @@ input[type=checkbox]:disabled{opacity:.5;cursor:default}
 .day-event-actions .dday-pick svg,.day-event-actions .event-delete svg{width:14px;height:14px}
 .day-event-actions .dday-pick:hover,.day-event-actions .dday-pick.chosen{background:var(--rose);color:#a13e58;border-color:#e5adbc}
 .day-event-actions .event-delete:hover{background:#ffe8dd;color:#b34d35;border-color:#edc3ae}
+
+.brand-paw{display:inline-block;width:.78em;height:.78em;margin-left:.08em;fill:#8b5a3c;vertical-align:.02em;transform:rotate(-12deg)}

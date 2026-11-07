@@ -23,6 +23,9 @@ namespace DesktopPet {
         internal Action CloseAllRequested;
         internal Action SpeechClicked;
         internal Action RenameRequested;
+        internal Action<int> PersonalityRequested;
+        internal int Personality=2;
+        internal static readonly string[] PersonalityLabels={"수다쟁이 · 30초~1분","말이 많은 편 · 1~2분","보통 · 2~3분","조용한 편 · 3~5분","과묵함 · 5~10분"};
         string petName="";
         ToolStripMenuItem identity;
         internal string PetName {get{return petName;}set{petName=value??"";Text=WindowPrefix+" · "+(petName==""?Kind.Name:petName)+" · "+paletteName;if(identity!=null)identity.Text=petName==""?paletteName+" "+Kind.Name:petName.Replace("&","&&")+" · "+paletteName+" "+Kind.Name;}}
@@ -80,10 +83,14 @@ namespace DesktopPet {
             if(RenameRequested!=null)menu.Items.Add("이름 짓기 / 바꾸기",null,delegate{RenameRequested();});
             menu.Items.Add(PetMenu.Add(delegate(Species species) {if(AddSpeciesRequested!=null)AddSpeciesRequested(species);}));
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("자유롭게 돌아다니기",null,delegate { Cat.Paused=false;Cat.Sleeping=false;Cat.Wake(); });
-            menu.Items.Add(Kind.CanJump?"점프!":"코 인사",null,delegate { Cat.Paused=false;Cat.Jump(); });
-            sleepItem=new ToolStripMenuItem("잠자기",null,delegate { Cat.Paused=false;if(Cat.Sleeping)Cat.Wake();else Cat.Sleep(); });menu.Items.Add(sleepItem);
-            pauseItem=new ToolStripMenuItem("일시정지",null,delegate { Cat.Paused=!Cat.Paused; });menu.Items.Add(pauseItem);
+            var personalities=new List<ToolStripMenuItem>();
+            if(PersonalityRequested!=null){var personalityMenu=new ToolStripMenuItem("성격");for(int i=0;i<PersonalityLabels.Length;i++){int choice=i+1;var item=new ToolStripMenuItem(PersonalityLabels[i],null,delegate{PersonalityRequested(choice);});personalityMenu.DropDownItems.Add(item);personalities.Add(item);}menu.Items.Add(personalityMenu);}
+            else {
+                menu.Items.Add("자유롭게 돌아다니기",null,delegate { Cat.Paused=false;Cat.Sleeping=false;Cat.Wake(); });
+                menu.Items.Add(Kind.CanJump?"점프!":"코 인사",null,delegate { Cat.Paused=false;Cat.Jump(); });
+                sleepItem=new ToolStripMenuItem("잠자기",null,delegate { Cat.Paused=false;if(Cat.Sleeping)Cat.Wake();else Cat.Sleep(); });menu.Items.Add(sleepItem);
+                pauseItem=new ToolStripMenuItem("일시정지",null,delegate { Cat.Paused=!Cat.Paused; });menu.Items.Add(pauseItem);
+            }
             var sizes=new ToolStripMenuItem(PetMenu.Noun+" 크기");
             foreach(int value in new[]{64,96,128}) {
                 int choice=value;var item=new ToolStripMenuItem(value==64?"작게":value==96?"보통":"크게",null,delegate {
@@ -92,10 +99,10 @@ namespace DesktopPet {
                     catch(Exception ex) { if(!(ex is IOException) && !(ex is UnauthorizedAccessException))throw; }
                 });item.Tag=value;sizes.DropDownItems.Add(item);sizeItems.Add(item);
             }
-            menu.Items.Add(sizes);menu.Items.Add("바닥으로 데려오기",null,delegate {BringToFloor();});
+            menu.Items.Add(sizes);if(PersonalityRequested==null)menu.Items.Add("바닥으로 데려오기",null,delegate {BringToFloor();});
             menu.Items.Add(new ToolStripSeparator());menu.Items.Add("이 "+PetMenu.Noun+" 보내기",null,delegate {Close();});
             menu.Items.Add(CloseAllLabel,null,delegate {if(CloseAllRequested!=null)CloseAllRequested();else Close();});
-            menu.Opening+=delegate { menuOpen=true;pauseItem.Checked=Cat.Paused;sleepItem.Text=Cat.Sleeping?"깨우기":"잠자기";foreach(var item in sizeItems)item.Checked=(int)item.Tag==dip; };
+            menu.Opening+=delegate { menuOpen=true;if(pauseItem!=null)pauseItem.Checked=Cat.Paused;if(sleepItem!=null)sleepItem.Text=Cat.Sleeping?"깨우기":"잠자기";for(int i=0;i<personalities.Count;i++)personalities[i].Checked=Personality==i+1;foreach(var item in sizeItems)item.Checked=(int)item.Tag==dip; };
             menu.Closed+=delegate {menuOpen=false;lastTick=World.Now;accumulator=0;SimulationLoop.Wake();};
         }
         internal int PreferredInterval {

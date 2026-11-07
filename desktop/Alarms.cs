@@ -19,7 +19,9 @@ namespace PetCalendarDesktop {
         public Dictionary<string,long> sent=new Dictionary<string,long>();
         public List<Alarm> unread=new List<Alarm>();
         public bool legacyImported;
+        public List<SnoozedAlarm> snoozed=new List<SnoozedAlarm>();
     }
+    public sealed class SnoozedAlarm { public Alarm alarm; public long dueAt; }
     public sealed class AlarmService : IDisposable {
         readonly StateStore store;
         readonly string path;
@@ -39,13 +41,13 @@ namespace PetCalendarDesktop {
             store.Changed+=Changed;
             SystemEvents.PowerModeChanged+=PowerChanged;SystemEvents.TimeChanged+=TimeChanged;
         }
-        AlarmLedger Load(){foreach(string file in new[]{path,path+".bak"}){if(!File.Exists(file))continue;try{var value=Codec.Read<AlarmLedger>(File.ReadAllText(file));if(value!=null&&value.sent!=null&&value.unread!=null)return value;}catch{}}return new AlarmLedger();}
+        AlarmLedger Load(){foreach(string file in new[]{path,path+".bak"}){if(!File.Exists(file))continue;try{var value=Codec.Read<AlarmLedger>(File.ReadAllText(file));if(value!=null&&value.sent!=null&&value.unread!=null){if(value.snoozed==null)value.snoozed=new List<SnoozedAlarm>();return value;}}catch{}}return new AlarmLedger();}
         void Save(){StateStore.Atomic(path,Codec.Json(ledger),File.Exists(path)?path+".bak":null);}
         public List<Alarm> Pending(){lock(gate)return ledger.unread.ToList();}
         public Dictionary<string,long> Sent(){lock(gate)return new Dictionary<string,long>(ledger.sent);}
         public void ImportLegacy(string text){lock(gate){if(!ledger.legacyImported){try{var old=Codec.Read<Dictionary<string,long>>(text);if(old!=null)foreach(var entry in old){long current;if(!ledger.sent.TryGetValue(entry.Key,out current)||entry.Value>current)ledger.sent[entry.Key]=entry.Value;}}catch{}ledger.legacyImported=true;Save();}if(!disposed)timer.Change(10,Timeout.Infinite);}}
         public void Restore(){List<Alarm> pending=Pending();if(pending.Count>0&&store.Snapshot.settings.desktopPopups&&Delivered!=null)Delivered(pending,false,false);}
-        void Changed(){lock(gate){if(disposed)return;var valid=store.Snapshot.events.ToDictionary(e=>e.id);if(ledger.unread.RemoveAll(a=>a.eventId!=""&&(!valid.ContainsKey(a.eventId)||Rules.Done(valid[a.eventId],a.startDate)))>0)Save();timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
+        void Changed(){lock(gate){if(disposed)return;var valid=store.Snapshot.events.ToDictionary(e=>e.id);int removed=ledger.unread.RemoveAll(a=>a.eventId!=""&&(!valid.ContainsKey(a.eventId)||(Rules.Done(valid[a.eventId],a.startDate)||!Rules.OccursOn(valid[a.eventId],a.startDate))));removed+=ledger.snoozed.RemoveAll(s=>s.alarm.eventId!=""&&(!valid.ContainsKey(s.alarm.eventId)||(Rules.Done(valid[s.alarm.eventId],s.alarm.startDate)||!Rules.OccursOn(valid[s.alarm.eventId],s.alarm.startDate))));if(removed>0)Save();timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
         void PowerChanged(object sender,PowerModeChangedEventArgs e){if(e.Mode==PowerModes.Resume){if(Resume!=null)Resume();Run(DateTime.UtcNow);}}
         void TimeChanged(object sender,EventArgs e){if(Resume!=null)Resume();Run(DateTime.UtcNow);}
         public void CheckAt(DateTime utc){Run(utc);}
@@ -60,6 +62,11 @@ namespace PetCalendarDesktop {
                     // can be relevant; reminders are at most one hour before start.
                     string from=Rules.Key(local.Date.AddDays(-2)),to=Rules.Key(local.Date.AddDays(2));
                     long next=now+24*3600000L;
+                    bool changed=false;
+                    foreach(var snooze in ledger.snoozed.ToArray()) {
+                        if(snooze.dueAt<=now){ledger.snoozed.Remove(snooze);snooze.alarm.createdAt=now;newAlerts.Add(snooze.alarm);if(state.settings.desktopPopups)ledger.unread.Add(snooze.alarm);changed=true;}
+                        else if(snooze.dueAt<next)next=snooze.dueAt;
+                    }
                     foreach(var o in Rules.Occurrences(state.events.Where(e=>e.reminder.HasValue),from,to)) {
                         var at=Rules.ReminderAt(o);if(!at.HasValue)continue;
                         string id=o.key+"@"+at.Value;
@@ -71,7 +78,7 @@ namespace PetCalendarDesktop {
                     }
                     lastCheck=now;
                     foreach(string id in ledger.sent.Where(p=>p.Value<now-7*86400000L).Select(p=>p.Key).ToArray())ledger.sent.Remove(id);
-                    if(newAlerts.Count>0)Save();
+                    if(changed||newAlerts.Count>0)Save();
                     pending=ledger.unread.ToList();
                     timer.Change((int)Math.Max(20,Math.Min(86400000L,next-now+10)),Timeout.Infinite);
                     if(newAlerts.Count>0&&state.settings.desktopPopups&&state.settings.notificationSound)SoundBatches++;
@@ -80,8 +87,9 @@ namespace PetCalendarDesktop {
                 if(newAlerts.Count>0&&Delivered!=null)Delivered(pending,true,false);
             }catch(Exception e){if(Error!=null)Error(e);lock(gate){if(!disposed)timer.Change(60000,Timeout.Infinite);}}
         }
-        public void Test(){List<Alarm> list;lock(gate){var alarm=new Alarm{id="test-"+Guid.NewGuid().ToString("N"),eventId="",startDate=Rules.Key(DateTime.Now),title="알림이 잘 도착했어요",body="업무 캘린더를 숨겨두어도 이렇게 알려드립니다.",createdAt=Rules.Epoch(DateTime.UtcNow)};ledger.unread.Add(alarm);Save();list=ledger.unread.ToList();if(store.Snapshot.settings.notificationSound)SoundBatches++;}if(Delivered!=null)Delivered(list,true,true);}
+        public void Test(){List<Alarm> list;lock(gate){var alarm=new Alarm{id="test-"+Guid.NewGuid().ToString("N"),eventId="",startDate=Rules.Key(DateTime.Now),title="알림이 잘 도착했어요",body="펫 캘린더를 숨겨두어도 이렇게 알려드립니다.",createdAt=Rules.Epoch(DateTime.UtcNow)};ledger.unread.Add(alarm);Save();list=ledger.unread.ToList();if(store.Snapshot.settings.notificationSound)SoundBatches++;}if(Delivered!=null)Delivered(list,true,true);}
         public void Acknowledge(string id){lock(gate){if(id==null)ledger.unread.Clear();else ledger.unread.RemoveAll(a=>a.id==id);Save();}if(Delivered!=null)Delivered(Pending(),false,false);}
+        public void Snooze(string id,int minutes){if(minutes!=5&&minutes!=10)return;lock(gate){var alarm=ledger.unread.FirstOrDefault(a=>a.id==id);if(alarm==null)return;ledger.unread.Remove(alarm);ledger.snoozed.RemoveAll(s=>s.alarm.id==id);ledger.snoozed.Add(new SnoozedAlarm{alarm=alarm,dueAt=Rules.Epoch(DateTime.UtcNow.AddMinutes(minutes))});Save();if(!disposed)timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
         public void Dispose(){lock(gate){if(disposed)return;disposed=true;timer.Dispose();store.Changed-=Changed;SystemEvents.PowerModeChanged-=PowerChanged;SystemEvents.TimeChanged-=TimeChanged;}}
     }
     public sealed class AlarmPopup : Form {
@@ -93,6 +101,7 @@ namespace PetCalendarDesktop {
         bool layingOut;
 
         public event Action<Alarm> OpenAlarm;
+        public event Action<Alarm,int> SnoozeAlarm;
         public event Action CloseAll;
         public string MonitorName {get;private set;}
         [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -115,8 +124,8 @@ namespace PetCalendarDesktop {
         public void UpdateAlarms(List<Alarm> values,bool move) {
             alarms=values.OrderByDescending(a=>a.createdAt).ToList();
             list.Items.SuspendLayout();foreach(Control row in list.Items.Controls.Cast<Control>().ToArray()){list.Items.Controls.Remove(row);row.Dispose();}
-            foreach(var alarm in alarms){var value=alarm;var row=new AlarmRow(alarm){Name="alarm-"+alarm.id,AccessibleName=alarm.title+" · "+alarm.body,Margin=Padding.Empty};row.Click+=delegate{if(OpenAlarm!=null)OpenAlarm(value);};tips.SetToolTip(row,alarm.title+"\n"+alarm.body);list.Items.Controls.Add(row);}list.Items.ResumeLayout(true);
-            caption.Text="업무 캘린더 · 알림 "+alarms.Count+"개";LayoutPopup();
+            foreach(var alarm in alarms){var value=alarm;var row=new AlarmRow(alarm){Name="alarm-"+alarm.id,AccessibleName=alarm.title+" · "+alarm.body,Margin=Padding.Empty};row.Click+=delegate{if(OpenAlarm!=null)OpenAlarm(value);};var menu=new ContextMenuStrip();foreach(int minutes in new[]{5,10}){int delay=minutes;menu.Items.Add(minutes+"분 미루기",null,(s,e)=>{if(SnoozeAlarm!=null)SnoozeAlarm(value,delay);});}row.ContextMenuStrip=menu;row.Disposed+=(s,e)=>menu.Dispose();tips.SetToolTip(row,alarm.title+"\n"+alarm.body+"\n우클릭하여 알림 미루기");list.Items.Controls.Add(row);}list.Items.ResumeLayout(true);
+            caption.Text="알림 "+alarms.Count+"개 · 우클릭해 미루기";LayoutPopup();
             if(move||!Visible)PlaceOnScreen(Screen.FromHandle(GetForegroundWindow()));
             if(alarms.Count==0)Hide();else{Show();LayoutPopup();Invalidate();}
         }

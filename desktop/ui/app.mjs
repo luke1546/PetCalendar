@@ -63,6 +63,25 @@ function toast(title, detail='',kind='info',duration=6000) {
   box.querySelector('button').onclick=remove;
   setTimeout(remove,duration);
 }
+function undoToast(title,detail,restore) {
+  const box=document.createElement('div');box.className='toast info';
+  box.innerHTML=`<div>${icon('bell')}</div><div style="flex:1"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div><button class="plain-button">되돌리기</button>`;
+  const region=$('toastRegion');region.append(box);
+  try{if(!region.matches(':popover-open'))region.showPopover();}catch{}
+  const remove=()=>{box.remove();if(!region.children.length)try{region.hidePopover();}catch{}};
+  const timer=setTimeout(remove,10000);
+  box.querySelector('button').onclick=async()=>{const button=box.querySelector('button');button.disabled=true;if(await restore()){clearTimeout(timer);remove();toast('삭제를 되돌렸어요',detail);}else button.disabled=false;};
+}
+const draftPrefix='petCalendar.eventDraft.';
+let currentDraftKey=null,draftBaseline='';
+function formDraft() {
+  return [...$('eventForm').elements].filter(e=>(e.name||e.id)&&['INPUT','TEXTAREA','SELECT'].includes(e.tagName)).map(e=>({name:e.name,id:e.id,value:e.value,checked:e.checked,type:e.type}));
+}
+function storeDraft() {
+  if(!currentDraftKey)return;
+  try{const data=JSON.stringify(formDraft());if(data===draftBaseline)localStorage.removeItem(currentDraftKey);else localStorage.setItem(currentDraftKey,data);}catch{}
+}
+function clearDraft(){if(currentDraftKey)try{localStorage.removeItem(currentDraftKey);}catch{}currentDraftKey=null;}
 function banner(message) { $('errorText').textContent=message; $('errorBanner').hidden=false; }
 function saveStatus(text,failed=false) {
   $('saveStatus').innerHTML=`<i class="status-dot"${failed?' style="background:#c05b46"':''}></i> ${esc(text)}`;
@@ -208,7 +227,7 @@ function renderDay() {
   const items=selectedRows();
   $('dayEvents').innerHTML=items.length?items.slice(0,limits.day).map(o=>{
     const e=o.event, isMulti=o.startDate!==o.endDate;
-    return `<div class="day-event-row ${isEventDone(e,o.startDate)?'done':''}"><div class="day-event-card" style="${styles(e.category)}">${eventCheckbox(o)}<button class="day-event" data-event="${esc(e.id)}" data-event-date="${o.startDate}" style="${styles(e.category)}"><div class="day-event-top"><span>${e.startTime?esc(e.startTime)+(e.endTime?' – '+esc(e.endTime):''):'종일'}</span><span>${CATEGORIES[e.category].label}${isDdayOccurrence(o)?' · D-day':''}</span></div><h3>${esc(e.title)}</h3>${e.note?`<p>${esc(e.note)}</p>`:''}${isMulti||e.repeat!=='none'?`<div class="event-meta">${isMulti?`${formatDay(o.startDate,{month:'numeric',day:'numeric'})} – ${formatDay(o.endDate,{month:'numeric',day:'numeric'})}`:''}${e.repeat!=='none'?` ${icon('repeat')} ${repeatLabel(e.repeat)}`:''}</div>`:''}</button><div class="day-event-actions"><button class="dday-pick ${isDdayOccurrence(o)?'chosen':''}" data-dday="${esc(e.id)}" data-dday-date="${o.startDate}" aria-pressed="${isDdayOccurrence(o)}" aria-label="${esc(e.title)} · ${formatDay(o.startDate)} ${isDdayOccurrence(o)?'D-day 선택 해제':'D-day로 선택'}" title="${isDdayOccurrence(o)?'다시 누르면 D-day 선택 해제':'이 일정을 D-day로 선택'}">${icon('flag')}</button><button class="event-delete" data-delete-event="${esc(e.id)}" aria-label="${esc(e.title)} 일정 삭제" title="일정 삭제">${icon('trash')}</button></div></div></div>`;
+    return `<div class="day-event-row ${isEventDone(e,o.startDate)?'done':''}"><div class="day-event-card" style="${styles(e.category)}">${eventCheckbox(o)}<button class="day-event" data-event="${esc(e.id)}" data-event-date="${o.startDate}" style="${styles(e.category)}"><div class="day-event-top"><span>${e.startTime?esc(e.startTime)+(e.endTime?' – '+esc(e.endTime):''):'종일'}</span><span>${CATEGORIES[e.category].label}${isDdayOccurrence(o)?' · D-day':''}</span></div><h3>${esc(e.title)}</h3>${e.note?`<p>${esc(e.note)}</p>`:''}${isMulti||e.repeat!=='none'?`<div class="event-meta">${isMulti?`${formatDay(o.startDate,{month:'numeric',day:'numeric'})} – ${formatDay(o.endDate,{month:'numeric',day:'numeric'})}`:''}${e.repeat!=='none'?` ${icon('repeat')} ${repeatLabel(e.repeat)}`:''}</div>`:''}</button><div class="day-event-actions"><button class="dday-pick ${isDdayOccurrence(o)?'chosen':''}" data-dday="${esc(e.id)}" data-dday-date="${o.startDate}" aria-pressed="${isDdayOccurrence(o)}" aria-label="${esc(e.title)} · ${formatDay(o.startDate)} ${isDdayOccurrence(o)?'D-day 선택 해제':'D-day로 선택'}" title="${isDdayOccurrence(o)?'다시 누르면 D-day 선택 해제':'이 일정을 D-day로 선택'}">${icon('flag')}</button><button class="event-delete" data-delete-event="${esc(e.id)}" data-occurrence="${o.startDate}" aria-label="${esc(e.title)} 일정 삭제" title="일정 삭제">${icon('trash')}</button></div></div></div>`;
   }).join(''):`<div class="empty-day"><div class="empty-drawing">${icon('calendar')}</div><strong>${filter!=='all'||search?'조건에 맞는 일정이 없어요':'아직은 비어 있는 하루'}</strong><p>${filter!=='all'||search?'다른 분류나 검색어를 확인해 보세요.':'새로운 계획을 하나 적어볼까요?'}</p><button data-new="${selected}">+ 일정 추가하기</button></div>`;
   $('dayEvents').insertAdjacentHTML('beforeend',moreRows('day',items.length));
 }
@@ -268,7 +287,8 @@ function openEvent(id=null,key=selected,duplicate=false) {
   $('eventForm').reset();$('eventError').textContent='';
   $('eventDialogTitle').textContent=duplicate?'일정 복제':original?'일정 수정':'새 일정';
   $('eventTitle').value=e.title+(duplicate?' (복사)':'');
-  $('eventStart').value=e.startDate;$('eventEnd').value=e.endDate;
+  const displayShift=original&&!duplicate&&e.repeat!=='none'?dayNumber(key)-dayNumber(e.startDate):0;
+  $('eventStart').value=addDays(e.startDate,displayShift);$('eventEnd').value=addDays(e.endDate,displayShift);
   $('eventStartTime').value=e.startTime;$('eventEndTime').value=e.endTime;
   $('eventAllDay').checked=!e.startTime;$('timeFields').hidden=!e.startTime;
   $('eventStartTime').required=!!e.startTime;
@@ -282,8 +302,20 @@ function openEvent(id=null,key=selected,duplicate=false) {
   $('eventCategories').innerHTML=Object.entries(CATEGORIES).map(([value,c])=>`<label class="category-choice" style="${styles(value)}"><input type="radio" name="category" value="${value}" ${value===e.category?'checked':''} required><i class="category-dot"></i>${c.label}</label>`).join('');
   $('repeatNotice').hidden=!original||original.repeat==='none'||duplicate;
   $('deleteEvent').hidden=!editingId;$('duplicateEvent').hidden=!editingId;
+  currentDraftKey=draftPrefix+(duplicate?'duplicate:'+id:id?'edit:'+id:'new:'+key);
+  draftBaseline=JSON.stringify(formDraft());
+  try {
+    const draft=JSON.parse(localStorage.getItem(currentDraftKey));
+    if(Array.isArray(draft)){
+      for(const saved of draft){const control=[...$('eventForm').elements].find(e=>(saved.id?e.id===saved.id:e.name===saved.name)&&(e.type!=='radio'||e.value===saved.value));if(control){if(control.type==='checkbox'||control.type==='radio')control.checked=!!saved.checked;else control.value=saved.value;}}
+      $('eventAllDay').dispatchEvent(new Event('change'));$('eventRepeat').dispatchEvent(new Event('change'));
+      toast('작성 중이던 내용을 불러왔어요','저장하거나 내용을 수정해 이어서 작성하세요.');
+    }
+  }catch{}
   showDialog('eventDialog');setTimeout(()=>$('eventTitle').focus(),50);
 }
+$('eventForm').addEventListener('input',storeDraft);
+$('eventForm').addEventListener('change',storeDraft);
 async function confirmAction(title,text,label='확인') {
   if($('confirmDialog').open)return false;
   $('confirmTitle').textContent=title;$('confirmText').textContent=text;$('confirmAccept').textContent=label;
@@ -294,6 +326,10 @@ async function confirmAction(title,text,label='확인') {
     const yes=()=>finish(true),no=()=>finish(false),cancel=event=>{event.preventDefault();finish(false);};
     $('confirmAccept').addEventListener('click',yes);$('confirmCancel').addEventListener('click',no);$('confirmDialog').addEventListener('cancel',cancel);
   });
+}
+function repeatScope(action,date){
+  $('repeatScopeText').textContent=`${formatDay(date)} 일정을 ${action}합니다. 적용할 범위를 선택해 주세요.`;showDialog('repeatScopeDialog');
+  return new Promise(resolve=>{const dialog=$('repeatScopeDialog');const finish=value=>{dialog.close();for(const [element,handler] of handlers)element.removeEventListener('click',handler);dialog.removeEventListener('cancel',cancel);resolve(value);};const handlers=[[$('repeatScopeOne'),()=>finish('one')],[$('repeatScopeAll'),()=>finish('all')],[$('repeatScopeCancel'),()=>finish(null)]];const cancel=e=>{e.preventDefault();finish(null);};for(const [element,handler] of handlers)element.addEventListener('click',handler);dialog.addEventListener('cancel',cancel);});
 }
 async function enableNotifications() {
   if(nativeDesktop){await commit(s=>{s.settings.desktopPopups=!s.settings.desktopPopups;});return;}
@@ -351,7 +387,7 @@ function tick() {
 document.addEventListener('click',event=>{
   const page=event.target.closest('[data-page]');if(page){const scope=page.dataset.page,container=page.parentElement,offset=container.scrollTop;limits[scope]+=pageSizes[scope];({search:renderCalendar,day:renderDay,tasks:renderTasks,dday:renderDdayChoices})[scope]();container.scrollTop=offset;container.querySelector('[data-page]')?.focus({preventScroll:true});return;}
   const target=event.target.closest('[data-close]');if(target)closeDialog(target.dataset.close);
-  const remove=event.target.closest('[data-delete-event]');if(remove){deleteSchedule(remove.dataset.deleteEvent);return;}
+  const remove=event.target.closest('[data-delete-event]');if(remove){deleteSchedule(remove.dataset.deleteEvent,false,remove.dataset.occurrence);return;}
   const pin=event.target.closest('[data-dday]');if(pin){chooseDday(pin.dataset.dday,pin.dataset.ddayDate,pin.classList.contains('dday-pick'));return;}
   const item=event.target.closest('[data-event]');if(item){openEvent(item.dataset.event,item.dataset.eventDate||selected);return;}
   const add=event.target.closest('[data-new]');if(add){selected=add.dataset.new;month=selected.slice(0,7);render();openEvent();return;}
@@ -412,17 +448,33 @@ $('eventForm').onsubmit=async event=>{
     category:f.get('category'),note:f.get('note'),repeat:f.get('repeat')==='monthly-weekday'?`monthly:${$('eventRepeatWeek').value}:${$('eventRepeatWeekday').value}`:f.get('repeat'),repeatUntil:f.get('repeat')==='none'?'':f.get('repeatUntil'),
     reminder:f.get('reminder')==='null'?null:Number(f.get('reminder')),pinned:$('eventPinned').checked,
     pinnedDate:state.events.find(e=>e.id===editingId)?.pinnedDate||editingOccurrence||f.get('startDate'),
-    completedDates:state.events.find(e=>e.id===editingId)?.completedDates||[]};
+    completedDates:state.events.find(e=>e.id===editingId)?.completedDates||[],excludedDates:state.events.find(e=>e.id===editingId)?.excludedDates||[]};
+  const original=state.events.find(e=>e.id===editingId);
+  if(original&&original.repeat!=='none'){
+    const scope=await repeatScope('수정',editingOccurrence);if(!scope)return;
+    if(scope==='one'){
+      item.id=crypto.randomUUID();item.repeat='none';item.repeatUntil='';item.excludedDates=[];item.completedDates=original.completedDates.includes(editingOccurrence)?[item.startDate]:[];item.pinned=$('eventPinned').checked&&(!original.pinned||original.pinnedDate===editingOccurrence);item.pinnedDate=item.pinned?item.startDate:'';
+      try{validateState({...state,events:[...state.events,item]});}catch(error){$('eventError').textContent=error.message;return;}
+      if(await commit(s=>{const series=s.events.find(e=>e.id===original.id);series.excludedDates=[...new Set([...series.excludedDates,editingOccurrence])];if(series.pinned&&series.pinnedDate===editingOccurrence){series.pinned=false;series.pinnedDate='';}if(item.pinned)for(const e of s.events){e.pinned=false;e.pinnedDate='';}s.events.push(item);})){clearDraft();$('eventDialog').close();toast('이번 일정만 수정했어요',item.title);}return;
+    }
+    const shift=dayNumber(editingOccurrence)-dayNumber(original.startDate);item.startDate=addDays(item.startDate,-shift);item.endDate=addDays(item.endDate,-shift);
+  }
   if(!item.pinned)item.pinnedDate='';else if(!occursOn(item,item.pinnedDate))item.pinnedDate=item.startDate;
   try{validateState({...state,events:[...state.events.filter(e=>e.id!==item.id),item]});}catch(error){$('eventError').textContent=error.message;return;}
   const success=await commit(s=>{if(item.pinned)for(const e of s.events){e.pinned=false;e.pinnedDate='';}const index=s.events.findIndex(e=>e.id===item.id);if(index<0)s.events.push(item);else s.events[index]=item;});
-  if(success){$('eventDialog').close();toast(editingId?'일정을 수정했어요':'새 일정을 적어두었어요',item.title);}
+  if(success){clearDraft();$('eventDialog').close();toast(editingId?'일정을 수정했어요':'새 일정을 적어두었어요',item.title);}
   else $('eventError').textContent=$('errorText').textContent;
 };
-async function deleteSchedule(id,closeEditor=false){
+async function deleteSchedule(id,closeEditor=false,occurrence=editingOccurrence||selected){
   const e=state.events.find(item=>item.id===id);if(!e)return;
+  if(e.repeat!=='none'){
+    const scope=await repeatScope('삭제',occurrence);if(!scope)return;
+    if(scope==='one'){
+      if(await commit(s=>{const series=s.events.find(item=>item.id===id);series.excludedDates=[...new Set([...series.excludedDates,occurrence])];if(series.pinned&&series.pinnedDate===occurrence){series.pinned=false;series.pinnedDate='';}})){if(closeEditor){clearDraft();$('eventDialog').close();}undoToast('이번 일정을 삭제했어요',e.title,()=>commit(s=>{const series=s.events.find(item=>item.id===id);if(!series)throw new Error('반복 일정을 찾을 수 없습니다.');series.excludedDates=series.excludedDates.filter(date=>date!==occurrence);if(e.pinned&&e.pinnedDate===occurrence&&!s.events.some(item=>item.pinned)){series.pinned=true;series.pinnedDate=occurrence;}}));}return;
+    }
+  }
   if(!await confirmAction(e.repeat!=='none'?'반복 일정을 삭제할까요?':'일정을 삭제할까요?',`‘${e.title}’${e.repeat!=='none'?'의 전체 반복 일정이 삭제됩니다.':' 일정을 삭제합니다.'}`,'삭제'))return;
-  if(await commit(s=>{s.events=s.events.filter(item=>item.id!==e.id);})){if(closeEditor)$('eventDialog').close();toast('일정을 삭제했어요',e.title);}
+  if(await commit(s=>{s.events=s.events.filter(item=>item.id!==e.id);})){if(closeEditor){clearDraft();$('eventDialog').close();}undoToast('일정을 삭제했어요',e.title,()=>commit(s=>{if(s.events.some(item=>item.id===e.id))throw new Error('이미 복구된 일정입니다.');const restored=structuredClone(e);if(restored.pinned&&s.events.some(item=>item.pinned)){restored.pinned=false;restored.pinnedDate='';}s.events.push(restored);}));}
 }
 $('deleteEvent').onclick=()=>deleteSchedule(editingId,true);
 $('duplicateEvent').onclick=()=>openEvent(editingId,selected,true);
@@ -437,7 +489,7 @@ $('tasksList').addEventListener('change',async event=>{
 });
 $('tasksList').addEventListener('click',async event=>{
   const b=event.target.closest('[data-task-delete]');if(!b)return;const task=state.tasks.find(t=>t.id===b.dataset.taskDelete);if(!task)return;
-  if(await confirmAction('할 일을 삭제할까요?',task.title,'삭제'))await commit(s=>{s.tasks=s.tasks.filter(t=>t.id!==task.id);});
+  if(await confirmAction('할 일을 삭제할까요?',task.title,'삭제'))if(await commit(s=>{s.tasks=s.tasks.filter(t=>t.id!==task.id);}))undoToast('할 일을 삭제했어요',task.title,()=>commit(s=>{if(s.tasks.some(t=>t.id===task.id))throw new Error('이미 복구된 할 일입니다.');s.tasks.push(structuredClone(task));}));
 });
 $('hideCompleted').onchange=async()=>{const value=$('hideCompleted').checked;if(!await commit(s=>{s.settings.hideCompleted=value;}))$('hideCompleted').checked=state.settings.hideCompleted;};
 $('settingsButton').onclick=()=>{renderNotifications();renderHotkey();refreshHotkeyStatus();if(nativeDesktop){updateWidget();updatePets();}showDialog('settingsDialog');};
@@ -445,7 +497,7 @@ $('helpButton').onclick=()=>showDialog('helpDialog');
 $('notificationButton').onclick=()=>{if(nativeDesktop){$('settingsButton').click();$('notificationSettings').open=true;$('notificationSettings').scrollIntoView({block:'start'});return;}if(state.settings.notifications&&'Notification' in window&&Notification.permission==='granted'){$('settingsButton').click();}else enableNotifications();};
 $('notificationSound').onchange=async()=>{const value=$('notificationSound').checked;if(!await commit(s=>{s.settings.notificationSound=value;}))$('notificationSound').checked=state.settings.notificationSound;};
 $('enableNotifications').onclick=enableNotifications;
-$('testNotification').onclick=()=>notify('알림이 잘 도착했어요','업무 캘린더가 다가오는 일정을 알려드립니다.',true);
+$('testNotification').onclick=()=>notify('알림이 잘 도착했어요','펫 캘린더가 다가오는 일정을 알려드립니다.',true);
 $('defaultReminder').onchange=async()=>{const value=$('defaultReminder').value;await commit(s=>{s.settings.defaultReminder=value==='null'?null:Number(value);});};
 for(const id of ['hotkeyEnabled','hotkeyCtrl','hotkeyAlt','hotkeyShift','hotkeyKey'])$(id).onchange=previewHotkey;
 $('resetHotkey').onclick=()=>{renderHotkey(defaultHotkey());$('hotkeyStatus').textContent='기본값을 선택했습니다. ‘단축키 적용’을 누르면 저장됩니다.';$('hotkeyStatus').classList.remove('is-error');};
@@ -458,18 +510,23 @@ $('saveHotkey').onclick=async()=>{
     else{$('hotkeyStatus').textContent=$('errorText').textContent;$('hotkeyStatus').classList.add('is-error');}
   }finally{$('saveHotkey').disabled=false;}
 };
-$('exportBackup').onclick=()=>{
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url;a.download=`업무캘린더-백업-${dateKey()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('백업 파일을 내보냈어요',nativeDesktop?'저장한 위치에서 백업 파일을 확인해 주세요.':'브라우저의 다운로드 폴더에서 확인해 주세요.');
+$('exportBackup').onclick=async()=>{
+  let backup=state;
+  try{if(nativeDesktop){const response=await fetch('/api/backup',{cache:'no-store'});if(!response.ok)throw new Error('펫과 위젯 설정을 불러오지 못했습니다.');backup=await response.json();}}catch(error){toast('백업하지 못했어요',error.message,'error');return;}
+  const blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=`펫캘린더-백업-${dateKey()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('백업 파일을 내보냈어요',nativeDesktop?'저장한 위치에서 백업 파일을 확인해 주세요.':'브라우저의 다운로드 폴더에서 확인해 주세요.');
 };
 $('importBackup').onclick=()=>$('backupFile').click();
 $('backupFile').onchange=async()=>{
   const file=$('backupFile').files[0];if(!file)return;
   try{
     if(file.size>5*1024*1024)throw new Error('백업 파일은 5MB 이하여야 합니다.');
-    const imported=validateState(JSON.parse((await file.text()).replace(/^\uFEFF/,'')));
+    const backup=JSON.parse((await file.text()).replace(/^\uFEFF/,''));const combined=!!backup.calendar;
+    if(combined&&!nativeDesktop)throw new Error('펫과 위젯이 포함된 백업은 데스크톱 앱에서 복원해 주세요.');
+    const imported=validateState(combined?backup.calendar:backup);
     if(!await confirmAction('백업을 복원할까요?',`일정 ${imported.events.length}개, 할 일 ${imported.tasks.length}개로 현재 기록을 교체합니다.\n교체 전 기록은 이 PC의 자동 백업에 보관합니다.`,'복원'))return;
-    if(await commit(s=>{s.events=imported.events;s.tasks=imported.tasks;s.settings=imported.settings;}))toast('백업을 복원했어요','일정과 할 일, 설정을 불러왔습니다.');
+    if(combined){if(saving)return;saving=true;try{const response=await fetch('/api/backup',{method:'POST',headers:{'Content-Type':'application/json','X-Calendar-Request':'1'},body:JSON.stringify({...backup,expectedRevision:state.revision}),signal:AbortSignal.timeout(20000)});const result=await response.json();if(!response.ok)throw new Error(result.error||'백업을 복원하지 못했습니다.');state=readState(result);render();await updateWidget();await updatePets();toast('백업을 복원했어요','일정, 할 일, 펫과 위젯 설정을 불러왔습니다.');}finally{saving=false;}}
+    else if(await commit(s=>{s.events=imported.events;s.tasks=imported.tasks;s.settings=imported.settings;}))toast('백업을 복원했어요','일정과 할 일, 설정을 불러왔습니다.');
   }catch(error){toast('백업 파일을 확인해 주세요',error.message,'error',10000);}
   finally{$('backupFile').value='';}
 };

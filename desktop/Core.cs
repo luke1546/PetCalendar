@@ -22,6 +22,7 @@ namespace PetCalendarDesktop {
         public bool pinned;
         public string pinnedDate="";
         public string[] completedDates=new string[0];
+        public string[] excludedDates=new string[0];
     }
     public sealed class CalendarTask { public string id,title,dueDate,createdAt; public bool done; }
     public sealed class CalendarState {
@@ -73,7 +74,7 @@ namespace PetCalendarDesktop {
             Check(Encoding.UTF8.GetByteCount(json)<=5*1024*1024,"파일은 5MB 이하여야 합니다.");
             Dictionary<string,object> raw;
             try{raw=Codec.Object(json.TrimStart('\uFEFF'));}catch{throw new AppError(400,"올바른 JSON 백업 파일이 아닙니다.");}
-            Check(raw!=null&&Integer(Value(raw,"version"))&&Convert.ToDouble(raw["version"])==1,"지원하는 업무 캘린더 백업 파일이 아닙니다.");
+            Check(raw!=null&&Integer(Value(raw,"version"))&&Convert.ToDouble(raw["version"])==1,"지원하는 펫 캘린더 백업 파일이 아닙니다.");
             var events=Value(raw,"events") as object[];var tasks=Value(raw,"tasks") as object[];
             Check(events!=null&&tasks!=null,"일정 또는 할 일 형식이 올바르지 않습니다.");
             Check(events.Length<=10000&&tasks.Length<=10000,"저장 가능한 항목 수를 초과했습니다.");
@@ -91,6 +92,7 @@ namespace PetCalendarDesktop {
                 Check(Value(e,"pinned") is bool,"D-day 설정을 확인해 주세요.");
                 Check(!Has(e,"pinnedDate")||(e["pinnedDate"] as string)==""||IsDate(e["pinnedDate"]),"D-day 날짜를 확인해 주세요.");
                 if(Has(e,"completedDates")){var dates=e["completedDates"] as object[];Check(dates!=null&&dates.Length<=10000&&dates.All(IsDate),"일정 완료 기록을 확인해 주세요.");}
+                if(Has(e,"excludedDates")){var dates=e["excludedDates"] as object[];Check(dates!=null&&dates.Length<=10000&&dates.All(IsDate),"반복 일정 제외 날짜를 확인해 주세요.");}
                 id(e);Text(e,"title",200,"일정 제목",true);Text(e,"note",5000,"메모");
             }
             foreach(var item in tasks){var t=item as Dictionary<string,object>;Check(t!=null&&((Value(t,"dueDate") as string)==""||IsDate(Value(t,"dueDate")))&&Value(t,"done") is bool,"할 일 형식을 확인해 주세요.");id(t);Text(t,"title",200,"할 일 제목",true);Text(t,"createdAt",40,"생성 시각",true);}
@@ -104,11 +106,11 @@ namespace PetCalendarDesktop {
             ValidateHotkey(state.settings.hotkey);
             var rev=Value(raw,"revision");state.revision=Integer(rev)&&Convert.ToDouble(rev)>=0&&Convert.ToDouble(rev)<=9007199254740991d?Convert.ToInt64(rev):0;
             state.updatedAt=Value(raw,"updatedAt") as string;
-            foreach(var e in state.events){e.title=e.title.Trim();e.pinnedDate=e.pinnedDate??"";e.completedDates=(e.completedDates??new string[0]).Distinct().ToArray();}
+            foreach(var e in state.events){e.title=e.title.Trim();e.pinnedDate=e.pinnedDate??"";e.completedDates=(e.completedDates??new string[0]).Distinct().ToArray();e.excludedDates=(e.excludedDates??new string[0]).Distinct().ToArray();}
             foreach(var t in state.tasks)t.title=t.title.Trim();
             return state;
         }
-        public static bool OccursOn(CalendarEvent e,string key){if(String.CompareOrdinal(key,e.startDate)<0||(e.repeat!="none"&&!String.IsNullOrEmpty(e.repeatUntil)&&String.CompareOrdinal(key,e.repeatUntil)>0))return false;if(e.repeat=="none")return key==e.startDate;if(e.repeat=="daily")return true;DateTime d=Date(key);if(e.repeat=="weekly")return (d-Date(e.startDate)).Days%7==0;if(e.repeat.StartsWith("monthly:")){var parts=e.repeat.Split(':');int week=Int32.Parse(parts[1]),weekday=Int32.Parse(parts[2]);return (int)d.DayOfWeek==weekday&&(week==-1?d.Day+7>DateTime.DaysInMonth(d.Year,d.Month):(d.Day+6)/7==week);}return d.Day==Math.Min(Date(e.startDate).Day,DateTime.DaysInMonth(d.Year,d.Month));}
+        public static bool OccursOn(CalendarEvent e,string key){if((e.excludedDates??new string[0]).Contains(key)||String.CompareOrdinal(key,e.startDate)<0||(e.repeat!="none"&&!String.IsNullOrEmpty(e.repeatUntil)&&String.CompareOrdinal(key,e.repeatUntil)>0))return false;if(e.repeat=="none")return key==e.startDate;if(e.repeat=="daily")return true;DateTime d=Date(key);if(e.repeat=="weekly")return (d-Date(e.startDate)).Days%7==0;if(e.repeat.StartsWith("monthly:")){var parts=e.repeat.Split(':');int week=Int32.Parse(parts[1]),weekday=Int32.Parse(parts[2]);return (int)d.DayOfWeek==weekday&&(week==-1?d.Day+7>DateTime.DaysInMonth(d.Year,d.Month):(d.Day+6)/7==week);}return d.Day==Math.Min(Date(e.startDate).Day,DateTime.DaysInMonth(d.Year,d.Month));}
         public static bool Done(CalendarEvent e,string date){return (e.completedDates??new string[0]).Contains(date);}
         public static List<Occurrence> Occurrences(IEnumerable<CalendarEvent> events,string from,string to,bool sorted=true) {
             var list=new List<Occurrence>();DateTime first=Date(from),last=Date(to);
@@ -125,14 +127,14 @@ namespace PetCalendarDesktop {
                         if(parts.Length==1)day=Math.Min(original.Day,days);
                         else {int week=Int32.Parse(parts[1]),weekday=Int32.Parse(parts[2]);day=week==-1?days-((int)new DateTime(cursor.Year,cursor.Month,days).DayOfWeek-weekday+7)%7:1+(weekday-(int)cursor.DayOfWeek+7)%7+(week-1)*7;}
                         var date=new DateTime(cursor.Year,cursor.Month,day);
-                        if(date>=start&&date<=finish){string key=Key(date);list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(date.AddDays(span))});}
+                        if(date>=start&&date<=finish){string key=Key(date);if(!(e.excludedDates??new string[0]).Contains(key))list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(date.AddDays(span))});}
                         if(cursor.Year==9999&&cursor.Month==12)break;cursor=cursor.AddMonths(1);
                     }
                     continue;
                 }
                 for(DateTime day=start;day<=finish;) {
                     string key=Key(day);
-                    list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(day.AddDays(span))});
+                    if(!(e.excludedDates??new string[0]).Contains(key))list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(day.AddDays(span))});
                     if(day>=DateTime.MaxValue.Date.AddDays(-32))break;
                     day=day.AddDays(e.repeat=="weekly"?7:1);
                 }

@@ -4,7 +4,7 @@ import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import {executable} from './desktop-driver.mjs';
 import {defaultState,validateState,occurrences,dday,selectedDday,reminderTime,addDays} from '../desktop/ui/model.mjs';
-const event=(id,extra={})=>({id,title:'업무 일정 '+id,startDate:'2026-01-31',endDate:'2026-01-31',startTime:'10:00',endTime:'11:00',category:'meeting',note:'회의실',repeat:'none',repeatUntil:'',reminder:10,pinned:false,pinnedDate:'',completedDates:[],...extra});
+const event=(id,extra={})=>({id,title:'업무 일정 '+id,startDate:'2026-01-31',endDate:'2026-01-31',startTime:'10:00',endTime:'11:00',category:'meeting',note:'회의실',repeat:'none',repeatUntil:'',reminder:10,pinned:false,pinnedDate:'',completedDates:[],excludedDates:[],...extra});
 test('기존 JavaScript와 C# 저장·반복·D-day·알림 계산 결과가 같다',async()=>{
   const child=spawn(executable,['--model-test'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
   const queue=[];const reader=createInterface({input:child.stdout});let diagnostic='';child.stderr.on('data',c=>diagnostic+=c);

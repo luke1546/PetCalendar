@@ -68,7 +68,7 @@ namespace PetCalendarDesktop {
             try{settings=File.Exists(path)?Codec.Read<WidgetSettings>(File.ReadAllText(path)):new WidgetSettings();}catch(Exception e){log(e);settings=new WidgetSettings();}
             if(settings==null)settings=new WidgetSettings();
             SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
-            Text="업무 캘린더 · 바탕화면 위젯";ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Padding=new Padding(12);MaximizeBox=false;MinimizeBox=false;StartPosition=FormStartPosition.Manual;
+            Text="펫 캘린더 · 바탕화면 위젯";ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Padding=new Padding(12);MaximizeBox=false;MinimizeBox=false;StartPosition=FormStartPosition.Manual;
             BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=new Font("Segoe UI",9);MinimumSize=new Size(340,480);Size=new Size(380,590);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             layout.Name="widget-layout";layout.Dock=DockStyle.Fill;layout.Margin=Padding.Empty;layout.ColumnCount=1;layout.RowCount=5;
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
@@ -122,6 +122,14 @@ namespace PetCalendarDesktop {
         void DragWidget(object sender,MouseEventArgs e){if(e.Button==MouseButtons.Left&&!settings.locked){ReleaseCapture();SendMessage(Handle,0x00a1,new IntPtr(2),IntPtr.Zero);}}
         void PositionChanged(object sender,EventArgs e){if(loaded&&!restoringBounds&&!closing&&WindowState==FormWindowState.Normal){saveTimer.Stop();saveTimer.Start();}}
         void Persist(){if(!loaded||restoringBounds)return;settings.x=Left;settings.y=Top;settings.width=Width;settings.height=Height;try{StateStore.Atomic(path,Codec.Json(settings),File.Exists(path)?path+".bak":null);}catch(Exception e){log(e);}}
+        internal WidgetSettings BackupPreferences(){if(loaded&&Visible){settings.x=Left;settings.y=Top;settings.width=Width;settings.height=Height;}return Codec.Read<WidgetSettings>(Codec.Json(settings));}
+        internal static WidgetSettings CheckBackup(object value){WidgetSettings s;try{s=Codec.Read<WidgetSettings>(Codec.Json(value));}catch{throw new AppError(400,"위젯 백업 설정을 확인해 주세요.");}if(s==null||s.width<200||s.width>10000||s.height<200||s.height>10000||s.x< -100000||s.x>100000||s.y< -100000||s.y>100000)throw new AppError(400,"위젯 백업 설정을 확인해 주세요.");return s;}
+        internal void RestorePreferences(WidgetSettings value){
+            saveTimer.Stop();settings=Codec.Read<WidgetSettings>(Codec.Json(value));
+            restoringBounds=true;try{Size=new Size(settings.width,settings.height);if(settings.x!=-1&&settings.y!=-1){var target=new Rectangle(settings.x,settings.y,Width,Height);bool visible=false;foreach(var screen in Screen.AllScreens)if(screen.WorkingArea.IntersectsWith(target)){visible=true;break;}if(visible)Location=new Point(settings.x,settings.y);}}finally{restoringBounds=false;}
+            pin.Checked=settings.topmost;positionLock.Checked=settings.locked;showDday.Checked=settings.showDday;TopMost=settings.topmost;dday.Visible=settings.showDday;
+            if(settings.enabled)ShowWidget();else HideWidget();FitCalendar();Persist();NotifyPreference();
+        }
         void StateChanged(){if(IsDisposed)return;try{if(InvokeRequired)BeginInvoke(new Action(()=>{if(Visible)Render();}));else if(Visible)Render();}catch(InvalidOperationException){}}
         public void ShowWidget(){settings.enabled=true;Render();Show();FitCalendar();Persist();NotifyPreference();}
         public void HideWidget(){preferencesMenu.Close();settings.enabled=false;Hide();Persist();NotifyPreference();}

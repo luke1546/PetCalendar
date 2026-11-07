@@ -13,8 +13,8 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("업무 캘린더")]
-[assembly: AssemblyDescription("일정과 할 일을 정리하는 업무 캘린더")]
+[assembly: AssemblyTitle("펫 캘린더")]
+[assembly: AssemblyDescription("일정과 할 일을 정리하는 펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
 [assembly: AssemblyVersion("2.6.4.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8",FrameworkDisplayName=".NET Framework 4.8")]
@@ -51,7 +51,7 @@ namespace PetCalendarDesktop {
             if(File.Exists(original))Rules.Validate(File.ReadAllText(original));
             var rollback=new Dictionary<string,object>();
             foreach(var folder in userMigration?new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup}:new Environment.SpecialFolder[0]) {
-                string shortcut=Path.Combine(Environment.GetFolderPath(folder),"업무 캘린더.lnk");
+                string shortcut=Path.Combine(Environment.GetFolderPath(folder),"펫 캘린더.lnk");
                 if(File.Exists(shortcut)){string backup=Path.Combine(DataDir,"upgrade-"+folder+".lnk");File.Copy(shortcut,backup,true);rollback[folder.ToString()]=backup;}
             }
             StopRunning();
@@ -60,7 +60,18 @@ namespace PetCalendarDesktop {
             StateStore.Atomic(Path.Combine(DataDir,"upgrade-rollback.json"),Codec.Json(rollback),null);
             return 0;
         }
-        static int RollbackInstall(){string file=Path.Combine(DataDir,"upgrade-rollback.json");if(!File.Exists(file))return 0;var rollback=Codec.Object(File.ReadAllText(file));foreach(var folder in new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup})if(rollback.ContainsKey(folder.ToString()))File.Copy((string)rollback[folder.ToString()],Path.Combine(Environment.GetFolderPath(folder),"업무 캘린더.lnk"),true);return 0;}
+        static int RollbackInstall(){string file=Path.Combine(DataDir,"upgrade-rollback.json");if(!File.Exists(file))return 0;var rollback=Codec.Object(File.ReadAllText(file));foreach(var folder in new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup})if(rollback.ContainsKey(folder.ToString()))File.Copy((string)rollback[folder.ToString()],Path.Combine(Environment.GetFolderPath(folder),"펫 캘린더.lnk"),true);return 0;}
+        static void RemovePreviousShortcuts(string name,string root){
+            if(name!="업무 캘린더"&&name!="업무 캘린더 QA")return;
+            object shell=null;try{
+                shell=Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+                foreach(var folder in new[]{Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),Environment.GetFolderPath(Environment.SpecialFolder.Startup),Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),name)}){
+                    string link=Path.Combine(folder,name+".lnk");if(!File.Exists(link))continue;object shortcut=null;
+                    try{shortcut=shell.GetType().InvokeMember("CreateShortcut",BindingFlags.InvokeMethod,null,shell,new object[]{link});string target=shortcut.GetType().InvokeMember("TargetPath",BindingFlags.GetProperty,null,shortcut,null) as string;if(!String.IsNullOrEmpty(target)&&String.Equals(Path.GetFullPath(target),Path.Combine(root,"PetCalendar.exe"),StringComparison.OrdinalIgnoreCase))File.Delete(link);}
+                    finally{if(shortcut!=null&&System.Runtime.InteropServices.Marshal.IsComObject(shortcut))System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut);}
+                }
+            }finally{if(shell!=null&&System.Runtime.InteropServices.Marshal.IsComObject(shell))System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);}
+        }
         static int ValidateInstall(string root){foreach(string file in new[]{"PetCalendar.exe","calendar.ico","notification.wav","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg"})if(!File.Exists(Path.Combine(root,file)))throw new Exception("설치 파일이 없습니다: "+file);using(var pack=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.pets.zip"))if(pack==null)throw new Exception("동물 리소스가 없습니다.");Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString(null);return 0;}
         [STAThread]
         public static int Main(string[] args) {
@@ -72,6 +83,7 @@ namespace PetCalendarDesktop {
                 if(options.ContainsKey("model-test")){ModelMode();return 0;}
                 if(options.ContainsKey("prepare-install"))return PrepareInstall();
                 if(options.ContainsKey("finish-brand-upgrade")){BrandMigration.Finish(root,DataDir);return 0;}
+                if(options.ContainsKey("finish-display-rename")){RemovePreviousShortcuts(options["finish-display-rename"],root);return 0;}
                 if(options.ContainsKey("stop-for-uninstall")){StopRunning();return 0;}
                 if(options.ContainsKey("rollback-install"))return RollbackInstall();
                 if(options.ContainsKey("validate-install"))return ValidateInstall(root);
@@ -93,7 +105,7 @@ namespace PetCalendarDesktop {
                 }
                 if(restarting){string command="--data-dir \""+DataDir+"\"";if(options.ContainsKey("profile-dir"))command+=" --profile-dir \""+options["profile-dir"]+"\"";Process.Start(new ProcessStartInfo(Application.ExecutablePath,command){UseShellExecute=false,WorkingDirectory=root});}
                 return 0;
-            }catch(Exception error){if(automation){Reply(new{kind="fatal",error=error.ToString()});}else if(options.ContainsKey("silent")){try{Directory.CreateDirectory(DataDir);File.AppendAllText(Path.Combine(DataDir,"installer-errors.log"),error.ToString()+Environment.NewLine);}catch{}}else if(options.ContainsKey("model-test"))Console.Error.WriteLine(error);else MessageBox.Show("업무 캘린더를 시작하지 못했습니다. 기존 기록은 그대로 보존했습니다.\n\n"+error.Message,"업무 캘린더",MessageBoxButtons.OK,MessageBoxIcon.Error);return 1;}
+            }catch(Exception error){if(automation){Reply(new{kind="fatal",error=error.ToString()});}else if(options.ContainsKey("silent")){try{Directory.CreateDirectory(DataDir);File.AppendAllText(Path.Combine(DataDir,"installer-errors.log"),error.ToString()+Environment.NewLine);}catch{}}else if(options.ContainsKey("model-test"))Console.Error.WriteLine(error);else MessageBox.Show("펫 캘린더를 시작하지 못했습니다. 기존 기록은 그대로 보존했습니다.\n\n"+error.Message,"펫 캘린더",MessageBoxButtons.OK,MessageBoxIcon.Error);return 1;}
         }
     }
 }

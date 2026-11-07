@@ -1,10 +1,10 @@
-# 업무 캘린더 · PetCalendar
+# 펫 캘린더 · PetCalendar
 
 일정과 할 일을 정리하고, 데스크톱 펫과 함께하는 Windows 캘린더입니다.
 
 ## 화면
 
-![업무 캘린더](docs/screenshots/calendar.png)
+![펫 캘린더](docs/screenshots/calendar.png)
 
 | 바탕화면 위젯 | 펫 말풍선 |
 | --- | --- |

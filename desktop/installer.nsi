@@ -7,23 +7,30 @@
 !endif
 !ifdef QA_BUILD
   !define PRODUCT "PetCalendarDesktopQA"
-  !define LINK "업무 캘린더 QA"
-  OutFile "..\dist\PetCalendar-Setup-QA-Final.exe"
+  !define LINK "펫 캘린더 QA"
+  !define OLD_LINK "업무 캘린더 QA"
+  !ifndef OUTPUT_FILE
+    !define OUTPUT_FILE "..\dist\PetCalendar-Setup-QA-Final.exe"
+  !endif
 !else
   !define PRODUCT "PetCalendarDesktop"
-  !define LINK "업무 캘린더"
-  OutFile "..\dist\PetCalendar-Setup.exe"
+  !define LINK "펫 캘린더"
+  !define OLD_LINK "업무 캘린더"
+  !ifndef OUTPUT_FILE
+    !define OUTPUT_FILE "..\dist\PetCalendar-Setup.exe"
+  !endif
 !endif
-Name "업무 캘린더"
+OutFile "${OUTPUT_FILE}"
+Name "펫 캘린더"
 InstallDir "$LOCALAPPDATA\Programs\PetCalendar"
 InstallDirRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "InstallLocation"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-BrandingText "업무 캘린더"
+BrandingText "펫 캘린더"
 Icon "..\calendar.ico"
 VIProductVersion "2.6.4.0"
-VIAddVersionKey /LANG=1042 "ProductName" "업무 캘린더"
-VIAddVersionKey /LANG=1042 "FileDescription" "업무 캘린더 설치"
+VIAddVersionKey /LANG=1042 "ProductName" "펫 캘린더"
+VIAddVersionKey /LANG=1042 "FileDescription" "펫 캘린더 설치"
 VIAddVersionKey /LANG=1042 "FileVersion" "2.6.4.0"
 VIAddVersionKey /LANG=1042 "LegalCopyright" "PetCalendar"
 !define MUI_ABORTWARNING
@@ -67,9 +74,11 @@ Function .onInit
 !endif
   StrCmp $R0 "" check_desktop known_install
 check_desktop:
-  IfFileExists "$DESKTOP\${LINK}.lnk" known_install startup_done
+  IfFileExists "$DESKTOP\${LINK}.lnk" known_install 0
+  IfFileExists "$DESKTOP\${OLD_LINK}.lnk" known_install startup_done
 known_install:
-  IfFileExists "$SMSTARTUP\${LINK}.lnk" startup_done startup_disabled
+  IfFileExists "$SMSTARTUP\${LINK}.lnk" startup_done 0
+  IfFileExists "$SMSTARTUP\${OLD_LINK}.lnk" startup_done startup_disabled
 startup_disabled:
   StrCpy $AutoStart 0
 startup_done:
@@ -92,7 +101,7 @@ data_ready:
   StrCmp $R1 "" +2
     StrCpy $DataDir $R1
 FunctionEnd
-Section "업무 캘린더" Main
+Section "펫 캘린더" Main
   InitPluginsDir
   StrCpy $Staged "$INSTDIR\.install-staging"
   SetOutPath "$Staged"
@@ -128,7 +137,7 @@ install_ok:
   CreateShortcut "$SMPROGRAMS\${LINK}\${LINK}.lnk" "$INSTDIR\PetCalendar.exe" '--data-dir "$DataDir"' "$INSTDIR\PetCalendar.exe" 0
   StrCmp $AutoStart 1 0 +2
     CreateShortcut "$SMSTARTUP\${LINK}.lnk" "$INSTDIR\PetCalendar.exe" '--data-dir "$DataDir"' "$INSTDIR\PetCalendar.exe" 0
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "DisplayName" "업무 캘린더"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "DisplayName" "펫 캘린더"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "Publisher" "PetCalendar"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "InstallLocation" "$INSTDIR"
@@ -143,6 +152,7 @@ install_ok:
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "DataDir" "$DataDir"
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT}" "NoRepair" 1
+  ExecWait '"$INSTDIR\PetCalendar.exe" --data-dir "$DataDir" --finish-display-rename "${OLD_LINK}" --silent' $0
 !ifndef QA_BUILD
   ExecWait '"$INSTDIR\PetCalendar.exe" --data-dir "$DataDir" --finish-brand-upgrade --silent' $0
   StrCmp $0 0 +2

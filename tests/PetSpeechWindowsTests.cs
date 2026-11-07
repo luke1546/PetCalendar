@@ -33,10 +33,18 @@ namespace PetCalendarDesktop {
                 using(var manager=new CalendarPets(data,()=>state,errors.Add)) {
                     manager.SetEnabled(true);manager.Add("dog");
                     var named=Application.OpenForms.OfType<PetHost>().Single(p=>p.Kind==Species.Cat);
-                    manager.Rename(named.Handle.ToInt64(),"호두");string before=File.ReadAllText(path);
+                    manager.Rename(named.Handle.ToInt64(),"호두");
+                    Check(Application.OpenForms.OfType<PetHost>().All(p=>p.Personality>=1&&p.Personality<=5),"summoned pets receive a valid random personality");
+                    typeof(PetHost).GetMethod("BuildMenu",BindingFlags.NonPublic|BindingFlags.Instance).Invoke(named,null);
+                    var menu=(ContextMenuStrip)typeof(PetHost).GetField("menu",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(named);
+                    var options=menu.Items.OfType<ToolStripMenuItem>().Single(i=>i.Text=="성격");Check(options.DropDownItems.Count==5,"pet menu offers five personalities");
+                    Check(!menu.Items.OfType<ToolStripMenuItem>().Any(i=>new[]{"자유롭게 돌아다니기","점프!","코 인사","잠자기","일시정지","바닥으로 데려오기"}.Contains(i.Text)),"calendar pet menu hides behavior commands");
+                    ((ToolStripMenuItem)options.DropDownItems[4]).PerformClick();Check(named.Personality==5&&Codec.Read<PetPreferences>(File.ReadAllText(path)).pets.Single(p=>p.name=="호두").personality==5,"menu selection saves this pet's personality");
+                    manager.SetEnabled(false);manager.SetEnabled(true);named=Application.OpenForms.OfType<PetHost>().Single(p=>p.PetName=="호두");Check(named.Personality==5&&manager.BackupPreferences().pets.Single(p=>p.name=="호두").personality==5,"personality survives reactivation and is included in backups");
+                    string before=File.ReadAllText(path);
                     SendPets(manager,DialogResult.Cancel);Check(Application.OpenForms.OfType<PetHost>().Count()==2&&File.ReadAllText(path)==before,"cancelling bulk-send keeps every pet and preferences unchanged");
                     SendPets(manager,DialogResult.OK);Check(manager.Enabled&&manager.CanNotify&&Application.OpenForms.OfType<PetHost>().Single()==named&&named.PetName=="호두","bulk-send removes only unnamed pets and keeps the feature enabled");
-                    Check(Codec.Read<PetPreferences>(File.ReadAllText(path)).pets.Single().name=="호두","named pet is preserved in saved preferences");
+                    Check(Codec.Read<PetPreferences>(File.ReadAllText(path)).pets.Single().name=="호두"&&Codec.Read<PetPreferences>(File.ReadAllText(path)).pets.Single().personality==5,"named pet and personality are preserved in saved preferences");
                     manager.Rename(named.Handle.ToInt64(),"");SendPets(manager,DialogResult.OK);
                     Check(manager.Enabled&&!manager.CanNotify&&!Application.OpenForms.OfType<PetHost>().Any(),"sending the last unnamed pet keeps feature on with zero pets");
                     Check(SimulationLoop.Count==0&&Sprites.CachedBytes==0,"empty enabled feature releases image and animation resources");
@@ -214,9 +222,13 @@ namespace PetCalendarDesktop {
                             first.BringToFloor();second.BringToFloor();first.Cat.Paused=second.Cat.Paused=true;
                             var chatter=new PetChatter();var baseUtc=utc;
                             try {
+                                int[] mins={30,60,120,180,300},maxs={60,120,180,300,600};
+                                for(int level=1;level<=5;level++){first.Personality=level;chatter.Reset();chatter.Tick(new[]{first},baseUtc,false);var due=ChatterDue(chatter,first);Check(due>=baseUtc.AddSeconds(mins[level-1])&&due<=baseUtc.AddSeconds(maxs[level-1]),"personality "+level+" uses its configured chatter range");}
+                                first.Personality=second.Personality=2;chatter.Reset();
                                 chatter.Tick(new[]{first,second},baseUtc,false);
                                 var firstDue=ChatterDue(chatter,first);var secondDue=ChatterDue(chatter,second);
                                 Check(firstDue>=baseUtc.AddSeconds(60)&&firstDue<=baseUtc.AddSeconds(120)&&secondDue>=baseUtc.AddSeconds(60)&&secondDue<=baseUtc.AddSeconds(120),"each pet starts its own sixty to one hundred twenty second cooldown");
+                                first.Personality=1;chatter.Reschedule(first,baseUtc);Check(ChatterDue(chatter,first)>=baseUtc.AddSeconds(30)&&ChatterDue(chatter,first)<=baseUtc.AddSeconds(60)&&ChatterDue(chatter,second)==secondDue,"changing one personality only reschedules that pet");first.Personality=2;chatter.Reschedule(first,baseUtc);firstDue=ChatterDue(chatter,first);
                                 chatter.Tick(new[]{first,second},baseUtc.AddSeconds(59),false);Check(chatter.ActiveCount==0,"chatter does not appear before cooldown");
                                 var earlier=firstDue<=secondDue?first:second;var later=earlier==first?second:first;var earlyDue=ChatterDue(chatter,earlier);var laterDue=ChatterDue(chatter,later);
                                 chatter.Tick(new[]{first,second},earlyDue,false);Check(chatter.ActiveCount>0,"pet speaks when its own cooldown expires");

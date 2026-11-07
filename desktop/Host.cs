@@ -58,10 +58,11 @@ namespace PetCalendarDesktop {
         public DesktopHost(string appRoot,string dataDir,string profileDir,bool test) {
             root=appRoot;profile=profileDir;automation=test;
             Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(ApplicationId));
+            bool freshProfile=!File.Exists(Path.Combine(dataDir,"calendar.json"))&&!File.Exists(Path.Combine(dataDir,"pets.json"));
             store=new StateStore(dataDir);
-            pets=new CalendarPets(dataDir,()=>store.Snapshot,Log);
+            pets=new CalendarPets(dataDir,()=>store.Snapshot,Log,freshProfile);
             AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
-            Text="업무 캘린더 · 나만의 업무 공간";FormBorderStyle=FormBorderStyle.None;Font=new Font("Segoe UI",9);BackColor=DesktopTheme.Paper;Padding=new Padding(6);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            Text="펫 캘린더 · 나만의 업무 공간";FormBorderStyle=FormBorderStyle.None;Font=new Font("Segoe UI",9);BackColor=DesktopTheme.Paper;Padding=new Padding(6);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             var area=Screen.PrimaryScreen.WorkingArea;Size=new Size(Math.Min(1440,area.Width-40),Math.Min(1000,area.Height-40));MinimumSize=new Size(800,600);StartPosition=FormStartPosition.CenterScreen;
             Icon=new Icon(Path.Combine(root,"calendar.ico"));web.Dock=DockStyle.Fill;Controls.Add(web);
             widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();if(id==null)Post(new{type="new-event",startDate=date});else Post(new{type="open-event",eventId=id,startDate=date});},Log);widget.Icon=Icon;
@@ -76,7 +77,7 @@ namespace PetCalendarDesktop {
             petMenu.DropDownItems.Add(petToggle);petMenu.DropDownItems.Add(petAdd);petMenu.DropDownItems.Add("펫 바닥으로 데려오기",null,delegate{pets.Home();});menu.Items.Add(petMenu);
             pets.Changed+=delegate{petToggle.Checked=pets.Enabled;petAdd.Enabled=pets.Enabled;Post(new{type="pets-changed"});if(ready)RouteAlarms(alarms.Pending(),false,false);};
             menu.Items.Add("재시작",null,async delegate{await Shutdown(true);});menu.Items.Add("완전 종료",null,async delegate{await Shutdown(false);});
-            tray.Icon=Icon;tray.Text="업무 캘린더";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowCalendar();};tray.Visible=true;
+            tray.Icon=Icon;tray.Text="펫 캘린더";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowCalendar();};tray.Visible=true;
             sound=new SoundPlayer(Path.Combine(root,"notification.wav"));
             alarms=new AlarmService(store);
             alarms.Delivered+=(list,fresh,force)=>Ui(()=>RouteAlarms(list,fresh,force));
@@ -85,7 +86,9 @@ namespace PetCalendarDesktop {
             alarms.Error+=Log;
             popup.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
             popup.CloseAll+=()=>alarms.Acknowledge(null);
+            popup.SnoozeAlarm+=(alarm,minutes)=>alarms.Snooze(alarm.id,minutes);
             pets.Acknowledge+=id=>alarms.Acknowledge(id);
+            pets.Snooze+=(id,minutes)=>alarms.Snooze(id,minutes);
             pets.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
             pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)Post(new{type="open-event",eventId=id,startDate=date});};
             store.Changed+=()=>{if(Visible&&WindowState!=FormWindowState.Minimized)Post(new{type="state-changed"});};
@@ -131,7 +134,7 @@ namespace PetCalendarDesktop {
                 };
                 try{await ApplyHotkey(store.Snapshot.settings.hotkey);}catch(Exception error){hotkeyError=error.Message;Log(error);}
                 web.Source=new Uri(Origin+"/");
-            }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"업무 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+            }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"펫 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
         }
         async void ResourceRequested(object sender,CoreWebView2WebResourceRequestedEventArgs args) {
             var deferral=args.GetDeferral();
@@ -170,6 +173,15 @@ namespace PetCalendarDesktop {
                 if(exiting)throw new AppError(503,"캘린더를 종료하고 있습니다.");
                 if(method!="GET"&&marker!="1")throw new AppError(403,"올바르지 않은 저장 요청입니다.");
                 if(method=="GET"&&path=="/api/state")return new ApiResponse(200,store.Snapshot);
+                if(method=="GET"&&path=="/api/backup")return new ApiResponse(200,new{version=1,calendar=store.Snapshot,pets=pets.BackupPreferences(),widget=widget.BackupPreferences()});
+                if(method=="POST"&&path=="/api/backup"){
+                    var request=Codec.Object(body);if(request==null||!request.ContainsKey("calendar")||!request.ContainsKey("pets")||!request.ContainsKey("widget"))throw new AppError(400,"통합 백업 파일을 확인해 주세요.");
+                    var calendar=Rules.Validate(Codec.Json(request["calendar"]));var petBackup=CalendarPets.CheckBackup(request["pets"]);var widgetBackup=CalendarWidget.CheckBackup(request["widget"]);
+                    var previousPets=pets.BackupPreferences();var previousWidget=widget.BackupPreferences();
+                    if(!request.ContainsKey("expectedRevision")||Convert.ToInt64(request["expectedRevision"])!=store.Snapshot.revision)throw new AppError(409,"다른 창에서 일정이 변경되었습니다. 최신 내용을 불러온 뒤 다시 복원해 주세요.");
+                    try{pets.RestorePreferences(petBackup);widget.RestorePreferences(widgetBackup);calendar.revision=Convert.ToInt64(request["expectedRevision"]);return new ApiResponse(200,await store.Save(Codec.Json(calendar),ApplyHotkey));}
+                    catch{try{pets.RestorePreferences(previousPets);widget.RestorePreferences(previousWidget);}catch(Exception rollback){Log(rollback);}throw;}
+                }
                 if(method=="PUT"&&path=="/api/state")return new ApiResponse(200,await store.Save(body,ApplyHotkey,force));
                 if(method=="GET"&&path=="/api/hotkey")return new ApiResponse(200,HotkeyStatus());
                 if(method=="GET"&&path=="/api/pets")return new ApiResponse(200,pets.Inspect());
@@ -298,6 +310,7 @@ namespace PetCalendarDesktop {
                 else if(action=="menu"){string item=(string)request["item"];if(item=="show")ShowCalendar();else{Reply(new{id=id,ok=true});await Shutdown(item=="restart");return;}}
                 else if(action=="alarm-check")alarms.CheckAt(DateTime.Parse((string)request["now"],null,DateTimeStyles.RoundtripKind).ToUniversalTime());
                 else if(action=="alarm-ack")alarms.Acknowledge(request.ContainsKey("alarmId")?request["alarmId"] as string:null);
+                else if(action=="alarm-snooze")alarms.Snooze((string)request["alarmId"],Convert.ToInt32(request["minutes"]));
                 else if(action=="capture"){using(var output=File.Create((string)request["path"]))await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png,output);}
                 else if(action=="popup-layout"){Reply(new{id=id,ok=true,layout=popup.InspectLayout()});return;}
                 else if(action=="capture-popup"){using(var image=new Bitmap(popup.Width,popup.Height)){popup.DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));image.Save((string)request["path"]);}}

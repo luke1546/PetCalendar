@@ -37,7 +37,7 @@ function str(value, max, label, required = false) {
 }
 function time(value) { return typeof value === 'string' && (value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)); }
 export function validateState(input) {
-  check(input && input.version === 1, '지원하는 업무 캘린더 백업 파일이 아닙니다.');
+  check(input && input.version === 1, '지원하는 펫 캘린더 백업 파일이 아닙니다.');
   check(Array.isArray(input.events) && Array.isArray(input.tasks), '일정 또는 할 일 형식이 올바르지 않습니다.');
   check(input.events.length <= 10000 && input.tasks.length <= 10000, '저장 가능한 항목 수를 초과했습니다.');
   const ids = new Set();
@@ -56,9 +56,11 @@ export function validateState(input) {
     check(e.pinnedDate===undefined || e.pinnedDate==='' || isDate(e.pinnedDate),'D-day 날짜를 확인해 주세요.');
     const completedDates=e.completedDates===undefined?[]:e.completedDates;
     check(Array.isArray(completedDates) && completedDates.length<=10000 && completedDates.every(isDate), '일정 완료 기록을 확인해 주세요.');
+    const excludedDates=e.excludedDates===undefined?[]:e.excludedDates;
+    check(Array.isArray(excludedDates) && excludedDates.length<=10000 && excludedDates.every(isDate), '반복 일정 제외 날짜를 확인해 주세요.');
     return { id: id(e.id), title: str(e.title,200,'일정 제목',true).trim(), startDate:e.startDate, endDate:e.endDate,
       startTime:e.startTime, endTime:e.endTime, category:e.category, note:str(e.note,5000,'메모'),
-      repeat:e.repeat, repeatUntil:e.repeatUntil, reminder:e.reminder, pinned:e.pinned, pinnedDate:e.pinnedDate||'', completedDates:[...new Set(completedDates)] };
+      repeat:e.repeat, repeatUntil:e.repeatUntil, reminder:e.reminder, pinned:e.pinned, pinnedDate:e.pinnedDate||'', completedDates:[...new Set(completedDates)], excludedDates:[...new Set(excludedDates)] };
   });
   const tasks = input.tasks.map(t => {
     check(t && (t.dueDate === '' || isDate(t.dueDate)) && typeof t.done === 'boolean', '할 일 형식을 확인해 주세요.');
@@ -73,6 +75,7 @@ export function validateState(input) {
     settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true } };
 }
 export function occursOn(event, key) {
+  if(event.excludedDates?.includes(key))return false;
   if (key < event.startDate || (event.repeat !== 'none' && event.repeatUntil && key > event.repeatUntil)) return false;
   if (event.repeat === 'none') return key === event.startDate;
   if (event.repeat === 'daily') return true;
@@ -101,7 +104,8 @@ function expand(events, from, to, visit) {
     const origin=dayNumber(event.startDate),span=dayNumber(event.endDate)-origin;
     const begin=Math.max(origin,first-span),end=Math.min(last,event.repeat==='none'?origin:event.repeatUntil?dayNumber(event.repeatUntil):last);
     if(begin>end)continue;
-    const emit=number=>{const key=new Date(number*DAY).toISOString().slice(0,10);visit({event,key:`${event.id}@${key}`,startDate:key,endDate:span?new Date((number+span)*DAY).toISOString().slice(0,10):key});};
+    const excluded=new Set(event.excludedDates||[]);
+    const emit=number=>{const key=new Date(number*DAY).toISOString().slice(0,10);if(!excluded.has(key))visit({event,key:`${event.id}@${key}`,startDate:key,endDate:span?new Date((number+span)*DAY).toISOString().slice(0,10):key});};
     if(event.repeat==='none'){emit(origin);continue;}
     if(event.repeat==='daily'||event.repeat==='weekly') {
       const step=event.repeat==='weekly'?7:1;

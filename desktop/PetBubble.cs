@@ -76,7 +76,7 @@ namespace PetCalendarDesktop {
                 case "alpaca":furColor=Color.FromArgb(250,250,246);break;
                 default:furColor=Color.FromArgb(145,151,156);break;
             }}
-            fillColor=Mix(Color.FromArgb(255,253,248),furColor,.18);
+            fillColor=Mix(Color.FromArgb(255,253,248),furColor,.25);
             edgeColor=Mix(Color.FromArgb(178,157,133),furColor,.30);
             accentColor=Mix(Color.FromArgb(105,76,59),furColor,.35);
             BackColor=fillColor;body.ForeColor=Color.FromArgb(67,51,42);

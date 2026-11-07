@@ -1,0 +1,40 @@
+using System;
+using System.Collections.Generic;
+namespace PetCalendarDesktop {
+    // Templates only interpolate event data; titles and reminder details are never rewritten.
+    internal static class PetVoice {
+        static readonly Dictionary<string,string[]> voices=new Dictionary<string,string[]> {
+            {"cat",new[]{"오늘은 일정이 없다냥. 나랑 잠깐 쉬자냥 🐾","오늘 일정 모두 끝났다냥! 이제 나랑 쉬자냥 🐾","오늘 할 일이 {0}개 남았다냥! 🐾","지금 ‘{0}’ 진행 중이다냥. 잘하고 있냥?","다음은 {1} ‘{0}’이다냥. 잊지 말라냥!","종일 일정 ‘{0}’도 잊지 말라냥!","시간이 지난 ‘{0}’도 한 번 살펴보라냥!","‘{0}’ 일정 기억하고 있냥? 🐾","내 말 들리냥? 알림이 잘 도착했다냥! 🐾"}},
+            {"dog",new[]{"오늘은 일정이 없어요, 멍! 같이 쉬어요 🦴","다 끝냈어요! 최고예요, 멍! 🎉","오늘 할 일이 {0}개 남았어요, 멍! 🦴","지금 ‘{0}’ 진행 중이에요! 응원할게요, 멍!","다음은 {1} ‘{0}’! 같이 준비해요, 멍!","종일 일정 ‘{0}’도 챙겨요, 멍!","시간이 지난 ‘{0}’도 확인해요, 멍!","멍! ‘{0}’ 일정이에요! 준비됐어요? 🦴","멍! 내 말 들려요? 알림이 잘 왔어요! 🦴"}},
+            {"redPanda",new[]{"오늘은 일정이 없네요… 같이 쉬어도 될까요? 🍂","오늘 일정 다 마쳤네요… 수고 많았어요 🍂","저기… 오늘 할 일이 {0}개 남았대요 🍂","지금 ‘{0}’ 진행 중이래요. 조용히 응원할게요.","다음은 {1} ‘{0}’래요. 살짝 알려주러 왔어요.","종일 일정 ‘{0}’도… 잊지 말아 주세요.","시간이 지난 ‘{0}’도… 한 번 살펴볼까요?","저기… ‘{0}’ 일정이에요. 살짝 알려드려요 🍂","저기… 내 말 들리나요? 알림이 잘 도착했어요 🍂"}},
+            {"capybara",new[]{"오늘은 일정이 없네요~ 느긋하게 쉬어요 🍊","다 했네요~ 이제 느긋하게 쉬어요 🍊","오늘 할 일이 {0}개 남았네요~ 🍊","지금 ‘{0}’ 진행 중이네요~ 차분하게 해봐요.","다음은 {1} ‘{0}’네요~ 천천히 준비해봐요.","종일 일정 ‘{0}’도 있네요~ 하나씩 해봐요.","시간이 지난 ‘{0}’도 있네요~ 한 번 살펴봐요.","‘{0}’ 일정이네요~ 차분하게 준비해봐요 🍊","내 말 들려요~? 알림이 잘 도착했네요 🍊"}},
+            {"squirrel",new[]{"참참! 오늘은 일정이 없어요! 도토리 찾으러 갈까요? 🌰","끝! 끝! 오늘도 알차게 해냈어요 🌰","참참! 오늘 할 일이 {0}개 남았어요! 🌰","지금 ‘{0}’ 진행 중! 응원도 잊지 않았어요!","다음은 {1} ‘{0}’! 준비물도 챙겼죠?","참참! 종일 일정 ‘{0}’도 있어요!","잠깐! 시간이 지난 ‘{0}’도 살펴봐요!","참참! ‘{0}’ 일정이에요! 챙겼죠? 🌰","참참! 내 말 들려요? 알림 도착! 🌰"}},
+            {"alpaca",new[]{"음~ 오늘은 일정이 없대요. 같이 풀… 아니, 푹 쉬어요 🌿","오늘 일정 끝~ 이제 풀… 아니, 푹 쉬어요 🌿","음~ 오늘 할 일이 {0}개 남았대요 🌿","지금 ‘{0}’ 진행 중이래요. 풀 먹다가도 응원해요.","다음은 {1} ‘{0}’래요. 풀은 나중에 먹을게요.","종일 일정 ‘{0}’도 있대요. 음~ 기억해둘게요.","시간이 지난 ‘{0}’도 있네요. 음~ 살펴볼까요?","음~ ‘{0}’ 일정이래요. 풀 먹다가도 기억했어요 🌿","음~ 내 말 들려요? 알림은 잘 왔대요 🌿"}},
+            {"elephant",new[]{"뿌우~ 오늘은 일정이 없어요. 편안하게 쉬어요 💛","오늘 일정 모두 마쳤네요. 뿌우~ 잘했어요 💛","뿌우~ 오늘 할 일이 {0}개 남았어요 💛","지금 ‘{0}’ 진행 중이에요. 든든하게 응원할게요!","다음은 {1} ‘{0}’예요. 내가 기억하고 있었어요!","종일 일정 ‘{0}’도 기억하고 있어요. 뿌우~","시간이 지난 ‘{0}’도 함께 살펴봐요. 뿌우~","뿌우~ ‘{0}’ 일정이에요. 내가 기억하고 있었어요! 💛","뿌우~ 내 말 들리죠? 알림이 잘 도착했어요 💛"}},
+        };
+        static readonly Dictionary<string,string[]> chatter=new Dictionary<string,string[]> {
+            {"cat",new[]{"햇볕 좋은 자리는 내 자리다냥 🐾","집사, 물 한 모금 마셨냥? 🐾","방금 아주 중요한 낮잠을 계획했다냥 💤","꼬리가 살랑살랑~ 기분 좋다냥 🐾","일하는 모습, 내가 지켜보고 있다냥 👀"}},
+            {"dog",new[]{"멍! 같이 있어서 좋아요 🦴","꼬리가 자꾸 흔들려요! 신나는걸요, 멍! 🐾","잠깐 기지개 켤까요? 멍! ✨","산책길 냄새를 상상하고 있었어요 🦴","오늘도 옆에서 응원할게요, 멍! 💛"}},
+            {"redPanda",new[]{"저기… 그냥 인사하고 싶었어요 🍂","꼬리가 포근해서 잠깐 기대고 있었어요 🍂","조용히 옆에 있어도 괜찮죠…? 💛","창밖에 나뭇잎이 날리는 상상을 했어요 🍂","잠깐 어깨를 펴보는 건 어떨까요…? 🌿"}},
+            {"capybara",new[]{"서두르지 않아도 괜찮아요~ 🍊","따뜻한 물에 둥둥 떠 있고 싶네요~ ♨","가끔은 멍하니 쉬어도 좋아요~ 🍊","물 한 모금 마시고 쉬엄쉬엄 해요~ 💧","그냥 곁에 있는 것도 좋네요~ 🍊"}},
+            {"squirrel",new[]{"참참! 도토리 어디 뒀더라? 🌰","볼주머니는 비었지만 의욕은 가득해요! 🌰","쪼르르! 여기 구경하러 왔어요 🐾","잠깐! 기지개도 챙겼죠? ✨","도토리 하나, 둘… 앗, 몇 개였더라? 🌰"}},
+            {"alpaca",new[]{"음~ 풀 향기 나는 바람이면 좋겠어요 🌿","머릿속이 폭신폭신하네요. 털 때문인가? ☁","잠깐 푹… 풀 말고 푹 쉬어요 🌿","음~ 오늘도 느긋하게 걸어볼게요 🐾","이 화면 구석은 풀이 잘 자랄까요? 🌿"}},
+            {"elephant",new[]{"뿌우~ 잠깐 기지개를 켜볼까요? 💛","옆에서 든든하게 지켜보고 있어요. 뿌우~ 🐘","물 한 모금 마시는 것도 기억해요 💧","작은 발걸음도 모이면 멀리 갈 수 있어요 💛","뿌우~ 그냥 인사하러 왔어요! 🐘"}},
+        };
+        internal static int ChatterCount(string species){string[] lines;return chatter.TryGetValue(species,out lines)?lines.Length:0;}
+        internal static string Chatter(string species,int index){return chatter[species][index];}
+        static string[] Lines(string species){string[] lines;return voices.TryGetValue(species,out lines)?lines:null;}
+        internal static string Summary(PetSummary summary,string species) {
+            var lines=Lines(species);if(lines==null)return summary.Text;
+            if(summary.Kind=="empty")return lines[0];
+            if(summary.Kind=="done")return lines[1];
+            int index=summary.Kind=="current"?3:summary.Kind=="next"?4:summary.Kind=="day"?5:6;
+            return String.Format(lines[2],summary.Count)+"\n"+String.Format(lines[index],summary.Title,summary.Time);
+        }
+        internal static string Alert(Alarm alarm,string species) {
+            var lines=Lines(species);
+            if(lines==null)return alarm.title+"\n"+alarm.body;
+            return alarm.eventId==""?lines[8]:String.Format(lines[7],alarm.title)+"\n"+alarm.body;
+        }
+    }
+}

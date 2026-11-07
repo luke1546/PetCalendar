@@ -1,0 +1,9 @@
+{
+  "package": "Microsoft.Web.WebView2",
+  "version": "1.0.4314.35",
+  "source": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4314.35/microsoft.web.webview2.1.0.4314.35.nupkg",
+  "documentation": "https://learn.microsoft.com/en-us/microsoft-edge/webview2/get-started/winforms",
+  "framework": "net462",
+  "loader": "win-x64",
+  "signature": "All three DLLs verified with Get-AuthenticodeSignature: Valid, Microsoft Corporation."
+}

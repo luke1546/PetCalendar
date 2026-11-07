@@ -1,0 +1,310 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Media;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+
+namespace PetCalendarDesktop {
+    public sealed class ApiResponse { public int status; public object body; public ApiResponse(int s,object b){status=s;body=b;} }
+    public sealed class DesktopHost : Form {
+        public const string Origin="http://127.0.0.1:17841";
+        public const string ApplicationId="PetCalendar.Desktop";
+        readonly string root,profile;
+        readonly bool automation;
+        readonly StateStore store;
+        readonly WebView2 web=new WebView2();
+        readonly NotifyIcon tray=new NotifyIcon();
+        readonly ContextMenuStrip menu=new ContextMenuStrip();
+        readonly Dictionary<string,byte[]> assets=new Dictionary<string,byte[]>();
+        readonly AlarmService alarms;
+        readonly AlarmPopup popup=new AlarmPopup();
+        readonly SoundPlayer sound;
+        readonly CalendarWidget widget;
+        readonly ToolStripMenuItem widgetMenu,petToggle,petAdd;
+        readonly CalendarPets pets;
+        Hotkey registered=new Hotkey{enabled=false};
+        readonly Queue<object> deferredReminders=new Queue<object>();
+        string hotkeyError="";
+        bool initialized,exiting,ready;
+        Rectangle windowRestoreBounds;
+        DateTime started=DateTime.UtcNow;
+        public event Action<object> AutomationReply;
+        public event Action<bool> ExitRequested;
+        public bool Ready {get{return ready;}}
+        [DllImport("shell32.dll",CharSet=CharSet.Unicode)] static extern int SetCurrentProcessExplicitAppUserModelID(string id);
+        [DllImport("shell32.dll")] static extern int GetCurrentProcessExplicitAppUserModelID(out IntPtr id);
+        [DllImport("user32.dll",SetLastError=true)] static extern bool RegisterHotKey(IntPtr window,int id,uint modifiers,uint key);
+        [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr window,int id);
+        [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window,out uint process);
+        [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from,uint to,bool attach);
+        [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr window,int attribute,ref int value,int size);
+        const int HotkeyId=0x4CA1;
+        // Keep the native sizing frame, system menu, taskbar identity and snap
+        // behavior, while removing the duplicate Windows caption above the UI.
+        protected override CreateParams CreateParams {get{var p=base.CreateParams;p.Style=(p.Style&~0x00c00000)|0x000f0000;return p;}}
+        public DesktopHost(string appRoot,string dataDir,string profileDir,bool test) {
+            root=appRoot;profile=profileDir;automation=test;
+            Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(ApplicationId));
+            store=new StateStore(dataDir);
+            pets=new CalendarPets(dataDir,()=>store.Snapshot,Log);
+            AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
+            Text="업무 캘린더 · 나만의 업무 공간";FormBorderStyle=FormBorderStyle.None;Font=new Font("Segoe UI",9);BackColor=DesktopTheme.Paper;Padding=new Padding(6);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            var area=Screen.PrimaryScreen.WorkingArea;Size=new Size(Math.Min(1440,area.Width-40),Math.Min(1000,area.Height-40));MinimumSize=new Size(800,600);StartPosition=FormStartPosition.CenterScreen;
+            Icon=new Icon(Path.Combine(root,"calendar.ico"));web.Dock=DockStyle.Fill;Controls.Add(web);
+            widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();if(id==null)Post(new{type="new-event",startDate=date});else Post(new{type="open-event",eventId=id,startDate=date});},Log);widget.Icon=Icon;
+            foreach(string file in new[]{"index.html","app.mjs","model.mjs","styles.css","icon.svg"})assets["/"+file]=File.ReadAllBytes(Path.Combine(root,"public",file));
+            assets["/"]=assets["/index.html"];
+            menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
+            widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
+            widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;Post(new{type="widget-changed"});};
+            var petMenu=new ToolStripMenuItem("데스크톱 펫");
+            petToggle=new ToolStripMenuItem("데스크톱 펫 사용",null,delegate{try{pets.SetEnabled(!pets.Enabled);}catch(Exception error){Log(error);MessageBox.Show(this,error.Message,"데스크톱 펫");}});
+            petAdd=DesktopPet.PetMenu.Add(kind=>{try{pets.Add(kind==null?"random":kind.Id);}catch(Exception error){Log(error);}});petAdd.Enabled=false;
+            petMenu.DropDownItems.Add(petToggle);petMenu.DropDownItems.Add(petAdd);petMenu.DropDownItems.Add("펫 바닥으로 데려오기",null,delegate{pets.Home();});menu.Items.Add(petMenu);
+            pets.Changed+=delegate{petToggle.Checked=pets.Enabled;petAdd.Enabled=pets.Enabled;Post(new{type="pets-changed"});if(ready)RouteAlarms(alarms.Pending(),false,false);};
+            menu.Items.Add("재시작",null,async delegate{await Shutdown(true);});menu.Items.Add("완전 종료",null,async delegate{await Shutdown(false);});
+            tray.Icon=Icon;tray.Text="업무 캘린더";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowCalendar();};tray.Visible=true;
+            sound=new SoundPlayer(Path.Combine(root,"notification.wav"));
+            alarms=new AlarmService(store);
+            alarms.Delivered+=(list,fresh,force)=>Ui(()=>RouteAlarms(list,fresh,force));
+            alarms.InApp+=(title,body)=>Ui(()=>{if(pets.CanNotify&&store.Snapshot.settings.desktopPopups)return;var message=new{type="reminder",title=title,body=body};if(Visible&&WindowState!=FormWindowState.Minimized)Post(message);else{deferredReminders.Enqueue(message);while(deferredReminders.Count>20)deferredReminders.Dequeue();}});
+            alarms.Resume+=()=>Ui(()=>{pets.ResumeSpeech();Post(new{type="resume"});});
+            alarms.Error+=Log;
+            popup.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
+            popup.CloseAll+=()=>alarms.Acknowledge(null);
+            pets.Acknowledge+=id=>alarms.Acknowledge(id);
+            pets.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
+            pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)Post(new{type="open-event",eventId=id,startDate=date});};
+            store.Changed+=()=>{if(Visible&&WindowState!=FormWindowState.Minimized)Post(new{type="state-changed"});};
+        }
+        void RouteAlarms(List<Alarm> list,bool fresh,bool force) {
+            bool show=(store.Snapshot.settings.desktopPopups||force)&&list.Count>0;
+            if(pets.CanNotify){popup.Hide();pets.Deliver(show?list:new List<Alarm>());}
+            else {pets.Deliver(new List<Alarm>());if(show)popup.UpdateAlarms(list,fresh);else popup.Hide();}
+            if(show&&fresh&&store.Snapshot.settings.notificationSound)try{sound.Play();}catch{}
+        }
+        void Ui(Action action){if(IsDisposed||exiting)return;try{if(InvokeRequired)BeginInvoke(action);else action();}catch(InvalidOperationException){}}
+        void Post(object value){if(web.CoreWebView2!=null&&!exiting&&Visible&&WindowState!=FormWindowState.Minimized)web.CoreWebView2.PostWebMessageAsJson(Codec.Json(value));}
+        void Log(Exception e){try{File.AppendAllText(Path.Combine(store.DirectoryPath,"desktop-errors.log"),DateTime.UtcNow.ToString("o")+" "+e+Environment.NewLine,Encoding.UTF8);}catch{}}
+        void FitHostToScreen(){
+            if(WindowState!=FormWindowState.Normal)return;
+            var area=Screen.FromControl(this).WorkingArea;
+            MinimumSize=new Size(Math.Min(area.Width,DesktopTheme.Px(this,800)),Math.Min(area.Height,DesktopTheme.Px(this,600)));
+            int width=Math.Min(Width,area.Width),height=Math.Min(Height,area.Height);
+            Bounds=new Rectangle(Math.Max(area.Left,Math.Min(Left,area.Right-width)),Math.Max(area.Top,Math.Min(Top,area.Bottom-height)),width,height);
+        }
+        void ShapeHost(){DesktopTheme.ShapeWindow(this,18,WindowState!=FormWindowState.Normal);}
+        void DisableNativeFrame(){int disabled=1;DwmSetWindowAttribute(Handle,2,ref disabled,sizeof(int));}
+        protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);DisableNativeFrame();ShapeHost();}
+        protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);ShapeHost();if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(FitHostToScreen));}
+        protected override async void OnShown(EventArgs e) {
+            base.OnShown(e);FitHostToScreen();if(initialized)return;initialized=true;
+            try {
+                Directory.CreateDirectory(profile);
+                var env=await CoreWebView2Environment.CreateAsync(null,profile,null);await web.EnsureCoreWebView2Async(env);
+                await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.petCalendarDesktop=true;window.qaErrors=[];addEventListener('error',e=>qaErrors.push(e.message));addEventListener('unhandledrejection',e=>qaErrors.push(String(e.reason)));");
+                web.CoreWebView2.Settings.AreDefaultContextMenusEnabled=false;
+                web.CoreWebView2.Settings.AreDevToolsEnabled=automation;
+                web.CoreWebView2.Settings.IsNonClientRegionSupportEnabled=true;
+                web.CoreWebView2.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
+                web.CoreWebView2.WebResourceRequested+=ResourceRequested;
+                web.CoreWebView2.NewWindowRequested+=delegate(object sender,CoreWebView2NewWindowRequestedEventArgs args){args.Handled=true;};
+                web.CoreWebView2.NavigationStarting+=delegate(object sender,CoreWebView2NavigationStartingEventArgs args){if(!args.Uri.StartsWith(Origin+"/",StringComparison.Ordinal))args.Cancel=true;};
+                web.CoreWebView2.WindowCloseRequested+=delegate{Hide();};
+                if(automation)web.CoreWebView2.DownloadStarting+=delegate(object sender,CoreWebView2DownloadStartingEventArgs args){string downloads=Path.Combine(profile,"downloads");Directory.CreateDirectory(downloads);args.ResultFilePath=Path.Combine(downloads,Path.GetFileName(args.ResultFilePath));args.Handled=true;};
+                web.CoreWebView2.WebMessageReceived+=delegate(object sender,CoreWebView2WebMessageReceivedEventArgs args){
+                    if(args.Source!=Origin+"/"&&args.Source!=Origin+"/index.html")return;
+                    try{var message=Codec.Object(args.WebMessageAsJson);if((string)message["type"]=="desktop-ready"){alarms.ImportLegacy(message["legacyReminders"] as string??"{}");ready=true;widget.Restore();pets.Restore();alarms.Restore();PublishWindowState();Reply(new{kind="ready",pid=Process.GetCurrentProcess().Id,elapsedMs=(DateTime.UtcNow-started).TotalMilliseconds});}else if((string)message["type"]=="window-action")WindowAction(message.ContainsKey("action")?message["action"] as string:"");}catch(Exception error){Log(error);}
+                };
+                try{await ApplyHotkey(store.Snapshot.settings.hotkey);}catch(Exception error){hotkeyError=error.Message;Log(error);}
+                web.Source=new Uri(Origin+"/");
+            }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"업무 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
+        }
+        async void ResourceRequested(object sender,CoreWebView2WebResourceRequestedEventArgs args) {
+            var deferral=args.GetDeferral();
+            try {
+                Uri uri=new Uri(args.Request.Uri);
+                if(uri.GetLeftPart(UriPartial.Authority)!=Origin){args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(),403,"Forbidden","");return;}
+                if(uri.AbsolutePath.StartsWith("/api/",StringComparison.Ordinal)) {
+                    string body="";if(args.Request.Content!=null)using(var reader=new StreamReader(args.Request.Content,Encoding.UTF8))body=await reader.ReadToEndAsync();
+                    string marker=args.Request.Headers.Contains("X-Calendar-Request")?args.Request.Headers.GetHeader("X-Calendar-Request"):"";
+                    bool force=args.Request.Headers.Contains("X-Calendar-Hotkey-Apply")&&args.Request.Headers.GetHeader("X-Calendar-Hotkey-Apply")=="1";
+                    var response=await Api(args.Request.Method,uri.PathAndQuery,body,marker,force);
+                    args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(response.body))),response.status,response.status==200?"OK":"Error","Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store");
+                }else {
+                    byte[] content;bool exists=assets.TryGetValue(uri.AbsolutePath,out content);
+                    string mime=uri.AbsolutePath.EndsWith(".mjs")?"text/javascript":uri.AbsolutePath.EndsWith(".css")?"text/css":uri.AbsolutePath.EndsWith(".svg")?"image/svg+xml":"text/html";
+                    args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(content??new byte[0]),exists?200:404,exists?"OK":"Not Found","Content-Type: "+mime+"; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\nX-Content-Type-Options: nosniff");
+                }
+            }catch(Exception error){Log(error);args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(new{error=error.Message}))),500,"Error","Content-Type: application/json; charset=utf-8");}
+            finally{deferral.Complete();}
+        }
+        public object HotkeyStatus(){return new{available=true,active=registered.enabled,error=hotkeyError,label=Rules.HotkeyLabel(store.Snapshot.settings.hotkey),pid=Process.GetCurrentProcess().Id,tray=tray.Visible,windowReady=ready};}
+        Task ApplyHotkey(Hotkey next) {
+            Rules.ValidateHotkey(next);
+            if(Codec.Json(next)==Codec.Json(registered)&&hotkeyError=="")return Task.FromResult(0);
+            Hotkey previous=registered;
+            if(previous.enabled)UnregisterHotKey(Handle,HotkeyId);
+            if(next.enabled&&!RegisterHotKey(Handle,HotkeyId,(uint)next.modifiers|0x4000,(uint)next.key)) {
+                if(previous.enabled)RegisterHotKey(Handle,HotkeyId,(uint)previous.modifiers|0x4000,(uint)previous.key);
+                hotkeyError="이 단축키는 다른 프로그램에서 사용 중이거나 Windows에서 허용하지 않습니다. 다른 키를 선택해 주세요.";
+                throw new AppError(422,hotkeyError);
+            }
+            registered=new Hotkey{enabled=next.enabled,modifiers=next.modifiers,key=next.key};hotkeyError="";return Task.FromResult(0);
+        }
+        public async Task<ApiResponse> Api(string method,string path,string body,string marker="1",bool force=false) {
+            try {
+                if(exiting)throw new AppError(503,"캘린더를 종료하고 있습니다.");
+                if(method!="GET"&&marker!="1")throw new AppError(403,"올바르지 않은 저장 요청입니다.");
+                if(method=="GET"&&path=="/api/state")return new ApiResponse(200,store.Snapshot);
+                if(method=="PUT"&&path=="/api/state")return new ApiResponse(200,await store.Save(body,ApplyHotkey,force));
+                if(method=="GET"&&path=="/api/hotkey")return new ApiResponse(200,HotkeyStatus());
+                if(method=="GET"&&path=="/api/pets")return new ApiResponse(200,pets.Inspect());
+                if(method=="POST"&&path=="/api/pets") {
+                    var request=Codec.Object(body);string action=request.ContainsKey("action")?request["action"] as string:"";
+                    if(action=="enable")pets.SetEnabled(true);
+                    else if(action=="disable")pets.SetEnabled(false);
+                    else if(action=="spawn")pets.Add(request.ContainsKey("species")?request["species"] as string:"cat");
+                    else if(action=="home")pets.Home();
+                    else if(action=="rename") {
+                        object window,name;if(!request.TryGetValue("window",out window)||!(window is int||window is long)||!request.TryGetValue("name",out name)||!(name is string))throw new AppError(400,"펫과 이름을 확인해 주세요.");
+                        pets.Rename(Convert.ToInt64(window),(string)name);
+                    }
+                    else if(action=="configureSpeech")pets.ConfigureSpeech(request);
+                    else if(action=="configureChatter")pets.ConfigureChatter(request);
+                    else if(action=="preview")pets.Announce();
+                    else throw new AppError(400,"데스크톱 펫 동작을 확인해 주세요.");
+                    return new ApiResponse(200,pets.Inspect());
+                }
+                if(method=="GET"&&path=="/api/widget")return new ApiResponse(200,widget.Inspect());
+                if(method=="POST"&&path=="/api/widget"){
+                    var request=Codec.Object(body);string action=request.ContainsKey("action")?request["action"] as string:"";
+                    if(action=="show")widget.ShowWidget();else if(action=="hide")widget.HideWidget();else if(action=="configure"){
+                        if((request.ContainsKey("topmost")&&!(request["topmost"] is bool))||(request.ContainsKey("locked")&&!(request["locked"] is bool))||(request.ContainsKey("showDday")&&!(request["showDday"] is bool)))throw new AppError(400,"위젯 설정을 확인해 주세요.");
+                        widget.Configure(request.ContainsKey("topmost")?(bool?)request["topmost"]:null,request.ContainsKey("locked")?(bool?)request["locked"]:null,request.ContainsKey("showDday")?(bool?)request["showDday"]:null);
+                    }else throw new AppError(400,"위젯 동작을 확인해 주세요.");return new ApiResponse(200,widget.Inspect());
+                }
+                if(method=="GET"&&path=="/api/health")return new ApiResponse(200,new{app="pet-calendar-desktop-v2",pid=Process.GetCurrentProcess().Id});
+                if(method=="POST"&&path=="/api/desktop/notification-test"){alarms.Test();return new ApiResponse(200,new{ok=true});}
+                if(method=="POST"&&path=="/api/window/show"){ShowCalendar();return new ApiResponse(200,new{ok=true});}
+                if(method=="POST"&&(path=="/api/lifecycle?action=exit"||path=="/api/lifecycle?action=restart")){BeginInvoke(new Action(async delegate{await Shutdown(path.EndsWith("restart"));}));return new ApiResponse(200,new{ok=true});}
+                throw new AppError(404,"페이지를 찾을 수 없습니다.");
+            }catch(AppError error){return new ApiResponse(error.Status,new{error=error.Message});}
+            catch(Exception error){Log(error);return new ApiResponse(500,new{error="저장하지 못했습니다. 입력 내용을 유지했습니다. "+error.Message});}
+        }
+        // Stop hidden DOM work and request lower WebView memory use while
+        // retaining the document and any unfinished editor draft.
+        int visibilityGeneration;bool? webShown;
+        async void SyncWebVisibility(){
+            if(web==null||web.CoreWebView2==null||exiting)return;
+            bool visible=Visible&&WindowState!=FormWindowState.Minimized;if(webShown==visible)return;webShown=visible;int generation=++visibilityGeneration;
+            try{
+                if(visible){web.CoreWebView2.MemoryUsageTargetLevel=CoreWebView2MemoryUsageTargetLevel.Normal;web.Visible=true;await web.CoreWebView2.ExecuteScriptAsync("window.petCalendarVisibility?.(true)");}
+                else {await web.CoreWebView2.ExecuteScriptAsync("window.petCalendarVisibility?.(false)");if(generation!=visibilityGeneration)return;web.Visible=false;web.CoreWebView2.MemoryUsageTargetLevel=CoreWebView2MemoryUsageTargetLevel.Low;}
+            }catch(Exception error){if(!exiting&&!IsDisposed)Log(error);}
+        }
+        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);SyncWebVisibility();}
+        public void ShowCalendar(){Show();if(WindowState==FormWindowState.Minimized)SetWindowMode(FormWindowState.Normal);Activate();if(!SetForegroundWindow(Handle)){uint process;uint foreground=GetWindowThreadProcessId(GetForegroundWindow(),out process),own=GetCurrentThreadId();bool attached=foreground!=0&&foreground!=own&&AttachThreadInput(own,foreground,true);try{SetForegroundWindow(Handle);}finally{if(attached)AttachThreadInput(own,foreground,false);}}web.Focus();Post(new{type="resume"});while(deferredReminders.Count>0){var reminder=deferredReminders.Dequeue();if(!pets.CanNotify||!store.Snapshot.settings.desktopPopups)Post(reminder);}}
+        public void Toggle(){if(Visible&&GetForegroundWindow()==Handle&&WindowState!=FormWindowState.Minimized)Hide();else ShowCalendar();}
+        public void ShowWidget(){widget.ShowWidget();}
+        void PublishWindowState(){if(ready)Post(new{type="window-state",maximized=WindowState==FormWindowState.Maximized});}
+        void SetWindowMode(FormWindowState mode){
+            if(WindowState==FormWindowState.Normal)windowRestoreBounds=Bounds;
+            WindowState=mode;
+            // WinForms adds the native sizing frame to restored client bounds;
+            // our frame is inside the client, so retain the original outer size.
+            if(mode==FormWindowState.Normal&&!windowRestoreBounds.IsEmpty){Bounds=windowRestoreBounds;FitHostToScreen();}
+            PublishWindowState();
+        }
+        void WindowAction(string action){
+            if(action=="minimize")SetWindowMode(FormWindowState.Minimized);
+            else if(action=="maximize"){MaximizedBounds=Screen.FromControl(this).WorkingArea;SetWindowMode(WindowState==FormWindowState.Maximized?FormWindowState.Normal:FormWindowState.Maximized);}
+            else if(action=="close")Close();
+            PublishWindowState();
+        }
+        protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);ShapeHost();PublishWindowState();SyncWebVisibility();}
+        public async Task Shutdown(bool restart){if(exiting)return;exiting=true;menu.Enabled=false;await store.Drain();widget.Stop();pets.Stop();alarms.Dispose();popup.Dispose();tray.Visible=false;if(registered.enabled)UnregisterHotKey(Handle,HotkeyId);if(ExitRequested!=null)ExitRequested(restart);Close();}
+        protected override void OnPaintBackground(PaintEventArgs e){DesktopTheme.PaintWindow(this,e.Graphics,18,WindowState!=FormWindowState.Normal);}
+        protected override void WndProc(ref Message message){
+            if(message.Msg==0x0312&&message.WParam.ToInt32()==HotkeyId){Toggle();return;}
+            if(message.Msg==0x031e){base.WndProc(ref message);DisableNativeFrame();return;}
+            if(message.Msg==0x0085){message.Result=IntPtr.Zero;return;}
+            if(message.Msg==0x0086){message.Result=new IntPtr(1);return;}
+            if(message.Msg==0x00a3&&message.WParam.ToInt64()==2){WindowAction("maximize");return;}
+            if(message.Msg==0x0112){
+                long command=message.WParam.ToInt64()&0xfff0;
+                if(command==0xf030){MaximizedBounds=Screen.FromControl(this).WorkingArea;SetWindowMode(FormWindowState.Maximized);return;}
+                if(command==0xf020){SetWindowMode(FormWindowState.Minimized);return;}
+                if(command==0xf120&&WindowState!=FormWindowState.Normal){SetWindowMode(FormWindowState.Normal);return;}
+            }
+            // Keep WS_THICKFRAME for Windows sizing/snap without drawing its
+            // empty non-client frame. The small paper margin supplies resize hits.
+            if(message.Msg==0x0083){message.Result=IntPtr.Zero;return;}
+            if(message.Msg==0x0084){
+                base.WndProc(ref message);
+                long packed=message.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));int edge=DesktopTheme.Px(this,6);
+                int corner=DesktopTheme.Px(this,22);
+                if(p.Y>=0&&p.Y<Padding.Top&&p.X>=corner&&p.X<ClientSize.Width-corner){message.Result=new IntPtr(2);return;}
+                if(WindowState==FormWindowState.Maximized)return;
+                bool left=p.X<edge,right=p.X>=ClientSize.Width-edge,top=p.Y<edge,bottom=p.Y>=ClientSize.Height-edge;
+                if(left||right||top||bottom)message.Result=new IntPtr(top?(left?13:right?14:12):bottom?(left?16:right?17:15):left?10:11);
+                return;
+            }
+            base.WndProc(ref message);
+        }
+        protected override void OnFormClosing(FormClosingEventArgs e){if(!exiting&&e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();return;}base.OnFormClosing(e);}
+        protected override void Dispose(bool disposing){if(disposing){pets.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();web.Dispose();}base.Dispose(disposing);}
+        public void Reply(object value){if(AutomationReply!=null)AutomationReply(value);}
+        public async void Command(Dictionary<string,object> request) {
+            object id=request.ContainsKey("id")?request["id"]:null;
+            try {
+                string action=(string)request["action"];
+                if(action=="api"){var result=await Api((string)request["method"],(string)request["path"],request.ContainsKey("body")?Codec.Json(request["body"]):"",request.ContainsKey("marker")?(string)request["marker"]:"1",request.ContainsKey("force")&&(bool)request["force"]);Reply(new{id=id,ok=true,status=result.status,body=result.body});return;}
+                if(action=="evaluate"){Reply(new{id=id,ok=true,result=await web.ExecuteScriptAsync((string)request["script"])});return;}
+                if(action=="devtools"){Reply(new{id=id,ok=true,result=await web.CoreWebView2.CallDevToolsProtocolMethodAsync((string)request["method"],request.ContainsKey("parameters")?Codec.Json(request["parameters"]):"{}")});return;}
+                if(action=="widget"){
+                    string command=request.ContainsKey("command")?(string)request["command"]:"inspect";
+                    if(command=="select")widget.SelectDate((string)request["date"]);
+                    else if(command=="complete")await widget.Complete((string)request["key"]);
+                    else if(command=="bounds")widget.Bounds=new Rectangle(Convert.ToInt32(request["x"]),Convert.ToInt32(request["y"]),Convert.ToInt32(request["width"]),Convert.ToInt32(request["height"]));
+                    else if(command=="close")widget.Close();
+                    else if(command=="click")widget.ClickButton((string)request["name"]);
+                    else if(command=="calendar-click")widget.ClickCalendar(new Point(Convert.ToInt32(request["x"]),Convert.ToInt32(request["y"])),request.ContainsKey("twice")&&(bool)request["twice"]);
+                    else if(command=="capture")widget.CaptureImage((string)request["path"]);
+                    else if(command=="layout"){Reply(new{id=id,ok=true,layout=widget.InspectLayout()});return;}
+                    Reply(new{id=id,ok=true,widget=widget.Inspect()});return;
+                }
+                if(action=="pets-speech"){
+                    pets.SpeechCommand(request.ContainsKey("command")?request["command"] as string:"",request.ContainsKey("utc")?request["utc"] as string:null,request.ContainsKey("path")?request["path"] as string:null);
+                    Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;
+                }
+                if(action=="pets-send"){pets.SendUnnamed();Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
+                if(action=="pets-inspect"){Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
+                if(action=="inspect"){IntPtr appId;GetCurrentProcessExplicitAppUserModelID(out appId);string identity=Marshal.PtrToStringUni(appId);Marshal.FreeCoTaskMem(appId);var processes=web.CoreWebView2.Environment.GetProcessInfos().Select(p=>p.ProcessId).Concat(new[]{Process.GetCurrentProcess().Id}).Distinct().ToArray();Reply(new{id=id,ok=true,visible=IsWindowVisible(Handle),window=Handle.ToInt64(),tray=tray.Visible,ready=ready,memoryUsageTarget=web.CoreWebView2.MemoryUsageTargetLevel.ToString(),applicationId=identity,executable=Application.ExecutablePath,processIds=processes,pending=alarms.Pending(),popupVisible=popup.Visible,popupWindow=popup.Handle.ToInt64(),popupMonitor=popup.MonitorName,soundBatches=alarms.SoundBatches});return;}
+                if(action=="show")ShowCalendar();else if(action=="hide")Hide();else if(action=="close-window")Close();
+                else if(action=="menu"){string item=(string)request["item"];if(item=="show")ShowCalendar();else{Reply(new{id=id,ok=true});await Shutdown(item=="restart");return;}}
+                else if(action=="alarm-check")alarms.CheckAt(DateTime.Parse((string)request["now"],null,DateTimeStyles.RoundtripKind).ToUniversalTime());
+                else if(action=="alarm-ack")alarms.Acknowledge(request.ContainsKey("alarmId")?request["alarmId"] as string:null);
+                else if(action=="capture"){using(var output=File.Create((string)request["path"]))await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png,output);}
+                else if(action=="popup-layout"){Reply(new{id=id,ok=true,layout=popup.InspectLayout()});return;}
+                else if(action=="capture-popup"){using(var image=new Bitmap(popup.Width,popup.Height)){popup.DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));image.Save((string)request["path"]);}}
+                else if(action=="exit"){Reply(new{id=id,ok=true});await Shutdown(false);return;}
+                else throw new AppError(400,"지원하지 않는 명령입니다.");
+                Reply(new{id=id,ok=true});
+            }catch(Exception error){Reply(new{id=id,ok=false,error=error.Message});}
+        }
+    }
+}

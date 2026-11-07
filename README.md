@@ -4,10 +4,6 @@
 
 ## 화면
 
-펫들이 바탕화면과 창 위를 돌아다니며 캘린더와 함께합니다.
-
-![바탕화면과 창 위를 돌아다니는 펫들](docs/screenshots/pets-on-desktop.png)
-
 ![펫 캘린더](docs/screenshots/calendar.png)
 
 | 바탕화면 위젯 | 펫 말풍선 |
@@ -21,6 +17,10 @@
 ![펫 7종과 색상별 모습](docs/screenshots/pet-colors.png)
 
 이미지는 실제 펫 렌더러로 그린 색상별 정지 화면입니다. 앱에서는 걷기·점프와 같은 동작을 볼 수 있습니다.
+
+펫들이 바탕화면과 창 위를 돌아다니며 캘린더와 함께합니다.
+
+![바탕화면과 창 위를 돌아다니는 펫들](docs/screenshots/pets-on-desktop.png)
 
 ## 주요 기능
 

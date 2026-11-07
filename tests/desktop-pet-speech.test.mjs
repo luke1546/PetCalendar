@@ -23,7 +23,7 @@ test('데스크톱 펫: 정기 일정 안내·설정 저장·알림 우선·확�
  try {
   await app.ready;
   assert.equal(await app.js('document.querySelector("#petSettings summary").textContent'),'데스크톱 펫');
-  assert.equal((await app.api('GET','/api/pets')).body.summaryIntervalMinutes,10);
+  assert.equal((await app.api('GET','/api/pets')).body.summaryIntervalMinutes,3);
   assert.equal((await app.api('GET','/api/pets')).body.chatterEnabled,true,'old preferences keep chatter enabled');
   for(const invalid of ['false',null,0])assert.equal((await app.api('POST','/api/pets',{action:'configureChatter',chatterEnabled:invalid})).status,400);
   assert.equal((await app.api('POST','/api/pets',{action:'configureChatter',chatterEnabled:false},{marker:''})).status,403);

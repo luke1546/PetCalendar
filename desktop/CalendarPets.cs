@@ -10,7 +10,7 @@ using DesktopPet;
 
 namespace PetCalendarDesktop {
     public sealed class PetRecord {public string species="cat",palette="치즈",name="";}
-    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=10;public PetRecord[] pets=new PetRecord[0];}
+    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];}
 
     // The engine runs on the existing calendar UI thread. No extra process, tray or browser.
     internal sealed class CalendarPets : IDisposable {
@@ -39,7 +39,7 @@ namespace PetCalendarDesktop {
             try {preferences=File.Exists(path)?Codec.Read<PetPreferences>(File.ReadAllText(path)):new PetPreferences();}
             catch(Exception e) {log(e);preferences=new PetPreferences();}
             if(preferences==null)preferences=new PetPreferences();
-            if(preferences.summaryIntervalMinutes<1||preferences.summaryIntervalMinutes>1440)preferences.summaryIntervalMinutes=10;
+            if(preferences.summaryIntervalMinutes<1||preferences.summaryIntervalMinutes>1440)preferences.summaryIntervalMinutes=3;
             speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log);
             preferences.pets=(preferences.pets??new PetRecord[0]).Where(p=>p!=null&&Species.Find(p.species)!=null).Take(256).ToArray();
             previousLoader=Sprites.ResourceOpen;previousSettings=PetHost.SettingsDirectory;previousPrefix=PetHost.WindowPrefix;previousClose=PetHost.CloseAllLabel;previousNoun=PetMenu.Noun;PetMenu.Noun="펫";

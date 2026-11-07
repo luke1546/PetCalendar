@@ -23,7 +23,7 @@ namespace PetCalendarDesktop {
         Alarm current;
         DateTime expires,lastTick,manualUntil;
         bool running,summaryEnabled=true,chatterEnabled=true,manual;
-        int minutes=10,speakerIndex;
+        int minutes=3,speakerIndex;
         internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error) {
             pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;
             timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);ClearBubble();}};

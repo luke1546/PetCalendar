@@ -4,13 +4,15 @@
 
 ## 화면
 
+펫들이 바탕화면과 창 위를 돌아다니며 캘린더와 함께합니다.
+
+![바탕화면과 창 위를 돌아다니는 펫들](docs/screenshots/pets-on-desktop.png)
+
 ![펫 캘린더](docs/screenshots/calendar.png)
 
 | 바탕화면 위젯 | 펫 말풍선 |
 | --- | --- |
 | ![위젯](docs/screenshots/widget.png) | ![펫 말풍선](docs/screenshots/pet-bubble.png) |
-
-스크린샷에는 설명을 위한 예시 일정만 사용했습니다.
 
 ### 데스크톱 펫 7종
 

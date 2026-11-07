@@ -1,7 +1,7 @@
 ﻿Unicode true
 !include MUI2.nsh
 !include FileFunc.nsh
-!define VERSION "2.6.3"
+!define VERSION "2.6.4"
 !ifndef APP_DIRECTORY
   !define APP_DIRECTORY "..\dist\app"
 !endif
@@ -21,10 +21,10 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "업무 캘린더"
 Icon "..\calendar.ico"
-VIProductVersion "2.6.3.0"
+VIProductVersion "2.6.4.0"
 VIAddVersionKey /LANG=1042 "ProductName" "업무 캘린더"
 VIAddVersionKey /LANG=1042 "FileDescription" "업무 캘린더 설치"
-VIAddVersionKey /LANG=1042 "FileVersion" "2.6.3.0"
+VIAddVersionKey /LANG=1042 "FileVersion" "2.6.4.0"
 VIAddVersionKey /LANG=1042 "LegalCopyright" "PetCalendar"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\PetCalendar.exe"

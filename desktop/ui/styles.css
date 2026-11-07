@@ -200,3 +200,10 @@ input[type=checkbox]:disabled{opacity:.5;cursor:default}
 .day-event-card:hover{background:var(--event-light)}
 .day-event-card .event-check{margin:0 10px;flex-shrink:0}
 .day-event-card .day-event,.day-event-card .day-event:hover{border:0;border-radius:0;background:transparent;padding:12px 12px 12px 0;margin:0}
+
+/* Place schedule actions inside the card without nesting interactive controls. */
+.day-event-actions{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex-shrink:0;padding:4px 6px 4px 2px}
+.day-event-actions .dday-pick,.day-event-actions .event-delete{display:grid;place-items:center;width:26px;height:26px;margin:0;padding:4px;border:1px solid transparent;border-radius:6px;background:transparent;color:#ae9d7f;line-height:1}
+.day-event-actions .dday-pick svg,.day-event-actions .event-delete svg{width:14px;height:14px}
+.day-event-actions .dday-pick:hover,.day-event-actions .dday-pick.chosen{background:var(--rose);color:#a13e58;border-color:#e5adbc}
+.day-event-actions .event-delete:hover{background:#ffe8dd;color:#b34d35;border-color:#edc3ae}

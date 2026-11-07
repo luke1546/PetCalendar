@@ -208,7 +208,7 @@ function renderDay() {
   const items=selectedRows();
   $('dayEvents').innerHTML=items.length?items.slice(0,limits.day).map(o=>{
     const e=o.event, isMulti=o.startDate!==o.endDate;
-    return `<div class="day-event-row ${isEventDone(e,o.startDate)?'done':''}"><div class="day-event-card" style="${styles(e.category)}">${eventCheckbox(o)}<button class="day-event" data-event="${esc(e.id)}" data-event-date="${o.startDate}" style="${styles(e.category)}"><div class="day-event-top"><span>${e.startTime?esc(e.startTime)+(e.endTime?' – '+esc(e.endTime):''):'종일'}</span><span>${CATEGORIES[e.category].label}${isDdayOccurrence(o)?' · D-day':''}</span></div><h3>${esc(e.title)}</h3>${e.note?`<p>${esc(e.note)}</p>`:''}${isMulti||e.repeat!=='none'?`<div class="event-meta">${isMulti?`${formatDay(o.startDate,{month:'numeric',day:'numeric'})} – ${formatDay(o.endDate,{month:'numeric',day:'numeric'})}`:''}${e.repeat!=='none'?` ${icon('repeat')} ${repeatLabel(e.repeat)}`:''}</div>`:''}</button></div><button class="dday-pick ${isDdayOccurrence(o)?'chosen':''}" data-dday="${esc(e.id)}" data-dday-date="${o.startDate}" aria-pressed="${isDdayOccurrence(o)}" aria-label="${esc(e.title)} · ${formatDay(o.startDate)} ${isDdayOccurrence(o)?'D-day 선택 해제':'D-day로 선택'}" title="${isDdayOccurrence(o)?'다시 누르면 D-day 선택 해제':'이 일정을 D-day로 선택'}">${icon('flag')}</button></div>`;
+    return `<div class="day-event-row ${isEventDone(e,o.startDate)?'done':''}"><div class="day-event-card" style="${styles(e.category)}">${eventCheckbox(o)}<button class="day-event" data-event="${esc(e.id)}" data-event-date="${o.startDate}" style="${styles(e.category)}"><div class="day-event-top"><span>${e.startTime?esc(e.startTime)+(e.endTime?' – '+esc(e.endTime):''):'종일'}</span><span>${CATEGORIES[e.category].label}${isDdayOccurrence(o)?' · D-day':''}</span></div><h3>${esc(e.title)}</h3>${e.note?`<p>${esc(e.note)}</p>`:''}${isMulti||e.repeat!=='none'?`<div class="event-meta">${isMulti?`${formatDay(o.startDate,{month:'numeric',day:'numeric'})} – ${formatDay(o.endDate,{month:'numeric',day:'numeric'})}`:''}${e.repeat!=='none'?` ${icon('repeat')} ${repeatLabel(e.repeat)}`:''}</div>`:''}</button><div class="day-event-actions"><button class="dday-pick ${isDdayOccurrence(o)?'chosen':''}" data-dday="${esc(e.id)}" data-dday-date="${o.startDate}" aria-pressed="${isDdayOccurrence(o)}" aria-label="${esc(e.title)} · ${formatDay(o.startDate)} ${isDdayOccurrence(o)?'D-day 선택 해제':'D-day로 선택'}" title="${isDdayOccurrence(o)?'다시 누르면 D-day 선택 해제':'이 일정을 D-day로 선택'}">${icon('flag')}</button><button class="event-delete" data-delete-event="${esc(e.id)}" aria-label="${esc(e.title)} 일정 삭제" title="일정 삭제">${icon('trash')}</button></div></div></div>`;
   }).join(''):`<div class="empty-day"><div class="empty-drawing">${icon('calendar')}</div><strong>${filter!=='all'||search?'조건에 맞는 일정이 없어요':'아직은 비어 있는 하루'}</strong><p>${filter!=='all'||search?'다른 분류나 검색어를 확인해 보세요.':'새로운 계획을 하나 적어볼까요?'}</p><button data-new="${selected}">+ 일정 추가하기</button></div>`;
   $('dayEvents').insertAdjacentHTML('beforeend',moreRows('day',items.length));
 }
@@ -351,6 +351,7 @@ function tick() {
 document.addEventListener('click',event=>{
   const page=event.target.closest('[data-page]');if(page){const scope=page.dataset.page,container=page.parentElement,offset=container.scrollTop;limits[scope]+=pageSizes[scope];({search:renderCalendar,day:renderDay,tasks:renderTasks,dday:renderDdayChoices})[scope]();container.scrollTop=offset;container.querySelector('[data-page]')?.focus({preventScroll:true});return;}
   const target=event.target.closest('[data-close]');if(target)closeDialog(target.dataset.close);
+  const remove=event.target.closest('[data-delete-event]');if(remove){deleteSchedule(remove.dataset.deleteEvent);return;}
   const pin=event.target.closest('[data-dday]');if(pin){chooseDday(pin.dataset.dday,pin.dataset.ddayDate,pin.classList.contains('dday-pick'));return;}
   const item=event.target.closest('[data-event]');if(item){openEvent(item.dataset.event,item.dataset.eventDate||selected);return;}
   const add=event.target.closest('[data-new]');if(add){selected=add.dataset.new;month=selected.slice(0,7);render();openEvent();return;}
@@ -418,11 +419,12 @@ $('eventForm').onsubmit=async event=>{
   if(success){$('eventDialog').close();toast(editingId?'일정을 수정했어요':'새 일정을 적어두었어요',item.title);}
   else $('eventError').textContent=$('errorText').textContent;
 };
-$('deleteEvent').onclick=async()=>{
-  const e=state.events.find(e=>e.id===editingId);if(!e)return;
+async function deleteSchedule(id,closeEditor=false){
+  const e=state.events.find(item=>item.id===id);if(!e)return;
   if(!await confirmAction(e.repeat!=='none'?'반복 일정을 삭제할까요?':'일정을 삭제할까요?',`‘${e.title}’${e.repeat!=='none'?'의 전체 반복 일정이 삭제됩니다.':' 일정을 삭제합니다.'}`,'삭제'))return;
-  if(await commit(s=>{s.events=s.events.filter(item=>item.id!==e.id);})){ $('eventDialog').close();toast('일정을 삭제했어요',e.title); }
-};
+  if(await commit(s=>{s.events=s.events.filter(item=>item.id!==e.id);})){if(closeEditor)$('eventDialog').close();toast('일정을 삭제했어요',e.title);}
+}
+$('deleteEvent').onclick=()=>deleteSchedule(editingId,true);
 $('duplicateEvent').onclick=()=>openEvent(editingId,selected,true);
 $('taskForm').onsubmit=async event=>{
   event.preventDefault();const title=$('taskTitle').value.trim();if(!title)return;

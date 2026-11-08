@@ -111,7 +111,7 @@ Section "펫 캘린더" Main
   File /r "${APP_DIRECTORY}\*.*"
   ExecWait '"$Staged\PetCalendar.exe" --data-dir "$DataDir" --validate-install --silent' $0
   StrCmp $0 0 +3
-    MessageBox MB_OK|MB_ICONSTOP "필수 실행 구성 요소를 확인하지 못했습니다. Microsoft Edge WebView2 Runtime 설치 상태를 확인해 주세요." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "필수 실행 구성 요소를 확인하지 못했습니다. .NET Framework 4.8 설치 상태를 확인해 주세요." /SD IDOK
     Abort
   ExecWait '"$Staged\PetCalendar.exe" --data-dir "$DataDir" --prepare-install --silent' $0
   StrCmp $0 0 +3

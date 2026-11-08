@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
-import {executable} from './desktop-driver.mjs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+
+const root=fileURLToPath(new URL('../',import.meta.url));
+const executable=process.env.PET_CALENDAR_TEST_EXE||path.join(root,'dist/app/PetCalendar.exe');
 import {defaultState,validateState,occurrences,dday,selectedDday,reminderTime,addDays} from '../desktop/ui/model.mjs';
 const event=(id,extra={})=>({id,title:'업무 일정 '+id,startDate:'2026-01-31',endDate:'2026-01-31',startTime:'10:00',endTime:'11:00',category:'meeting',note:'회의실',repeat:'none',repeatUntil:'',reminder:10,pinned:false,pinnedDate:'',completedDates:[],excludedDates:[],...extra});
 test('기존 JavaScript와 C# 저장·반복·D-day·알림 계산 결과가 같다',async()=>{

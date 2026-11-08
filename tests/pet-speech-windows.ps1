@@ -7,9 +7,9 @@ $compile=@('/nologo','/target:exe','/platform:x64','/codepage:65001','/main:PetC
 $compile+=@('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','System.IO.Compression.dll') | ForEach-Object {'/reference:'+$_}
 foreach($file in @('Core.cs','Alarms.cs','Widget.cs','PetSchedule.cs','PetVoice.cs','PetBubble.cs','PetSpeech.cs')){$compile+=Join-Path $root ('desktop\'+$file)}
 # Widget shares the host API; use the complete host without its normal entry point.
+foreach($file in @('NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','Dialogs.cs','Settings.cs')){$compile+=Join-Path $root ('desktop\native\'+$file)}
 $compile+=Join-Path $root 'desktop\Host.cs'
 $compile+=Join-Path $root 'desktop\CalendarPets.cs'
-foreach($library in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll')){$compile+=('/reference:'+(Join-Path $root ('desktop\webview2\'+$library)))}
 foreach($file in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLoop.cs','Palettes.cs','Sprites.cs','PetMenu.cs','PetHost.cs')){$compile+=Join-Path $engine $file}
 $compile+=Join-Path $PSScriptRoot 'PetSpeechWindowsTests.cs'
 $compile+=('/resource:'+(Join-Path $root 'desktop\pets.zip')+',petcalendar.pets.zip')
@@ -17,5 +17,6 @@ $compile+=('/resource:'+(Join-Path $root 'desktop\emoji.zip')+',petcalendar.emoj
 $compile+=('/resource:'+(Join-Path $root 'desktop\ui\holidays.json')+',petcalendar.holidays.json')
 & $compiler $compile
 if($LASTEXITCODE -ne 0){throw 'Native speech test build failed'}
-& $exe (Join-Path $root 'artifacts')
+$artifacts=Join-Path $root 'artifacts';New-Item -ItemType Directory -Force -Path $artifacts | Out-Null
+& $exe $artifacts
 if($LASTEXITCODE -ne 0){throw 'Native speech checks failed'}

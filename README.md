@@ -2,6 +2,8 @@
 
 일정과 할 일을 정리하고, 데스크톱 펫과 함께하는 Windows 캘린더입니다.
 
+이 버전은 WebView2 없이 **WinForms로 직접 그리는 네이티브 캘린더 창**입니다. 디자인과 기능은 이전 웹 버전과 같고, Edge WebView2 프로세스가 더 이상 실행되지 않아 메모리 사용량이 크게 줄어듭니다. 일정·설정 데이터 형식은 그대로라 기존 사용자 데이터를 그대로 이어서 씁니다.
+
 [최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v2.7.0**
 
 이 문서는 `main` 브랜치 기준입니다. 설치 파일의 기능은 해당 [릴리스 안내](https://github.com/luke1546/PetCalendar/releases)와 함께 확인하세요.
@@ -62,7 +64,7 @@
 
 ## 실행 환경
 
-Windows x64, .NET Framework 4.8, Microsoft Edge WebView2 Runtime이 필요합니다. 일정과 설정은 사용자 PC의 `%LOCALAPPDATA%\PetCalendar\data`에 저장됩니다.
+Windows x64, .NET Framework 4.8이 필요합니다. Microsoft Edge WebView2 Runtime은 더 이상 필요하지 않습니다. 일정과 설정은 사용자 PC의 `%LOCALAPPDATA%\PetCalendar\data`에 저장됩니다.
 
 ## 소스에서 빌드
 
@@ -81,19 +83,24 @@ Windows x64, .NET Framework 4.8, Microsoft Edge WebView2 Runtime이 필요합니
 테스트는 앱을 빌드한 뒤 Windows에서 실행합니다. `.mjs` 테스트에는 Node.js도 필요합니다.
 
 ```powershell
-node --test tests/desktop-widget.test.mjs
-node --test tests/desktop-pet-speech.test.mjs
+node --test tests/native-pets-tour.test.mjs
+node --test tests/calendar.test.mjs tests/calendar-index.test.mjs tests/calendar-order-repeat.test.mjs tests/desktop-parity.test.mjs
+powershell -ExecutionPolicy Bypass -File tests/brand-migration.ps1
 powershell -ExecutionPolicy Bypass -File tests/pet-schedule.ps1
-powershell -ExecutionPolicy Bypass -File tests/pet-speech-windows.ps1
 ```
+
+펫 설정, 퀵투어 펫 추가, 재시작 보존은 `tests/native-pets-tour.test.mjs`가 앱의 자동화 명령으로 검증합니다. 브랜드 이전 규칙은 `brand-migration.ps1`이 `Core.cs`를 직접 컴파일해 검증합니다.
 
 ## 구성
 
-- `desktop/` — Windows 앱, 위젯, 펫과 화면 소스
+- `desktop/` — Windows 앱, 위젯, 펫과 호스트 소스
+- `desktop/native/` — 캘린더 창 네이티브 구현 (화면 그리기, 입력 필드, 대화상자, 설정, 일정 로직)
+- `desktop/ui/model.mjs` — 일정 계산 기준 원본(테스트가 C# 계산과 비교). `holidays.json`은 빌드에 포함되는 공휴일 자료입니다.
 - `desktop/pet-engine/` — 펫 애니메이션 및 동작 엔진
 - `desktop/pets.zip` — 앱에 포함되는 동물 이미지와 프레임 정보
 - `desktop/emoji.zip` — 말풍선에서 사용하는 컬러 이모지 이미지
 - `tests/` — 일정, 위젯, 펫과 설치 동작 검증
+- `tools/` — 공휴일 자료와 동물 이미지 팩을 만드는 스크립트
 - `docs/screenshots/` — 샘플 데이터로 촬영한 화면
 
-동물 에셋은 제작자의 `token-usage-main` 프로젝트에서 가져왔습니다. 컬러 이모지는 Twemoji를 사용하며, 출처와 라이선스는 [EMOJI-LICENSE.md](desktop/EMOJI-LICENSE.md)를 참고하세요. WebView2 구성 요소의 출처와 라이선스는 `desktop/webview2/`를 참고하세요.
+동물 에셋은 제작자의 `token-usage-main` 프로젝트에서 가져왔습니다. 컬러 이모지는 Twemoji를 사용하며, 출처와 라이선스는 [EMOJI-LICENSE.md](desktop/EMOJI-LICENSE.md)를 참고하세요.

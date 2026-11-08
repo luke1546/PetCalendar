@@ -3,19 +3,17 @@ $ErrorActionPreference='Stop'
 $calendarRoot=Split-Path $PSScriptRoot -Parent
 if(-not $OutputDirectory){$OutputDirectory=Join-Path $calendarRoot 'dist\app'}
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'public'),(Join-Path $OutputDirectory 'webview2') -Force | Out-Null
+# The native build has no web assets or WebView2; clear leftovers from older builds.
+foreach($legacy in @('public','webview2')){$legacyPath=Join-Path $OutputDirectory $legacy;if(Test-Path -LiteralPath $legacyPath){Remove-Item -LiteralPath $legacyPath -Recurse -Force}}
 Copy-Item -LiteralPath (Join-Path $calendarRoot 'calendar.ico') -Destination $OutputDirectory
-foreach($calendarAsset in @('index.html','app.mjs','model.mjs','styles.css','icon.svg','holidays.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\ui\'+$calendarAsset)) -Destination (Join-Path $OutputDirectory 'public')}
-Copy-Item -LiteralPath (Join-Path $calendarRoot 'desktop\pets-assets\meowser-atlas.png') -Destination (Join-Path $OutputDirectory 'public\tour-cat.png')
-foreach($calendarLibrary in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','LICENSE.txt','source.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\webview2\'+$calendarLibrary)) -Destination (Join-Path $OutputDirectory 'webview2')}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PetCalendar.exe.config') -Destination $OutputDirectory
 $calendarCompiler=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $calendarReferences=@('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','System.IO.Compression.dll') | ForEach-Object {'/reference:'+$_}
 $calendarArgs=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepage:65001',('/out:'+(Join-Path $OutputDirectory 'PetCalendar.exe')),('/win32icon:'+(Join-Path $calendarRoot 'calendar.ico')))+$calendarReferences+@(
  ('/win32manifest:'+(Join-Path $PSScriptRoot 'app.manifest')),
- ('/reference:'+(Join-Path $OutputDirectory 'webview2\Microsoft.Web.WebView2.Core.dll')),
- ('/reference:'+(Join-Path $OutputDirectory 'webview2\Microsoft.Web.WebView2.WinForms.dll')),
  (Join-Path $PSScriptRoot 'BrandMigration.cs'),(Join-Path $PSScriptRoot 'Core.cs'),(Join-Path $PSScriptRoot 'Alarms.cs'),(Join-Path $PSScriptRoot 'Widget.cs'),(Join-Path $PSScriptRoot 'Host.cs'),(Join-Path $PSScriptRoot 'Entry.cs'))
+# Native calendar window (replaces desktop/ui + WebView2).
+foreach($nativeFile in @('NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','Dialogs.cs','Settings.cs')){$calendarArgs+=(Join-Path $PSScriptRoot ('native\'+$nativeFile))}
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'emoji.zip')+',petcalendar.emoji.zip')
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'ui\holidays.json')+',petcalendar.holidays.json')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'EMOJI-LICENSE.md') -Destination $OutputDirectory

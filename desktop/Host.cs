@@ -10,21 +10,18 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace PetCalendarDesktop {
     public sealed class ApiResponse { public int status; public object body; public ApiResponse(int s,object b){status=s;body=b;} }
     public sealed class DesktopHost : Form {
-        public const string Origin="http://127.0.0.1:17841";
         public const string ApplicationId="PetCalendar.Desktop";
         readonly string root,profile;
         readonly bool automation;
         readonly StateStore store;
-        readonly WebView2 web=new WebView2();
+        readonly CalendarView view;
+        readonly UiPrefs prefs;
         readonly NotifyIcon tray=new NotifyIcon();
         readonly ContextMenuStrip menu=new ContextMenuStrip();
-        readonly Dictionary<string,byte[]> assets=new Dictionary<string,byte[]>();
         readonly AlarmService alarms;
         readonly AlarmPopup popup=new AlarmPopup();
         readonly SoundPlayer sound;
@@ -32,7 +29,7 @@ namespace PetCalendarDesktop {
         readonly ToolStripMenuItem widgetMenu,petToggle,petAdd;
         readonly CalendarPets pets;
         Hotkey registered=new Hotkey{enabled=false};
-        readonly Queue<object> deferredReminders=new Queue<object>();
+        readonly Queue<KeyValuePair<string,string>> deferredReminders=new Queue<KeyValuePair<string,string>>();
         string hotkeyError="";
         bool initialized,exiting,ready;
         Rectangle windowRestoreBounds;
@@ -61,45 +58,48 @@ namespace PetCalendarDesktop {
             bool freshProfile=!File.Exists(Path.Combine(dataDir,"calendar.json"))&&!File.Exists(Path.Combine(dataDir,"pets.json"));
             store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;
             pets=new CalendarPets(dataDir,()=>store.Snapshot,Log,freshProfile);
+            // The WebView build kept the tour flag in its browser profile; an
+            // existing profile means this user has already been through it.
+            prefs=new UiPrefs(dataDir,!freshProfile&&Directory.Exists(profileDir));
             AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             Text="펫 캘린더";FormBorderStyle=FormBorderStyle.None;Font=new Font("Segoe UI",10);BackColor=DesktopTheme.Paper;Padding=new Padding(6);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             var area=Screen.PrimaryScreen.WorkingArea;Size=new Size(Math.Min(1440,area.Width-40),Math.Min(1000,area.Height-40));MinimumSize=new Size(800,600);StartPosition=FormStartPosition.CenterScreen;
-            Icon=new Icon(Path.Combine(root,"calendar.ico"));web.Dock=DockStyle.Fill;Controls.Add(web);
-            widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();if(id==null)Post(new{type="new-event",startDate=date});else Post(new{type="open-event",eventId=id,startDate=date});},Log);widget.Icon=Icon;
-            foreach(string file in new[]{"index.html","app.mjs","model.mjs","styles.css","icon.svg","tour-cat.png","holidays.json"})assets["/"+file]=File.ReadAllBytes(Path.Combine(root,"public",file));
-            assets["/"]=assets["/index.html"];
+            Icon=new Icon(Path.Combine(root,"calendar.ico"));
+            view=new CalendarView(this,store,prefs){Dock=DockStyle.Fill};view.WindowAction+=WindowAction;Controls.Add(view);
+            widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();view.OpenFromHost(id,date);},Log);widget.Icon=Icon;
             menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
             widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
-            widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;Post(new{type="widget-changed"});};
+            widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;view.WidgetChanged();};
             var petMenu=new ToolStripMenuItem("데스크톱 펫");
             petToggle=new ToolStripMenuItem("데스크톱 펫 사용",null,delegate{try{pets.SetEnabled(!pets.Enabled);}catch(Exception error){Log(error);MessageBox.Show(this,error.Message,"데스크톱 펫");}});
             petAdd=DesktopPet.PetMenu.Add(kind=>{try{pets.Add(kind==null?"random":kind.Id);}catch(Exception error){Log(error);}});petAdd.Enabled=false;
             petMenu.DropDownItems.Add(petToggle);petMenu.DropDownItems.Add(petAdd);petMenu.DropDownItems.Add("펫 바닥으로 데려오기",null,delegate{pets.Home();});menu.Items.Add(petMenu);
-            pets.Changed+=delegate{petToggle.Checked=pets.Enabled;petAdd.Enabled=pets.Enabled;Post(new{type="pets-changed"});if(ready)RouteAlarms(alarms.Pending(),false,false);};
+            pets.Changed+=delegate{petToggle.Checked=pets.Enabled;petAdd.Enabled=pets.Enabled;view.PetsChanged();if(ready)RouteAlarms(alarms.Pending(),false,false);};
             menu.Items.Add("재시작",null,async delegate{await Shutdown(true);});menu.Items.Add("완전 종료",null,async delegate{await Shutdown(false);});
             tray.Icon=Icon;tray.Text="펫 캘린더";tray.ContextMenuStrip=menu;tray.DoubleClick+=delegate{ShowCalendar();};tray.Visible=true;
             sound=new SoundPlayer(Path.Combine(root,"notification.wav"));
             alarms=new AlarmService(store);
             alarms.Delivered+=(list,fresh,force)=>Ui(()=>RouteAlarms(list,fresh,force));
-            alarms.InApp+=(title,body)=>Ui(()=>{if(pets.CanNotify&&store.Snapshot.settings.desktopPopups)return;var message=new{type="reminder",title=title,body=body};if(Visible&&WindowState!=FormWindowState.Minimized)Post(message);else{deferredReminders.Enqueue(message);while(deferredReminders.Count>20)deferredReminders.Dequeue();}});
-            alarms.Resume+=()=>Ui(()=>{pets.ResumeSpeech();Post(new{type="resume"});});
+            alarms.InApp+=(title,body)=>Ui(()=>{if(pets.CanNotify&&store.Snapshot.settings.desktopPopups)return;var message=new KeyValuePair<string,string>(title,body);if(Visible&&WindowState!=FormWindowState.Minimized)view.Reminder(title,body);else{deferredReminders.Enqueue(message);while(deferredReminders.Count>20)deferredReminders.Dequeue();}});
+            alarms.Resume+=()=>Ui(()=>{pets.ResumeSpeech();view.Invalidate();});
             alarms.Error+=Log;
-            popup.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
+            popup.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")view.OpenFromHost(alarm.eventId,alarm.startDate);};
             popup.CloseAll+=()=>alarms.Acknowledge(null);
             popup.SnoozeAlarm+=(alarm,minutes)=>alarms.Snooze(alarm.id,minutes);
             pets.Acknowledge+=id=>alarms.Acknowledge(id);
             pets.Snooze+=(id,minutes)=>alarms.Snooze(id,minutes);
-            pets.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
-            pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)Post(new{type="open-event",eventId=id,startDate=date});};
+            pets.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")view.OpenFromHost(alarm.eventId,alarm.startDate);};
+            pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)view.OpenFromHost(id,date);};
             var previousCalendar=store.Snapshot;
             store.Changed+=()=>{
                 var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;
                 if(DesktopTheme.TextScale!=next.settings.textScale){
                     DesktopTheme.TextScale=next.settings.textScale;widget.ApplyTextScale();popup.ApplyTextScale();
                     foreach(var bubble in Application.OpenForms.OfType<PetBubble>().ToArray())bubble.ApplyTextScale();
+                    view.TextScaleChanged();
                 }
                 try{pets.CalendarChanged(before,next);}catch(Exception error){Log(error);}
-                if(Visible&&WindowState!=FormWindowState.Minimized)Post(new{type="state-changed"});
+                view.StoreChanged();
             };
         }
         void RouteAlarms(List<Alarm> list,bool fresh,bool force) {
@@ -109,7 +109,6 @@ namespace PetCalendarDesktop {
             if(show&&fresh&&store.Snapshot.settings.notificationSound)try{sound.Play();}catch{}
         }
         void Ui(Action action){if(IsDisposed||exiting)return;try{if(InvokeRequired)BeginInvoke(action);else action();}catch(InvalidOperationException){}}
-        void Post(object value){if(web.CoreWebView2!=null&&!exiting&&Visible&&WindowState!=FormWindowState.Minimized)web.CoreWebView2.PostWebMessageAsJson(Codec.Json(value));}
         void Log(Exception e){try{File.AppendAllText(Path.Combine(store.DirectoryPath,"desktop-errors.log"),DateTime.UtcNow.ToString("o")+" "+e+Environment.NewLine,Encoding.UTF8);}catch{}}
         void FitHostToScreen(){
             if(WindowState!=FormWindowState.Normal)return;
@@ -122,47 +121,14 @@ namespace PetCalendarDesktop {
         void DisableNativeFrame(){int disabled=1;DwmSetWindowAttribute(Handle,2,ref disabled,sizeof(int));}
         protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);DisableNativeFrame();ShapeHost();}
         protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);ShapeHost();if(IsHandleCreated&&!IsDisposed)BeginInvoke(new Action(FitHostToScreen));}
-        protected override async void OnShown(EventArgs e) {
+        protected override void OnShown(EventArgs e) {
             base.OnShown(e);FitHostToScreen();if(initialized)return;initialized=true;
             try {
-                Directory.CreateDirectory(profile);
-                var env=await CoreWebView2Environment.CreateAsync(null,profile,null);await web.EnsureCoreWebView2Async(env);
-                await web.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("window.petCalendarDesktop=true;window.qaErrors=[];addEventListener('error',e=>qaErrors.push(e.message));addEventListener('unhandledrejection',e=>qaErrors.push(String(e.reason)));");
-                web.CoreWebView2.Settings.AreDefaultContextMenusEnabled=false;
-                web.CoreWebView2.Settings.AreDevToolsEnabled=automation;
-                web.CoreWebView2.Settings.IsNonClientRegionSupportEnabled=true;
-                web.CoreWebView2.AddWebResourceRequestedFilter("*",CoreWebView2WebResourceContext.All);
-                web.CoreWebView2.WebResourceRequested+=ResourceRequested;
-                web.CoreWebView2.NewWindowRequested+=delegate(object sender,CoreWebView2NewWindowRequestedEventArgs args){args.Handled=true;};
-                web.CoreWebView2.NavigationStarting+=delegate(object sender,CoreWebView2NavigationStartingEventArgs args){if(!args.Uri.StartsWith(Origin+"/",StringComparison.Ordinal))args.Cancel=true;};
-                web.CoreWebView2.WindowCloseRequested+=delegate{Hide();};
-                if(automation)web.CoreWebView2.DownloadStarting+=delegate(object sender,CoreWebView2DownloadStartingEventArgs args){string downloads=Path.Combine(profile,"downloads");Directory.CreateDirectory(downloads);args.ResultFilePath=Path.Combine(downloads,Path.GetFileName(args.ResultFilePath));args.Handled=true;};
-                web.CoreWebView2.WebMessageReceived+=delegate(object sender,CoreWebView2WebMessageReceivedEventArgs args){
-                    if(args.Source!=Origin+"/"&&args.Source!=Origin+"/index.html")return;
-                    try{var message=Codec.Object(args.WebMessageAsJson);if((string)message["type"]=="desktop-ready"){alarms.ImportLegacy(message["legacyReminders"] as string??"{}");ready=true;widget.Restore();pets.Restore();alarms.Restore();PublishWindowState();Reply(new{kind="ready",pid=Process.GetCurrentProcess().Id,elapsedMs=(DateTime.UtcNow-started).TotalMilliseconds});}else if((string)message["type"]=="window-action")WindowAction(message.ContainsKey("action")?message["action"] as string:"");}catch(Exception error){Log(error);}
-                };
-                try{await ApplyHotkey(store.Snapshot.settings.hotkey);}catch(Exception error){hotkeyError=error.Message;Log(error);}
-                web.Source=new Uri(Origin+"/");
+                try{ApplyHotkey(store.Snapshot.settings.hotkey).Wait();}catch(Exception error){var inner=error is AggregateException&&error.InnerException!=null?error.InnerException:error;hotkeyError=inner.Message;Log(inner);}
+                ready=true;widget.Restore();pets.Restore();alarms.Restore();PublishWindowState();
+                Reply(new{kind="ready",pid=Process.GetCurrentProcess().Id,elapsedMs=(DateTime.UtcNow-started).TotalMilliseconds});
+                view.Focus();BeginInvoke(new Action(view.Ready));
             }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"펫 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
-        }
-        async void ResourceRequested(object sender,CoreWebView2WebResourceRequestedEventArgs args) {
-            var deferral=args.GetDeferral();
-            try {
-                Uri uri=new Uri(args.Request.Uri);
-                if(uri.GetLeftPart(UriPartial.Authority)!=Origin){args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(),403,"Forbidden","");return;}
-                if(uri.AbsolutePath.StartsWith("/api/",StringComparison.Ordinal)) {
-                    string body="";if(args.Request.Content!=null)using(var reader=new StreamReader(args.Request.Content,Encoding.UTF8))body=await reader.ReadToEndAsync();
-                    string marker=args.Request.Headers.Contains("X-Calendar-Request")?args.Request.Headers.GetHeader("X-Calendar-Request"):"";
-                    bool force=args.Request.Headers.Contains("X-Calendar-Hotkey-Apply")&&args.Request.Headers.GetHeader("X-Calendar-Hotkey-Apply")=="1";
-                    var response=await Api(args.Request.Method,uri.PathAndQuery,body,marker,force);
-                    args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(response.body))),response.status,response.status==200?"OK":"Error","Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store");
-                }else {
-                    byte[] content;bool exists=assets.TryGetValue(uri.AbsolutePath,out content);
-                    string mime=uri.AbsolutePath.EndsWith(".json")?"application/json":uri.AbsolutePath.EndsWith(".png")?"image/png":uri.AbsolutePath.EndsWith(".mjs")?"text/javascript":uri.AbsolutePath.EndsWith(".css")?"text/css":uri.AbsolutePath.EndsWith(".svg")?"image/svg+xml":"text/html";
-                    args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(content??new byte[0]),exists?200:404,exists?"OK":"Not Found","Content-Type: "+mime+"; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\nX-Content-Type-Options: nosniff");
-                }
-            }catch(Exception error){Log(error);args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(new{error=error.Message}))),500,"Error","Content-Type: application/json; charset=utf-8");}
-            finally{deferral.Complete();}
         }
         public object HotkeyStatus(){return new{available=true,active=registered.enabled,error=hotkeyError,label=Rules.HotkeyLabel(store.Snapshot.settings.hotkey),pid=Process.GetCurrentProcess().Id,tray=tray.Visible,windowReady=ready};}
         Task ApplyHotkey(Hotkey next) {
@@ -227,22 +193,14 @@ namespace PetCalendarDesktop {
             }catch(AppError error){return new ApiResponse(error.Status,new{error=error.Message});}
             catch(Exception error){Log(error);return new ApiResponse(500,new{error="저장하지 못했습니다. 입력 내용을 유지했습니다. "+error.Message});}
         }
-        // Stop hidden DOM work and request lower WebView memory use while
-        // retaining the document and any unfinished editor draft.
-        int visibilityGeneration;bool? webShown;
-        async void SyncWebVisibility(){
-            if(web==null||web.CoreWebView2==null||exiting)return;
-            bool visible=Visible&&WindowState!=FormWindowState.Minimized;if(webShown==visible)return;webShown=visible;int generation=++visibilityGeneration;
-            try{
-                if(visible){web.CoreWebView2.MemoryUsageTargetLevel=CoreWebView2MemoryUsageTargetLevel.Normal;web.Visible=true;await web.CoreWebView2.ExecuteScriptAsync("window.petCalendarVisibility?.(true)");}
-                else {await web.CoreWebView2.ExecuteScriptAsync("window.petCalendarVisibility?.(false)");if(generation!=visibilityGeneration)return;web.Visible=false;web.CoreWebView2.MemoryUsageTargetLevel=CoreWebView2MemoryUsageTargetLevel.Low;}
-            }catch(Exception error){if(!exiting&&!IsDisposed)Log(error);}
-        }
-        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);SyncWebVisibility();}
-        public void ShowCalendar(){Show();if(WindowState==FormWindowState.Minimized)SetWindowMode(FormWindowState.Normal);Activate();if(!SetForegroundWindow(Handle)){uint process;uint foreground=GetWindowThreadProcessId(GetForegroundWindow(),out process),own=GetCurrentThreadId();bool attached=foreground!=0&&foreground!=own&&AttachThreadInput(own,foreground,true);try{SetForegroundWindow(Handle);}finally{if(attached)AttachThreadInput(own,foreground,false);}}web.Focus();Post(new{type="resume"});while(deferredReminders.Count>0){var reminder=deferredReminders.Dequeue();if(!pets.CanNotify||!store.Snapshot.settings.desktopPopups)Post(reminder);}}
-        public void Toggle(){if(Visible&&GetForegroundWindow()==Handle&&WindowState!=FormWindowState.Minimized)Hide();else ShowCalendar();}
+        // Dialogs and toasts are separate windows; keep them with the calendar.
+        void SyncSurfaces(){bool visible=Visible&&WindowState!=FormWindowState.Minimized;DialogForm.SetAllVisible(visible);Toasts.SetVisible(visible);if(visible)DialogForm.RelayoutAll();}
+        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);SyncSurfaces();}
+        protected override void OnMove(EventArgs e){base.OnMove(e);if(view!=null){Toasts.Layout();DialogForm.RelayoutAll();}}
+        public void ShowCalendar(){Show();if(WindowState==FormWindowState.Minimized)SetWindowMode(FormWindowState.Normal);Activate();if(!SetForegroundWindow(Handle)){uint process;uint foreground=GetWindowThreadProcessId(GetForegroundWindow(),out process),own=GetCurrentThreadId();bool attached=foreground!=0&&foreground!=own&&AttachThreadInput(own,foreground,true);try{SetForegroundWindow(Handle);}finally{if(attached)AttachThreadInput(own,foreground,false);}}if(DialogForm.Open.Count>0)DialogForm.Open[DialogForm.Open.Count-1].Activate();else view.Focus();view.Invalidate();while(deferredReminders.Count>0){var reminder=deferredReminders.Dequeue();if(!pets.CanNotify||!store.Snapshot.settings.desktopPopups)view.Reminder(reminder.Key,reminder.Value);}}
+        public void Toggle(){IntPtr front=GetForegroundWindow();bool ours=front==Handle||DialogForm.Open.Any(d=>d.IsHandleCreated&&d.Handle==front);if(Visible&&ours&&WindowState!=FormWindowState.Minimized)Hide();else ShowCalendar();}
         public void ShowWidget(){widget.ShowWidget();}
-        void PublishWindowState(){if(ready)Post(new{type="window-state",maximized=WindowState==FormWindowState.Maximized});}
+        void PublishWindowState(){view.SetMaximized(WindowState==FormWindowState.Maximized);}
         void SetWindowMode(FormWindowState mode){
             if(WindowState==FormWindowState.Normal)windowRestoreBounds=Bounds;
             WindowState=mode;
@@ -251,13 +209,13 @@ namespace PetCalendarDesktop {
             if(mode==FormWindowState.Normal&&!windowRestoreBounds.IsEmpty){Bounds=windowRestoreBounds;FitHostToScreen();}
             PublishWindowState();
         }
-        void WindowAction(string action){
+        public void WindowAction(string action){
             if(action=="minimize")SetWindowMode(FormWindowState.Minimized);
             else if(action=="maximize"){MaximizedBounds=Screen.FromControl(this).WorkingArea;SetWindowMode(WindowState==FormWindowState.Maximized?FormWindowState.Normal:FormWindowState.Maximized);}
             else if(action=="close")Close();
             PublishWindowState();
         }
-        protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);ShapeHost();PublishWindowState();SyncWebVisibility();}
+        protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);ShapeHost();if(view!=null){PublishWindowState();SyncSurfaces();Toasts.Layout();}}
         public async Task Shutdown(bool restart){if(exiting)return;exiting=true;menu.Enabled=false;await store.Drain();widget.Stop();pets.Stop();alarms.Dispose();popup.Dispose();tray.Visible=false;if(registered.enabled)UnregisterHotKey(Handle,HotkeyId);if(ExitRequested!=null)ExitRequested(restart);Close();}
         protected override void OnPaintBackground(PaintEventArgs e){DesktopTheme.PaintWindow(this,e.Graphics,18,WindowState!=FormWindowState.Normal);}
         protected override void WndProc(ref Message message){
@@ -288,15 +246,13 @@ namespace PetCalendarDesktop {
             base.WndProc(ref message);
         }
         protected override void OnFormClosing(FormClosingEventArgs e){if(!exiting&&e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();return;}base.OnFormClosing(e);}
-        protected override void Dispose(bool disposing){if(disposing){pets.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();web.Dispose();}base.Dispose(disposing);}
+        protected override void Dispose(bool disposing){if(disposing){pets.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();}base.Dispose(disposing);}
         public void Reply(object value){if(AutomationReply!=null)AutomationReply(value);}
         public async void Command(Dictionary<string,object> request) {
             object id=request.ContainsKey("id")?request["id"]:null;
             try {
                 string action=(string)request["action"];
                 if(action=="api"){var result=await Api((string)request["method"],(string)request["path"],request.ContainsKey("body")?Codec.Json(request["body"]):"",request.ContainsKey("marker")?(string)request["marker"]:"1",request.ContainsKey("force")&&(bool)request["force"]);Reply(new{id=id,ok=true,status=result.status,body=result.body});return;}
-                if(action=="evaluate"){Reply(new{id=id,ok=true,result=await web.ExecuteScriptAsync((string)request["script"])});return;}
-                if(action=="devtools"){Reply(new{id=id,ok=true,result=await web.CoreWebView2.CallDevToolsProtocolMethodAsync((string)request["method"],request.ContainsKey("parameters")?Codec.Json(request["parameters"]):"{}")});return;}
                 if(action=="widget"){
                     string command=request.ContainsKey("command")?(string)request["command"]:"inspect";
                     if(command=="select")widget.SelectDate((string)request["date"]);
@@ -315,13 +271,13 @@ namespace PetCalendarDesktop {
                 }
                 if(action=="pets-send"){pets.SendUnnamed();Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
                 if(action=="pets-inspect"){Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
-                if(action=="inspect"){IntPtr appId;GetCurrentProcessExplicitAppUserModelID(out appId);string identity=Marshal.PtrToStringUni(appId);Marshal.FreeCoTaskMem(appId);var processes=web.CoreWebView2.Environment.GetProcessInfos().Select(p=>p.ProcessId).Concat(new[]{Process.GetCurrentProcess().Id}).Distinct().ToArray();Reply(new{id=id,ok=true,visible=IsWindowVisible(Handle),window=Handle.ToInt64(),tray=tray.Visible,ready=ready,memoryUsageTarget=web.CoreWebView2.MemoryUsageTargetLevel.ToString(),applicationId=identity,executable=Application.ExecutablePath,processIds=processes,pending=alarms.Pending(),popupVisible=popup.Visible,popupWindow=popup.Handle.ToInt64(),popupMonitor=popup.MonitorName,soundBatches=alarms.SoundBatches});return;}
+                if(action=="inspect"){IntPtr appId;GetCurrentProcessExplicitAppUserModelID(out appId);string identity=Marshal.PtrToStringUni(appId);Marshal.FreeCoTaskMem(appId);var processes=new[]{Process.GetCurrentProcess().Id};Reply(new{id=id,ok=true,visible=IsWindowVisible(Handle),window=Handle.ToInt64(),tray=tray.Visible,ready=ready,applicationId=identity,executable=Application.ExecutablePath,processIds=processes,pending=alarms.Pending(),popupVisible=popup.Visible,popupWindow=popup.Handle.ToInt64(),popupMonitor=popup.MonitorName,soundBatches=alarms.SoundBatches});return;}
                 if(action=="show")ShowCalendar();else if(action=="hide")Hide();else if(action=="close-window")Close();
                 else if(action=="menu"){string item=(string)request["item"];if(item=="show")ShowCalendar();else{Reply(new{id=id,ok=true});await Shutdown(item=="restart");return;}}
                 else if(action=="alarm-check")alarms.CheckAt(DateTime.Parse((string)request["now"],null,DateTimeStyles.RoundtripKind).ToUniversalTime());
                 else if(action=="alarm-ack")alarms.Acknowledge(request.ContainsKey("alarmId")?request["alarmId"] as string:null);
                 else if(action=="alarm-snooze")alarms.Snooze((string)request["alarmId"],Convert.ToInt32(request["minutes"]));
-                else if(action=="capture"){using(var output=File.Create((string)request["path"]))await web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png,output);}
+                else if(action=="capture"){using(var image=new Bitmap(view.Width,view.Height)){view.DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));image.Save((string)request["path"]);}}
                 else if(action=="popup-layout"){Reply(new{id=id,ok=true,layout=popup.InspectLayout()});return;}
                 else if(action=="capture-popup"){using(var image=new Bitmap(popup.Width,popup.Height)){popup.DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));image.Save((string)request["path"]);}}
                 else if(action=="exit"){Reply(new{id=id,ok=true});await Shutdown(false);return;}

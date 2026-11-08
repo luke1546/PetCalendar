@@ -1,7 +1,5 @@
-/artifacts/
+﻿/artifacts/
 /dist/
-/desktop/pets-assets/
-/desktop/webview2/*.nupkg
 *.user
 *.log
 .env

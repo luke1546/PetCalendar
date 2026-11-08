@@ -61,7 +61,7 @@ namespace PetCalendarDesktop {
         int revealed;
         readonly Button open=new Button(),dismiss=new Button(),close=new Button(),snooze=new Button();
         readonly ContextMenuStrip snoozeMenu=new ContextMenuStrip();
-        readonly Font textFont=new Font("Segoe UI",10);
+        Font textFont=new Font("Segoe UI",11+DesktopTheme.TextScale);
         bool alarm,tailBelow=true;
         int tailX,tailSize=10;
         string value="";
@@ -94,6 +94,7 @@ namespace PetCalendarDesktop {
             body.Cursor=Cursors.Hand;body.Click+=delegate{if(OpenRequested!=null)OpenRequested();};
             close.AccessibleName="말풍선 닫기";body.AccessibleName="데스크톱 펫 일정 안내";
         }
+        internal void ApplyTextScale(){var old=textFont;textFont=new Font("Segoe UI",11+DesktopTheme.TextScale);Font=textFont;layoutValue=null;if(following!=null&&!following.IsDisposed)FollowCore(following);old.Dispose();Invalidate(true);}
         protected override bool ShowWithoutActivation {get{return true;}}
         // Form.TopMost activates the window during CreateHandle on .NET Framework.
         // Set the native style instead so the first announcement also preserves focus.
@@ -200,7 +201,7 @@ namespace PetCalendarDesktop {
         }
         protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(!Visible){typing.Stop();Unfollow();}}
         protected override void Dispose(bool disposing){if(disposing){Unfollow();typing.Dispose();snoozeMenu.Dispose();}base.Dispose(disposing);if(disposing)textFont.Dispose();}
-        internal object Inspect(){return new{visible=Visible,text=value,alarm,window=IsHandleCreated?Handle.ToInt64():0,dpi=DeviceDpi,species=lookSpecies,fill=ColorTranslator.ToHtml(fillColor),edge=ColorTranslator.ToHtml(edgeColor),fur=ColorTranslator.ToHtml(furColor),followMoves=FollowMoves,layoutPasses=LayoutPasses,x=Left,y=Top,width=Width,height=Height};}
+        internal object Inspect(){return new{visible=Visible,text=value,fontSize=Font.SizeInPoints,alarm,window=IsHandleCreated?Handle.ToInt64():0,dpi=DeviceDpi,species=lookSpecies,fill=ColorTranslator.ToHtml(fillColor),edge=ColorTranslator.ToHtml(edgeColor),fur=ColorTranslator.ToHtml(furColor),followMoves=FollowMoves,layoutPasses=LayoutPasses,x=Left,y=Top,width=Width,height=Height};}
         internal void ActivateOpen(){open.PerformClick();}
         internal void ActivateDismiss(){dismiss.PerformClick();}
     }

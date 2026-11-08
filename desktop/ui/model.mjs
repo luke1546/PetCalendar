@@ -28,7 +28,7 @@ export function isDate(value) {
 }
 export function defaultState() {
   return { version: 1, revision: 0, updatedAt: null, events: [], tasks: [],
-    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true } };
+    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true, textScale:0 } };
 }
 function check(condition, message) { if (!condition) throw new Error(message); }
 function str(value, max, label, required = false) {
@@ -70,9 +70,10 @@ export function validateState(input) {
   check(s && typeof s.hideCompleted === 'boolean' && typeof s.notifications === 'boolean'
     && [null,0,10,30,60].includes(s.defaultReminder), '설정 형식을 확인해 주세요.');
   check((s.desktopPopups===undefined||typeof s.desktopPopups==='boolean')&&(s.notificationSound===undefined||typeof s.notificationSound==='boolean'),'설정 형식을 확인해 주세요.');
+  check(s.textScale===undefined||[0,1,2].includes(s.textScale),'글씨 크기를 확인해 주세요.');
   return { version:1, revision:Number.isSafeInteger(input.revision) && input.revision >= 0 ? input.revision : 0,
     updatedAt:typeof input.updatedAt === 'string' ? input.updatedAt : null, events,tasks,
-    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true } };
+    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true,textScale:s.textScale??0 } };
 }
 export function occursOn(event, key) {
   if(event.excludedDates?.includes(key))return false;

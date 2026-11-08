@@ -26,6 +26,7 @@ namespace DesktopPet {
         internal Action RenameRequested;
         internal Action<int> PersonalityRequested;
         internal int Personality=2;
+        internal bool SpawnFromCenter;
         internal static readonly string[] PersonalityLabels={"수다쟁이 · 30초~1분","말이 많은 편 · 1~2분","보통 · 2~3분","조용한 편 · 3~5분","과묵함 · 5~10분"};
         string petName="";
         ToolStripMenuItem identity;
@@ -77,7 +78,12 @@ namespace DesktopPet {
         }
         protected override void OnShown(EventArgs e) {
             base.OnShown(e);
-            if(initialized)return;initialized=true;RefreshWorld(false);BringToFloor();lastTick=World.Now;SimulationLoop.Add(this);
+            if(initialized)return;initialized=true;RefreshWorld(false);BringToFloor();
+            if(SpawnFromCenter){
+                var screen=screens.FirstOrDefault(s=>s.Primary)??screens[0];var area=screen.WorkingArea;
+                Cat.Grab();Cat.X=area.Left+area.Width/2.0;Cat.Y=area.Top+area.Height/2.0;Cat.Release(0,0);DrawCat(true);
+            }
+            lastTick=World.Now;SimulationLoop.Add(this);
         }
         void BuildMenu() {
             if(menuBuilt)return;menuBuilt=true;

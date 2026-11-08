@@ -21,6 +21,18 @@ namespace PetCalendarDesktop {
             {"alpaca",new[]{"음~ 풀 향기 나는 바람이면 좋겠어요 🌿","머릿속이 폭신폭신하네요. 털 때문인가? ☁","잠깐 푹… 풀 말고 푹 쉬어요 🌿","음~ 오늘도 느긋하게 걸어볼게요 🐾","이 화면 구석은 풀이 잘 자랄까요? 🌿","음~ 오늘 털이 꽤 복슬복슬해요 ☁️","풀 한 포기에도 이야기가 있겠죠? 🌿","느릿느릿 걷는 것도 재밌어요 🐾","구름을 보면 털 손질이 생각나요 ☁️","음~ 여기서는 바람이 어디로 불까요? 🍃","목을 쭉~ 기지개를 켜볼게요 🦙","풀밭은 없지만 상상은 자유로워요 🌿","따뜻한 햇살이면 낮잠이 딱인데요 ☀️","음~ 잠시 생각을 씹고 있어요. 풀처럼요 🌱","같이 천천히 가도 좋겠어요 💛","이름을 부르면 고개를 돌릴지도 몰라요 🦙","복잡할 땐 복슬복슬하게 생각해요 ☁️","물 한 모금은 어떠세요? 💧","오늘의 바람은 풀 냄새일까요? 🌿","평화로운 화면 산책 중이에요 🐾"}},
             {"elephant",new[]{"뿌우~ 잠깐 기지개를 켜볼까요? 💛","옆에서 든든하게 지켜보고 있어요. 뿌우~ 🐘","물 한 모금 마시는 것도 기억해요 💧","작은 발걸음도 모이면 멀리 갈 수 있어요 💛","뿌우~ 그냥 인사하러 왔어요! 🐘","뿌우~ 오늘도 반가워요! 🐘","코로 인사하면 기분이 좋아져요 💛","천천히 가도 한 걸음씩 전진이에요 🐾","큰 귀로 응원의 말을 듣고 있어요 👂","기억할게요. 쉬는 시간도 소중하다는 걸요 🌿","물가에서 첨벙첨벙 놀고 싶어요 💧","가벼운 스트레칭 어떠세요? 뿌우~ ✨","작은 기쁨도 오래 기억할게요 💛","든든한 친구가 여기 있어요 🐘","햇볕 아래 그늘을 만들어 드릴게요 🌳","코끼리의 발걸음은 조용하고 느긋해요 🐾","오늘도 무리하지 말고 함께해요 ☀️","좋은 기억을 하나 더 쌓아봐요 💭","힘이 필요하면 뿌우 하고 불러주세요! 💛","잠깐 쉬어 가도 괜찮아요. 내가 지켜볼게요 🌿"}},
         };
+        static readonly Lazy<Dictionary<string,string>> holidays=new Lazy<Dictionary<string,string>>(()=>{
+            using(var stream=typeof(PetVoice).Assembly.GetManifestResourceStream("petcalendar.holidays.json")){
+                if(stream==null)return new Dictionary<string,string>();
+                using(var reader=new System.IO.StreamReader(stream))return new System.Web.Script.Serialization.JavaScriptSerializer().Deserialize<Dictionary<string,string>>(reader.ReadToEnd());
+            }
+        });
+        internal static string Holiday(DateTime local){string name;return holidays.Value.TryGetValue(local.ToString("yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture),out name)?name:null;}
+        internal static string HolidayGreeting(string species,string name){
+            if(species=="cat")return "오늘은 "+name+"이다냥! 즐거운 하루 보내라냥 🎉";
+            if(species=="dog")return "오늘은 "+name+"이에요! 즐거운 하루 보내요, 멍! 🎉";
+            return "오늘은 "+name+"이에요! 즐거운 하루 보내세요 🎉";
+        }
         internal static string Celebration(string species,bool allDone){
             if(species=="cat")return allDone?"오늘 일정 전부 끝냈다냥! 집사 최고다냥! 🎉":"하나 끝냈다냥! 잘했다냥! 🎉";
             if(species=="dog")return allDone?"오늘 일정 전부 완료! 최고예요, 멍! 🎉":"하나 해냈어요! 멋져요, 멍! 🎉";

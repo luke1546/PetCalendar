@@ -110,12 +110,13 @@ namespace PetCalendarDesktop {
         public AlarmPopup() {
             SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;
-            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=new Font("Segoe UI",10);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);Size=new Size(360,148);
+            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=new Font("Segoe UI",11+DesktopTheme.TextScale);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);Size=new Size(360,148);
             caption.Name="alarm-title";caption.Font=new Font(Font,FontStyle.Bold);caption.TextAlign=ContentAlignment.MiddleLeft;caption.AutoEllipsis=true;caption.UseMnemonic=false;Controls.Add(caption);
             close.Name="alarm-close";close.Text="×";close.Quiet=true;close.AccessibleName="모든 알림 확인하고 닫기";close.ForeColor=ForeColor;close.Click+=delegate{if(CloseAll!=null)CloseAll();};Controls.Add(close);tips.SetToolTip(close,close.AccessibleName);
             list.Name="alarm-list";list.AccessibleName="미확인 일정 알림";list.BackColor=BackColor;list.Scrollbar.AccessibleName="알림 목록 스크롤";Controls.Add(list);
             ResumeLayout(true);LayoutPopup();
         }
+        public void ApplyTextScale(){if(IsDisposed)return;var old=Font;var oldCaption=caption.Font;Font=new Font("Segoe UI",11+DesktopTheme.TextScale);caption.Font=new Font(Font,FontStyle.Bold);oldCaption.Dispose();old.Dispose();LayoutPopup();Invalidate(true);}
         void LayoutPopup(){if(layingOut||list.IsDisposed)return;layingOut=true;try{int item=DesktopTheme.Px(this,86);Height=DesktopTheme.Px(this,62)+Math.Min(4,Math.Max(1,alarms.Count))*item;int pad=DesktopTheme.Px(this,12);caption.SetBounds(DesktopTheme.Px(this,16),DesktopTheme.Px(this,10),Math.Max(1,ClientSize.Width-DesktopTheme.Px(this,62)),DesktopTheme.Px(this,32));close.SetBounds(ClientSize.Width-DesktopTheme.Px(this,42),DesktopTheme.Px(this,10),DesktopTheme.Px(this,30),DesktopTheme.Px(this,30));list.SetBounds(pad,DesktopTheme.Px(this,50),Math.Max(1,ClientSize.Width-2*pad),Height-DesktopTheme.Px(this,62));foreach(Control row in list.Items.Controls){row.Width=Math.Max(1,list.ContentWidth);row.Height=item;}list.Reflow();}finally{layingOut=false;}}
         protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);DesktopTheme.ShapeWindow(this,14,false);}
         protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);LayoutPopup();DesktopTheme.ShapeWindow(this,14,false);}
@@ -140,8 +141,8 @@ namespace PetCalendarDesktop {
             var g=e.Graphics;g.SmoothingMode=SmoothingMode.AntiAlias;float s=DeviceDpi/96f;var rect=new RectangleF(2*s,3*s,Math.Max(1,Width-6*s),Math.Max(1,Height-7*s));
             using(var shape=DesktopTheme.Round(rect,10*s)){using(var fill=new SolidBrush(hovered?ColorTranslator.FromHtml("#fff8e9"):DesktopTheme.Card))g.FillPath(fill,shape);using(var border=new Pen(Focused&&ShowFocusCues?DesktopTheme.Orange:DesktopTheme.Line,s))g.DrawPath(border,shape);}
             using(var accent=new Pen(DesktopTheme.Orange,3*s)){accent.StartCap=accent.EndCap=LineCap.Round;g.DrawLine(accent,rect.Left+2*s,rect.Top+10*s,rect.Left+2*s,rect.Bottom-10*s);}
-            using(var bold=new Font(Font.FontFamily,10,FontStyle.Bold))TextRenderer.DrawText(g,alarm.title,bold,Rectangle.Round(new RectangleF(rect.X+12*s,rect.Y+8*s,rect.Width-24*s,24*s)),ForeColor,TextFormatFlags.SingleLine|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
-            using(var small=new Font(Font.FontFamily,9))TextRenderer.DrawText(g,alarm.body,small,Rectangle.Round(new RectangleF(rect.X+12*s,rect.Y+34*s,rect.Width-24*s,37*s)),DesktopTheme.Muted,TextFormatFlags.WordBreak|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
+            using(var bold=new Font(Font.FontFamily,11+DesktopTheme.TextScale,FontStyle.Bold))TextRenderer.DrawText(g,alarm.title,bold,Rectangle.Round(new RectangleF(rect.X+12*s,rect.Y+8*s,rect.Width-24*s,24*s)),ForeColor,TextFormatFlags.SingleLine|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
+            using(var small=new Font(Font.FontFamily,10+DesktopTheme.TextScale))TextRenderer.DrawText(g,alarm.body,small,Rectangle.Round(new RectangleF(rect.X+12*s,rect.Y+34*s,rect.Width-24*s,37*s)),DesktopTheme.Muted,TextFormatFlags.WordBreak|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);
         }
     }
 

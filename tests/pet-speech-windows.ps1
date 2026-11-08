@@ -14,6 +14,7 @@ foreach($file in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLo
 $compile+=Join-Path $PSScriptRoot 'PetSpeechWindowsTests.cs'
 $compile+=('/resource:'+(Join-Path $root 'desktop\pets.zip')+',petcalendar.pets.zip')
 $compile+=('/resource:'+(Join-Path $root 'desktop\emoji.zip')+',petcalendar.emoji.zip')
+$compile+=('/resource:'+(Join-Path $root 'desktop\ui\holidays.json')+',petcalendar.holidays.json')
 & $compiler $compile
 if($LASTEXITCODE -ne 0){throw 'Native speech test build failed'}
 & $exe (Join-Path $root 'artifacts')

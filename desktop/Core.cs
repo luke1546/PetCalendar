@@ -14,6 +14,7 @@ namespace PetCalendarDesktop {
     public sealed class Settings {
         public bool hideCompleted=true,notifications=false,desktopPopups=true,notificationSound=true;
         public int? defaultReminder=10;
+        public int textScale=0;
         public Hotkey hotkey=new Hotkey();
     }
     public sealed class CalendarEvent {
@@ -99,6 +100,7 @@ namespace PetCalendarDesktop {
             var s=Value(raw,"settings") as Dictionary<string,object>;
             Check(s!=null&&Value(s,"hideCompleted") is bool&&Value(s,"notifications") is bool&&Has(s,"defaultReminder")&&Reminder(s["defaultReminder"]),"설정 형식을 확인해 주세요.");
             foreach(string name in new[]{"desktopPopups","notificationSound"})Check(!Has(s,name)||s[name] is bool,"설정 형식을 확인해 주세요.");
+            Check(!Has(s,"textScale")||(Integer(s["textScale"])&&Convert.ToInt32(s["textScale"])>=0&&Convert.ToInt32(s["textScale"])<=2),"글씨 크기를 확인해 주세요.");
             if(Has(s,"hotkey")){var h=s["hotkey"] as Dictionary<string,object>;Check(h!=null&&Value(h,"enabled") is bool&&Integer(Value(h,"modifiers"))&&Integer(Value(h,"key")),"단축키 형식을 확인해 주세요.");}
             var rawRevision=Value(raw,"revision");raw["revision"]=Integer(rawRevision)&&Convert.ToDouble(rawRevision)>=0&&Convert.ToDouble(rawRevision)<=9007199254740991d?Convert.ToInt64(rawRevision):0;
             raw["updatedAt"]=Value(raw,"updatedAt") as string;

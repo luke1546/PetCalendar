@@ -55,6 +55,7 @@ Var AutoStart
   Delete "${Directory}\public\model.mjs"
   Delete "${Directory}\public\styles.css"
   Delete "${Directory}\public\icon.svg"
+  Delete "${Directory}\public\holidays.json"
   Delete "${Directory}\public\tour-cat.png"
   Delete "${Directory}\EMOJI-LICENSE.md"
   Delete "${Directory}\webview2\Microsoft.Web.WebView2.Core.dll"

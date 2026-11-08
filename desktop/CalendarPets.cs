@@ -88,7 +88,7 @@ namespace PetCalendarDesktop {
             if(value) {
                 var saved=preferences.pets;enabled=true;
                 try {
-                    if(saved.Length==0&&!preferences.allowEmpty)SpawnInternal(Species.Cat,null);
+                    if(saved.Length==0&&!preferences.allowEmpty)SpawnInternal(Species.Cat,null,dropFromCenter:true);
                     else foreach(var record in saved) {
                         var kind=Species.Find(record.species);
                         var palette=Array.Find(Palette.For(kind),p=>p.Name==record.palette);
@@ -101,16 +101,24 @@ namespace PetCalendarDesktop {
             }
             Notify();
         }
+        internal void AddFromTour() {
+            if(!enabled) {
+                bool createsDefault=preferences.pets.Length==0&&!preferences.allowEmpty;
+                SetEnabled(true);
+                if(createsDefault)return;
+            }
+            Add("cat");
+        }
         internal void Add(string id) {
             if(!enabled)throw new AppError(409,"데스크톱 펫을 먼저 켜 주세요.");
             Species kind=id=="random"?species.Next():Species.Find(id);
             if(kind==null)throw new AppError(400,"동물 종류를 확인해 주세요.");
-            bool wasEmpty=active.Count==0;SpawnInternal(kind,null);preferences.pets=Records();Save();if(wasEmpty)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);Notify();
+            bool wasEmpty=active.Count==0;SpawnInternal(kind,null,dropFromCenter:true);preferences.pets=Records();Save();if(wasEmpty)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);Notify();
         }
-        void SpawnInternal(Species kind,Palette selected,string name="",int personality=0) {
+        void SpawnInternal(Species kind,Palette selected,string name="",int personality=0,bool dropFromCenter=false) {
             PaletteBag bag;if(!colors.TryGetValue(kind.Id,out bag)){bag=new PaletteBag(kind);colors.Add(kind.Id,bag);}
             double position=.1+random.NextDouble()*.8;
-            var pet=new PetHost(kind,selected??bag.Next(),false,position);
+            var pet=new PetHost(kind,selected??bag.Next(),false,position){SpawnFromCenter=dropFromCenter};
             pet.PetName=name;pet.Personality=personality>=1&&personality<=5?personality:random.Next(1,6);pet.RenameRequested=()=>EditName(pet);
             pet.PersonalityRequested=value=>NativeAction(()=>SetPersonality(pet.Handle.ToInt64(),value));
             pet.AddSpeciesRequested=choice=>NativeAction(()=>Add(choice==null?"random":choice.Id));
@@ -224,7 +232,7 @@ namespace PetCalendarDesktop {
         internal PetSendDialog(int count) {
             Text="펫 모두 보내기";AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
-            Font=new Font("Segoe UI",10);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(390,186);Padding=new Padding(20);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            Font=new Font("Segoe UI",11+DesktopTheme.TextScale);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(390,186);Padding=new Padding(20);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             var text=new Label{Text="이름 없는 펫 "+count+"마리를 정말 보내시겠어요?\n\n이름을 지은 펫은 남아 있어요.\n데스크톱 펫 기능은 켜진 상태로 유지됩니다.",Dock=DockStyle.Fill,UseMnemonic=false};
             var actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=36,FlowDirection=FlowDirection.RightToLeft};
             var send=new WidgetButton{Text="보내기",DialogResult=DialogResult.OK,Primary=true,Size=new Size(88,30)};var cancel=new WidgetButton{Text="취소",DialogResult=DialogResult.Cancel,Size=new Size(88,30)};
@@ -242,7 +250,7 @@ namespace PetCalendarDesktop {
         internal PetNameDialog(string name,string species) {
             Text="펫 이름 짓기 · "+species;AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
-            Font=new Font("Segoe UI",10);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(370,186);Padding=new Padding(18);
+            Font=new Font("Segoe UI",11+DesktopTheme.TextScale);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(370,186);Padding=new Padding(18);
             var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,34));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
             layout.Controls.Add(new Label{Text=species+"에게 이름을 지어 주세요 (최대 24자)",Dock=DockStyle.Fill,UseMnemonic=false},0,0);

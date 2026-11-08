@@ -152,7 +152,7 @@ namespace PetCalendarDesktop {
     // Each pet owns its deadline and bubble. One shared tick drives all chatter.
     internal sealed class PetChatter {
         sealed class Entry {internal DateTime Next,Expires;internal int Last=-1;internal PetBubble Bubble;}
-        sealed class Greetings {public Greetings(){}internal string Morning,Night;}
+        sealed class Greetings {public Greetings(){}internal string Morning,Night,Holiday;}
         readonly System.Runtime.CompilerServices.ConditionalWeakTable<PetHost,Greetings> greetings=new System.Runtime.CompilerServices.ConditionalWeakTable<PetHost,Greetings>();
         readonly Dictionary<PetHost,Entry> entries=new Dictionary<PetHost,Entry>();
         readonly Random random=new Random();
@@ -184,7 +184,9 @@ namespace PetCalendarDesktop {
                 var greeting=greetings.GetOrCreateValue(pet);
                 var local=utc.ToLocalTime();string day=Rules.Key(local);bool morning=local.Hour>=6&&local.Hour<10,night=local.Hour>=23||local.Hour<5;
                 string message=PetVoice.Chatter(pet.Kind.Id,choice);
-                if(morning&&greeting.Morning!=day){greeting.Morning=day;message=PetVoice.TimeGreeting(pet.Kind.Id,true);}
+                string holiday=PetVoice.Holiday(local);
+                if(holiday!=null&&greeting.Holiday!=day){greeting.Holiday=day;message=PetVoice.HolidayGreeting(pet.Kind.Id,holiday);}
+                else if(morning&&greeting.Morning!=day){greeting.Morning=day;message=PetVoice.TimeGreeting(pet.Kind.Id,true);}
                 else if(night&&greeting.Night!=day){greeting.Night=day;message=PetVoice.TimeGreeting(pet.Kind.Id,false);if(!pet.Cat.Paused&&!pet.Cat.Sleeping)pet.Cat.Nap();}
                 bubble.Present(message,false,0,false,true);bubble.Follow(pet);
             }

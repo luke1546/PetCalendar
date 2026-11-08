@@ -5,7 +5,7 @@ if(-not $OutputDirectory){$OutputDirectory=Join-Path $calendarRoot 'dist\app'}
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'public'),(Join-Path $OutputDirectory 'webview2') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $calendarRoot 'calendar.ico') -Destination $OutputDirectory
-foreach($calendarAsset in @('index.html','app.mjs','model.mjs','styles.css','icon.svg')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\ui\'+$calendarAsset)) -Destination (Join-Path $OutputDirectory 'public')}
+foreach($calendarAsset in @('index.html','app.mjs','model.mjs','styles.css','icon.svg','holidays.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\ui\'+$calendarAsset)) -Destination (Join-Path $OutputDirectory 'public')}
 Copy-Item -LiteralPath (Join-Path $calendarRoot 'desktop\pets-assets\meowser-atlas.png') -Destination (Join-Path $OutputDirectory 'public\tour-cat.png')
 foreach($calendarLibrary in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','LICENSE.txt','source.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\webview2\'+$calendarLibrary)) -Destination (Join-Path $OutputDirectory 'webview2')}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PetCalendar.exe.config') -Destination $OutputDirectory
@@ -17,6 +17,7 @@ $calendarArgs=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepa
  ('/reference:'+(Join-Path $OutputDirectory 'webview2\Microsoft.Web.WebView2.WinForms.dll')),
  (Join-Path $PSScriptRoot 'BrandMigration.cs'),(Join-Path $PSScriptRoot 'Core.cs'),(Join-Path $PSScriptRoot 'Alarms.cs'),(Join-Path $PSScriptRoot 'Widget.cs'),(Join-Path $PSScriptRoot 'Host.cs'),(Join-Path $PSScriptRoot 'Entry.cs'))
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'emoji.zip')+',petcalendar.emoji.zip')
+$calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'ui\holidays.json')+',petcalendar.holidays.json')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'EMOJI-LICENSE.md') -Destination $OutputDirectory
 $petEngine=Join-Path $calendarRoot 'desktop\pet-engine'
 foreach($petFile in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLoop.cs','Palettes.cs','Sprites.cs','PetMenu.cs','PetHost.cs')){$calendarArgs+=(Join-Path $petEngine $petFile)}

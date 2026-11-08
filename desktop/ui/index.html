@@ -2,20 +2,20 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="나만의 업무 공간. 일정과 할 일을 한눈에 정리하는 오프라인 펫 캘린더.">
-  <title>펫 캘린더 · 나만의 업무 공간</title>
+  <meta name="description" content="일정과 할 일을 정리하는 오프라인 펫 캘린더.">
+  <title>펫 캘린더</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.mjs"></script>
 </head>
 <body>
 <div class="app-shell">
   <header class="masthead">
-    <div class="brand"><img src="/icon.svg" width="46" height="46" alt=""><div><span class="eyebrow">조금의 계획으로, 여유로운 하루</span><h1>펫 캘린더 <svg class="brand-paw" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="5" cy="8" rx="2.2" ry="3" transform="rotate(-25 5 8)"/><ellipse cx="10" cy="4.5" rx="2.2" ry="3" transform="rotate(-8 10 4.5)"/><ellipse cx="15" cy="4.5" rx="2.2" ry="3" transform="rotate(8 15 4.5)"/><ellipse cx="20" cy="8" rx="2.2" ry="3" transform="rotate(25 20 8)"/><path d="M12.5 10c-3.1 0-3.8 2.3-6 4.2-2.1 1.8-1.5 5.3 1.2 5.8 1.7.3 3-.8 4.8-.8s3.1 1.1 4.8.8c2.7-.5 3.3-4 1.2-5.8-2.2-1.9-2.9-4.2-6-4.2Z"/></svg></h1></div></div>
-    <div class="header-actions"><div class="today-stamp"><span id="todayLabel"></span><span id="clockLabel" class="mono"></span></div><button id="settingsButton" class="button icon-button" title="설정 및 백업" aria-label="설정 및 백업"><span data-icon="settings"></span></button><div id="windowControls" class="window-controls" role="group" aria-label="창 제어" hidden><button id="windowMinimize" class="window-button" aria-label="최소화" title="최소화"><span data-icon="minimize"></span></button><button id="windowMaximize" class="window-button" aria-label="최대화" title="최대화"><span data-icon="maximize"></span></button><button id="windowClose" class="window-button window-close" aria-label="창 닫기" title="트레이로 숨기기"><span data-icon="close"></span></button></div></div>
+    <div class="brand"><img src="/icon.svg" width="46" height="46" alt=""><div><span class="eyebrow">일정과 함께하는 작은 친구</span><h1>펫 캘린더 <svg class="brand-paw" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="5" cy="8" rx="2.2" ry="3" transform="rotate(-25 5 8)"/><ellipse cx="10" cy="4.5" rx="2.2" ry="3" transform="rotate(-8 10 4.5)"/><ellipse cx="15" cy="4.5" rx="2.2" ry="3" transform="rotate(8 15 4.5)"/><ellipse cx="20" cy="8" rx="2.2" ry="3" transform="rotate(25 20 8)"/><path d="M12.5 10c-3.1 0-3.8 2.3-6 4.2-2.1 1.8-1.5 5.3 1.2 5.8 1.7.3 3-.8 4.8-.8s3.1 1.1 4.8.8c2.7-.5 3.3-4 1.2-5.8-2.2-1.9-2.9-4.2-6-4.2Z"/></svg></h1></div></div>
+    <div class="header-actions"><div class="today-stamp"><span id="todayLabel"></span><span id="clockLabel" class="mono"></span></div><button id="tourHelp" class="button icon-button tour-help" type="button" title="퀵투어 다시 보기" aria-label="퀵투어 다시 보기" hidden>?</button><button id="settingsButton" class="button icon-button" title="설정 및 백업" aria-label="설정 및 백업"><span data-icon="settings"></span></button><div id="windowControls" class="window-controls" role="group" aria-label="창 제어" hidden><button id="windowMinimize" class="window-button" aria-label="최소화" title="최소화"><span data-icon="minimize"></span></button><button id="windowMaximize" class="window-button" aria-label="최대화" title="최대화"><span data-icon="maximize"></span></button><button id="windowClose" class="window-button window-close" aria-label="창 닫기" title="트레이로 숨기기"><span data-icon="close"></span></button></div></div>
   </header>
   <section class="summary-grid" aria-label="업무 요약">
     <button class="summary-card yellow" id="todayCard"><div><span class="card-kicker">TODAY</span><h3>오늘의 일정</h3></div><div class="stat-value"><strong id="todayCount">0</strong><span>건</span><span class="stat-icon" data-icon="calendar"></span></div></button>
-    <button class="summary-card mint" id="taskCard"><div><span class="card-kicker">ONE BY ONE</span><h3>남은 할 일</h3></div><div class="stat-value"><strong id="taskCount">0</strong><span>개</span><span class="stat-icon" data-icon="check"></span></div></button>
+    <button class="summary-card mint" id="taskCard"><div><h3>남은 할 일</h3></div><div class="stat-value"><strong id="taskCount">0</strong><span>개</span><span class="stat-icon" data-icon="check"></span></div></button>
     <button class="summary-card rose" id="deadlineCard"><div><span class="card-kicker">중요한 일정 · D-DAY</span><h3 id="deadlineTitle">일정을 선택하세요</h3></div><div class="stat-value"><strong id="deadlineValue" class="deadline-value">선택</strong><span class="stat-icon" data-icon="flag"></span></div></button>
   </section>
   <div id="errorBanner" class="error-banner" hidden role="alert"><span id="errorText"></span><button id="reloadButton" class="button small">최신 내용 불러오기</button><button id="dismissError" class="plain-button" aria-label="안내 닫기">×</button></div>
@@ -31,14 +31,14 @@
     </section>
     <aside class="sidebar">
       <section class="day-panel panel"><div class="section-header"><div><span class="card-kicker" id="selectedRelative">SELECTED DAY</span><h2 id="selectedLabel"></h2></div><button id="addSelectedEvent" class="button icon-button" aria-label="선택 날짜에 일정 추가"><span data-icon="plus"></span></button></div><div id="dayEvents" class="day-events"></div></section>
-      <section class="task-panel panel" id="taskPanel"><div class="section-header"><div><span class="card-kicker">SMALL WINS COUNT</span><h2>할 일 <span id="taskProgress" class="count-chip">0/0</span></h2></div><span class="task-flower" aria-hidden="true">✿</span></div>
+      <section class="task-panel panel" id="taskPanel"><div class="section-header"><div><h2>할 일 <span id="taskProgress" class="count-chip">0/0</span></h2></div><span class="task-flower" aria-hidden="true">✿</span></div>
         <form id="taskForm"><label class="task-entry"><input id="taskTitle" placeholder="작은 일부터 적어보세요" required maxlength="200" aria-label="새 할 일"><button type="submit" class="round-add" aria-label="할 일 추가">+</button></label><div class="task-entry-bottom"><label>마감일 <input id="taskDue" type="date" aria-label="할 일 마감일"></label><label class="checkbox-label"><input id="hideCompleted" type="checkbox" checked> 완료 숨기기</label></div></form>
         <div class="progress-track"><div id="taskProgressBar"></div></div><div id="tasksList" class="tasks-list"></div>
       </section>
       <button id="notificationButton" class="notification-card"><span data-icon="bell"></span><div><strong id="notificationTitle">일정 알림을 켜둘까요?</strong><span id="notificationSubtitle">열어둔 동안, 놓치지 않도록.</span></div><span data-icon="right"></span></button>
     </aside>
   </main>
-  <footer><span id="saveStatus" role="status"><i class="status-dot"></i> 이 PC에 자동 저장</span><span>조금의 계획으로, 여유로운 하루를. <button id="helpButton" class="plain-button">사용법 · 단축키 <span>↗</span></button></span></footer>
+  <footer><span id="saveStatus" role="status"><i class="status-dot"></i> 이 PC에 자동 저장</span><span><button id="helpButton" class="plain-button">사용법 · 단축키 <span>↗</span></button></span></footer>
 </div>
 <dialog id="eventDialog" class="event-dialog">
   <form id="eventForm"><div class="dialog-header"><div><span class="eyebrow">나의 새로운 계획</span><h2 id="eventDialogTitle">새 일정</h2></div><button type="button" class="button icon-button" data-close="eventDialog" aria-label="닫기"><span data-icon="close"></span></button></div>
@@ -58,7 +58,7 @@
   </form>
 </dialog>
 <dialog id="ddayDialog"><div class="dialog-header"><div><span class="eyebrow">중요한 날을 골라주세요</span><h2>D-day 일정 선택</h2></div><button class="button icon-button" data-close="ddayDialog" aria-label="닫기"><span data-icon="close"></span></button></div><p class="field-hint">달력에 등록된 일정 중 하나를 골라주세요. 선택한 일정의 시작일을 기준으로 D-day가 표시됩니다.</p><label class="search-box dday-search"><span data-icon="search"></span><input id="ddaySearch" type="search" maxlength="200" placeholder="중요한 일정 찾기" aria-label="D-day 일정 검색"></label><div id="ddayChoices" class="dday-choices"></div><div class="dialog-footer"><button id="clearDday" class="button">선택 해제</button><button id="openDdayEvent" class="button primary">선택한 일정 열기</button></div></dialog>
-<dialog id="settingsDialog"><div class="dialog-header"><div><span class="eyebrow">내게 맞게, 편안하게</span><h2>설정 및 백업</h2></div><button class="button icon-button" data-close="settingsDialog" aria-label="닫기"><span data-icon="close"></span></button></div>
+<dialog id="settingsDialog"><div class="dialog-header"><div><h2>설정 및 백업</h2></div><button class="button icon-button" data-close="settingsDialog" aria-label="닫기"><span data-icon="close"></span></button></div>
   <details id="petSettings" class="settings-group" open hidden><summary>데스크톱 펫</summary>
   <section class="settings-section"><h3>데스크톱 펫</h3><p>작은 친구가 바탕화면과 창 위를 산책해요.</p>
   <label class="checkbox-label"><input id="petsEnabled" type="checkbox"> 데스크톱 펫 사용</label>
@@ -77,6 +77,9 @@
   <details class="settings-group"><summary>데이터 · 백업</summary>
   <section class="settings-section"><h3>소중한 기록, 안전하게</h3><p>일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다.</p><div class="backup-actions"><button id="exportBackup" class="button"><span data-icon="download"></span> 백업 내보내기</button><button id="importBackup" class="button"><span data-icon="upload"></span> 백업 복원</button></div><input id="backupFile" type="file" accept="application/json,.json" hidden><p class="field-hint">복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다.</p></section>
   </details>
+  <details class="settings-group"><summary>화면</summary>
+  <section class="settings-section"><h3>글씨 크기</h3><label class="field">화면 글씨<select id="textScale"><option value="0">작게</option><option value="1">보통</option><option value="2">크게</option></select></label></section>
+  </details>
 
 
 
@@ -84,12 +87,12 @@
 </dialog>
 <dialog id="quickTour" class="quick-tour" aria-labelledby="tourTitle" aria-describedby="tourText">
   <div class="dialog-header"><span class="eyebrow">QUICK TOUR</span><button id="tourSkip" class="button" type="button">건너뛰기</button></div>
-  <div id="tourContent" aria-live="polite"><div id="tourDemo" class="tour-demo" aria-hidden="true"></div><p id="tourProgress" class="tour-progress"></p><h2 id="tourTitle"></h2><p id="tourText"></p></div>
+  <div id="tourContent" aria-live="polite"><div id="tourDemo" class="tour-demo"></div><p id="tourPetStatus" class="field-hint" role="status"></p><p id="tourProgress" class="tour-progress"></p><h2 id="tourTitle"></h2><p id="tourText"></p></div>
   <div class="tour-footer"><button id="tourBack" class="button" type="button">이전</button><div id="tourDots" class="tour-dots" aria-hidden="true"><span></span><span></span><span></span></div><button id="tourNext" class="button primary" type="button">다음</button></div>
 </dialog>
 <dialog id="confirmDialog" class="confirm-dialog"><div class="dialog-header"><h2 id="confirmTitle">확인</h2></div><p id="confirmText"></p><div class="confirm-actions"><button id="confirmCancel" class="button">취소</button><button id="confirmAccept" class="button primary">확인</button></div></dialog>
 <dialog id="repeatScopeDialog" class="confirm-dialog"><div class="dialog-header"><h2>반복 일정 적용 범위</h2></div><p id="repeatScopeText"></p><div class="confirm-actions"><button id="repeatScopeCancel" class="button">취소</button><button id="repeatScopeAll" class="button">전체 일정</button><button id="repeatScopeOne" class="button primary">이번 일정만</button></div></dialog>
 <dialog id="helpDialog"><div class="dialog-header"><h2>가볍게 시작하세요</h2><button class="button icon-button" data-close="helpDialog" aria-label="닫기"><span data-icon="close"></span></button></div><div class="help-content"><p>날짜 숫자를 누르면 오른쪽에 일정이 표시됩니다. 빈 공간을 누르면 해당 날짜가 선택되고, 이미 선택한 날짜의 빈 공간을 다시 누르면 새 일정 입력창이 열립니다. <strong>+ 일정 추가</strong>로도 추가할 수 있어요.</p><p>일정을 누르면 수정·복제·삭제할 수 있습니다. 반복 일정은 이번 회차만 또는 전체를 수정·삭제할 수 있습니다. 상단 ‘중요한 일정 · D-DAY’를 누르면 기존 일정 중 하나를 직접 고를 수 있습니다. 오른쪽 일정의 깃발이나 일정 입력창의 ‘D-day로 표시’로도 선택할 수 있습니다. 반복 일정은 선택한 회차의 시작일을 기준으로 표시합니다. 카드에서 선택을 바꾸거나 해제할 수 있습니다.</p><p>검색은 모든 기간의 제목과 메모를 찾습니다. 분류 버튼은 한 번 더 누르면 전체로 돌아갑니다.</p><dl><dt><kbd>N</kbd></dt><dd>선택한 날짜에 새 일정</dd><dt><kbd>/</kbd></dt><dd>일정 검색</dd><dt><kbd>T</kbd></dt><dd>오늘로 이동</dd><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>이전 달 · 다음 달</dd><dt><kbd>Esc</kbd></dt><dd>입력창 닫기</dd></dl><p class="field-hint">윈도우 알림은 최초 한 번 허용이 필요합니다. 브라우저를 닫으면 알림이 멈추며, PC 알림 설정에 따라 표시가 제한될 수 있습니다.</p></div></dialog>
 <div id="toastRegion" class="toast-region" aria-live="polite"></div>
-<div id="loadingScreen" class="loading-screen"><img src="/icon.svg" width="52" height="52" alt=""><p>나만의 업무 공간을 여는 중…</p></div>
+<div id="loadingScreen" class="loading-screen"><img src="/icon.svg" width="52" height="52" alt=""><p>캘린더를 여는 중…</p></div>
 </body></html>

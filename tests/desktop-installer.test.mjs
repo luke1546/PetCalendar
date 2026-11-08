@@ -19,7 +19,7 @@ test('설치 파일: 사용자 설치, 업데이트, 제거 후 데이터 보존
     console.log('CHECK per-user install');
     assert.equal(await run(setup,['/S','/DATA='+dataDir,'/D='+appDir]),0);
     assert.ok((await fs.stat(path.join(appDir,'PetCalendar.exe'))).size>0);
-    for(const asset of ['public/tour-cat.png','EMOJI-LICENSE.md']){
+    for(const asset of ['public/tour-cat.png','public/holidays.json','EMOJI-LICENSE.md']){
       const assetPath=path.join(appDir,asset);assert.ok((await fs.stat(assetPath)).size>0);
       await fs.rename(assetPath,assetPath+'.test-backup');
       try{assert.notEqual(await run(path.join(appDir,'PetCalendar.exe'),['--validate-install','--silent']),0,asset+' is required by install validation');}

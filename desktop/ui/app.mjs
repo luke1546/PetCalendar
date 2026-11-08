@@ -63,14 +63,14 @@ function toast(title, detail='',kind='info',duration=6000) {
   box.querySelector('button').onclick=remove;
   setTimeout(remove,duration);
 }
-function undoToast(title,detail,restore) {
+function undoToast(title,detail,restore,restoredMessage='삭제를 되돌렸어요') {
   const box=document.createElement('div');box.className='toast info';
   box.innerHTML=`<div>${icon('bell')}</div><div style="flex:1"><strong>${esc(title)}</strong><p>${esc(detail)}</p></div><button class="plain-button">되돌리기</button>`;
   const region=$('toastRegion');region.append(box);
   try{if(!region.matches(':popover-open'))region.showPopover();}catch{}
   const remove=()=>{box.remove();if(!region.children.length)try{region.hidePopover();}catch{}};
   const timer=setTimeout(remove,10000);
-  box.querySelector('button').onclick=async()=>{const button=box.querySelector('button');button.disabled=true;if(await restore()){clearTimeout(timer);remove();toast('삭제를 되돌렸어요',detail);}else button.disabled=false;};
+  box.querySelector('button').onclick=async()=>{const button=box.querySelector('button');button.disabled=true;if(await restore()){clearTimeout(timer);remove();toast(restoredMessage,detail);}else button.disabled=false;};
 }
 const draftPrefix='petCalendar.eventDraft.';
 let currentDraftKey=null,draftBaseline='';
@@ -137,8 +137,9 @@ function render(force=false) {
     renderedState=state;renderedEvents=events;renderedTasks=tasks;renderedSettings=settings;
   }
   if(eventsChanged){eventsEpoch++;monthCache.clear();}
-  const today=dateKey(),newDay=today!==renderedView.today,queryChanged=filter!==renderedView.filter||search!==renderedView.search;
-  const calendarChanged=eventsChanged||queryChanged||month!==renderedView.month||newDay;
+  const today=dateKey(),newDay=today!==renderedView.today,queryChanged=filter!==renderedView.filter||search!==renderedView.search,scaleChanged=(state.settings.textScale??0)!==renderedView.textScale;
+  if(scaleChanged)document.documentElement.style.setProperty('--text-extra',`${state.settings.textScale??0}pt`);
+  const calendarChanged=eventsChanged||queryChanged||month!==renderedView.month||newDay||scaleChanged;
   const dayChanged=calendarChanged||selected!==renderedView.selected;
   if(queryChanged){limits.search=pageSizes.search;limits.day=pageSizes.day;}
   if(selected!==renderedView.selected)limits.day=pageSizes.day;
@@ -150,9 +151,9 @@ function render(force=false) {
   }
   if(dayChanged)renderDay();
   if(tasksChanged||settingsChanged||newDay){if(tasksChanged)limits.tasks=pageSizes.tasks;renderTasks();}
-  if(settingsChanged){renderNotifications();$('hideCompleted').checked=state.settings.hideCompleted;$('defaultReminder').value=String(state.settings.defaultReminder);}
+  if(settingsChanged){$('textScale').value=String(state.settings.textScale??0);renderNotifications();$('hideCompleted').checked=state.settings.hideCompleted;$('defaultReminder').value=String(state.settings.defaultReminder);}
   if($('ddayDialog').open&&(eventsChanged||dayChanged))renderDdayChoices();
-  renderedView={today,filter,search,month,selected};
+  renderedView={today,filter,search,month,selected,textScale:state.settings.textScale??0};
 }
 function renderSummary() {
   const today=dateKey();
@@ -189,6 +190,7 @@ function renderFilters() {
   $('categoryFilters').innerHTML=`<button class="filter-chip ${filter==='all'?'active':''}" data-filter="all" aria-pressed="${filter==='all'}">전체</button>`+
     Object.entries(CATEGORIES).map(([key,c])=>`<button class="filter-chip ${filter===key?'active':''}" data-filter="${key}" aria-pressed="${filter===key}" style="--category:${c.color}"><i class="category-dot"></i>${c.label}</button>`).join('');
 }
+let holidayDates={};
 let lastDensity;
 function calendarDensity() {
   const {size}=rangeForMonth(),height=$('calendarGrid').getBoundingClientRect().height/(size/7);
@@ -205,14 +207,16 @@ function renderCalendar() {
   const html=[];
   for(let i=0;i<size;i++) {
     const key=addDays(from,i), day=new Date(`${key}T12:00:00`).getDay(), items=index.get(key);
-    const sameMonth=key.startsWith(month), isToday=key===today, isSelected=key===selected;
-    html.push(`<div class="day-cell ${sameMonth?'':'outside'} ${isToday?'today':''} ${isSelected?'selected':''}" data-date="${key}" tabindex="0" role="gridcell" aria-selected="${isSelected}" aria-label="${formatDay(key,{year:'numeric',month:'long',day:'numeric',weekday:'long'})}, 일정 ${items.length}건"><div class="day-top"><div class="day-heading"><span class="day-number ${day===0?'sunday':day===6?'saturday':''}">${Number(key.slice(8))}</span>${isToday?'<span class="today-word">TODAY</span>':''}</div><button class="day-add" data-new="${key}" aria-label="${formatDay(key)}에 일정 추가" title="일정 추가">${icon('plus')}</button></div>`+
-      items.slice(0,perDay).map(o=>`<div class="event-chip ${isEventDone(o.event,o.startDate)?'done':''}" style="${styles(o.event.category)}">${eventCheckbox(o)}<button class="event-open" data-event="${esc(o.event.id)}" data-event-date="${o.startDate}" title="${esc(o.event.title)}${o.event.startTime?' · '+o.event.startTime:''}">${o.event.startTime&&o.startDate===key?`<span class="event-time">${o.event.startTime}</span>`:''}<span class="event-title">${o.startDate<key?'↳ ':''}${esc(o.event.title)}</span>${isDdayOccurrence(o)?`<span class="dday-marker" title="선택한 D-day 일정">${icon('flag')}</span>`:''}${o.event.repeat!=='none'?`<span class="repeat-symbol">${icon('repeat')}</span>`:''}</button></div>`).join('')+
-      (items.length>perDay?`<button class="more-button" data-more="${key}">${perDay?`+${items.length-perDay}개 더 보기`:`일정 ${items.length}개`}</button>`:'')+'</div>');
+    const sameMonth=key.startsWith(month), isToday=key===today, isSelected=key===selected, holiday=holidayDates[key], holidayEstimated=Number(key.slice(0,4))>2027;
+    const fontSpace=(state.settings.textScale??0)>0&&matchMedia('(min-width:1001px) and (min-height:620px)').matches?1:0;
+    const slots=Math.max(0,perDay-(holiday?1:0)-fontSpace);
+    html.push(`<div class="day-cell ${sameMonth?'':'outside'} ${isToday?'today':''} ${isSelected?'selected':''}" data-date="${key}" tabindex="0" role="gridcell" aria-selected="${isSelected}" aria-label="${formatDay(key,{year:'numeric',month:'long',day:'numeric',weekday:'long'})}${holiday?', '+esc(holiday)+(holidayEstimated?' (예상)':''):''}, 일정 ${items.length}건"><div class="day-top"><div class="day-heading"><span class="day-number ${day===0||holiday?'sunday':day===6?'saturday':''}">${Number(key.slice(8))}</span>${isToday?'<span class="today-word">TODAY</span>':''}</div><button class="day-add" data-new="${key}" aria-label="${formatDay(key)}에 일정 추가" title="일정 추가">${icon('plus')}</button></div>${holiday?`<span class="holiday-label" title="${esc(holiday)}${holidayEstimated?' (예상 공휴일)':''}">${esc(holiday)}</span>`:''}`+
+      items.slice(0,slots).map(o=>`<div class="event-chip ${isEventDone(o.event,o.startDate)?'done':''}" draggable="true" data-drag-event="${esc(o.event.id)}" data-drag-start="${o.startDate}" data-drag-day="${key}" style="${styles(o.event.category)}">${eventCheckbox(o)}<button class="event-open" data-event="${esc(o.event.id)}" data-event-date="${o.startDate}" title="${esc(o.event.title)}${o.event.startTime?' · '+o.event.startTime:''}">${o.event.startTime&&o.startDate===key?`<span class="event-time">${o.event.startTime}</span>`:''}<span class="event-title">${o.startDate<key?'↳ ':''}${esc(o.event.title)}</span>${isDdayOccurrence(o)?`<span class="dday-marker" title="선택한 D-day 일정">${icon('flag')}</span>`:''}${o.event.repeat!=='none'?`<span class="repeat-symbol">${icon('repeat')}</span>`:''}</button></div>`).join('')+
+      (items.length>slots?`<button class="more-button" data-more="${key}">${slots?`+${items.length-slots}개 더 보기`:`일정 ${items.length}개`}</button>`:'')+'</div>');
   }
   $('calendarGrid').innerHTML=html.join('');
   const monthEvents=new Set([...index].filter(([key])=>key.startsWith(month)).flatMap(([,rows])=>rows.map(o=>o.event.id)));
-  $('visibleCount').textContent=`${String(m).padStart(2,'0')}월 · ${monthEvents.size}개 일정`;
+  $('visibleCount').textContent=`${String(m).padStart(2,'0')}월 · ${monthEvents.size}개 일정${year<2020||year>2050?' · 공휴일 자료 없음':year>2027?' · 공휴일 예상':''}`;
   $('searchResults').hidden=!search;
   if(search) {
     const found=state.events.filter(matches).sort((a,b)=>a.startDate.localeCompare(b.startDate));
@@ -236,7 +240,7 @@ function renderTasks() {
   $('taskProgress').textContent=`${completed}/${state.tasks.length}`;
   $('taskProgressBar').style.width=state.tasks.length?`${completed/state.tasks.length*100}%`:'0%';
   const list=state.tasks.filter(t=>!state.settings.hideCompleted||!t.done).sort((a,b)=>Number(a.done)-Number(b.done)||(a.dueDate||'9999').localeCompare(b.dueDate||'9999')||a.createdAt.localeCompare(b.createdAt));
-  $('tasksList').innerHTML=list.length?list.slice(0,limits.tasks).map(t=>`<div class="task-item ${t.done?'done':''}"><input type="checkbox" ${t.done?'checked':''} data-task-check="${esc(t.id)}" aria-label="${esc(t.title)} 완료"><div class="task-copy"><span class="task-name">${esc(t.title)}</span>${t.dueDate?`<span class="task-date ${!t.done&&t.dueDate<today?'overdue':''}">${formatDay(t.dueDate,{month:'numeric',day:'numeric'})} ${!t.done?`· ${t.dueDate<today?'기한 지남':dday(t.dueDate,today)}`:''}</span>`:''}</div><button class="delete-task" data-task-delete="${esc(t.id)}" aria-label="${esc(t.title)} 삭제">${icon('trash')}</button></div>`).join(''):
+  $('tasksList').innerHTML=list.length?list.slice(0,limits.tasks).map(t=>`<div class="task-item ${t.done?'done':''}" draggable="true" data-drag-task="${esc(t.id)}" title="달력으로 끌어 일정을 만들 수 있어요"><input type="checkbox" ${t.done?'checked':''} data-task-check="${esc(t.id)}" aria-label="${esc(t.title)} 완료"><div class="task-copy"><span class="task-name">${esc(t.title)}</span>${t.dueDate?`<span class="task-date ${!t.done&&t.dueDate<today?'overdue':''}">${formatDay(t.dueDate,{month:'numeric',day:'numeric'})} ${!t.done?`· ${t.dueDate<today?'기한 지남':dday(t.dueDate,today)}`:''}</span>`:''}</div><button class="delete-task" data-task-delete="${esc(t.id)}" aria-label="${esc(t.title)} 삭제">${icon('trash')}</button></div>`).join(''):
     `<div class="empty-tasks">${state.tasks.length&&completed===state.tasks.length?'오늘도 하나씩, 모두 해냈어요. ✓':'머릿속 할 일을 여기에 내려놓으세요.'}</div>`;
   $('tasksList').insertAdjacentHTML('beforeend',moreRows('tasks',list.length));
 }
@@ -393,6 +397,78 @@ document.addEventListener('click',event=>{
   const add=event.target.closest('[data-new]');if(add){selected=add.dataset.new;month=selected.slice(0,7);render();openEvent();return;}
   const more=event.target.closest('[data-more]');if(more){jumpTo(more.dataset.more);$('dayEvents').scrollIntoView({behavior:'smooth',block:'nearest'});return;}
 });
+let draggedSchedule=null,draggedTask=null;
+function clearCalendarDrag(){draggedSchedule=null;draggedTask=null;for(const el of document.querySelectorAll('.dragging,.drag-over'))el.classList.remove('dragging','drag-over');}
+$('tasksList').addEventListener('dragstart',event=>{
+  const item=event.target.closest('[data-drag-task]');
+  if(!item||event.target.closest('input,button')||saving){event.preventDefault();return;}
+  draggedTask={id:item.dataset.dragTask};draggedSchedule=null;event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',draggedTask.id);item.classList.add('dragging');
+});
+$('tasksList').addEventListener('dragend',clearCalendarDrag);
+$('calendarGrid').addEventListener('dragstart',event=>{
+  const chip=event.target.closest('[data-drag-event]');
+  if(!chip||event.target.closest('input')||saving){event.preventDefault();return;}
+  draggedTask=null;draggedSchedule={id:chip.dataset.dragEvent,start:chip.dataset.dragStart,day:chip.dataset.dragDay};
+  event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',draggedSchedule.id);chip.classList.add('dragging');
+});
+$('calendarGrid').addEventListener('dragover',event=>{
+  if(!draggedSchedule&&!draggedTask)return;const cell=event.target.closest('.day-cell');if(!cell)return;
+  event.preventDefault();event.dataTransfer.dropEffect='move';
+  for(const item of $('calendarGrid').querySelectorAll('.drag-over'))if(item!==cell)item.classList.remove('drag-over');
+  cell.classList.add('drag-over');
+});
+$('calendarGrid').addEventListener('dragleave',event=>{
+  const cell=event.target.closest('.day-cell');if(cell&&!cell.contains(event.relatedTarget))cell.classList.remove('drag-over');
+});
+$('calendarGrid').addEventListener('dragend',clearCalendarDrag);
+$('calendarGrid').addEventListener('drop',async event=>{
+  const cell=event.target.closest('.day-cell'),drag=draggedSchedule,taskDrag=draggedTask;
+  if(!cell||(!drag&&!taskDrag))return;event.preventDefault();clearCalendarDrag();
+  const target=cell.dataset.date;
+  if(taskDrag){
+    let original,converted;
+    const success=await commit(s=>{
+      const index=s.tasks.findIndex(t=>t.id===taskDrag.id);if(index<0)throw new Error('할 일을 찾지 못했습니다.');
+      original=structuredClone(s.tasks[index]);
+      converted={id:original.id,title:original.title,startDate:target,endDate:target,startTime:'',endTime:'',category:'work',note:'',repeat:'none',repeatUntil:'',reminder:s.settings.defaultReminder,pinned:false,pinnedDate:'',completedDates:original.done?[target]:[],excludedDates:[]};
+      s.tasks.splice(index,1);s.events.push(converted);
+    });
+    if(success){jumpTo(target);undoToast('할 일을 일정으로 옮겼어요',original.title,()=>commit(s=>{
+      const index=s.events.findIndex(e=>e.id===converted.id);
+      if(index<0||JSON.stringify(s.events[index])!==JSON.stringify(converted)||s.tasks.some(t=>t.id===original.id))throw new Error('옮긴 일정이 변경되어 자동으로 되돌릴 수 없습니다.');
+      s.events.splice(index,1);s.tasks.push(original);
+    }),'할 일로 되돌렸어요');}
+    return;
+  }
+  const delta=dayNumber(target)-dayNumber(drag.day);
+  if(!delta)return;
+  const original=state.events.find(e=>e.id===drag.id);if(!original)return;
+  let scope='all';if(original.repeat!=='none'){scope=await repeatScope('이동',drag.start);if(!scope)return;}
+  const success=await commit(s=>{
+    const series=s.events.find(e=>e.id===drag.id);if(!series)throw new Error('일정을 찾지 못했습니다.');
+    if(series.repeat!=='none'&&scope==='one'){
+      const moved=structuredClone(series),newStart=addDays(drag.start,delta),duration=dayNumber(series.endDate)-dayNumber(series.startDate);
+      moved.id=crypto.randomUUID();moved.startDate=newStart;moved.endDate=addDays(newStart,duration);moved.repeat='none';moved.repeatUntil='';moved.excludedDates=[];
+      moved.completedDates=series.completedDates.includes(drag.start)?[newStart]:[];
+      moved.pinned=series.pinned&&(series.pinnedDate===drag.start||(!series.pinnedDate&&deadlineTarget?.event.id===series.id&&deadlineTarget.startDate===drag.start));moved.pinnedDate=moved.pinned?newStart:'';
+      series.excludedDates=[...new Set([...series.excludedDates,drag.start])];
+      if(moved.pinned){series.pinned=false;series.pinnedDate='';}
+      s.events.push(moved);
+    }else{
+      series.startDate=addDays(series.startDate,delta);series.endDate=addDays(series.endDate,delta);
+      if(series.repeatUntil)series.repeatUntil=addDays(series.repeatUntil,delta);
+      if(series.repeat.startsWith('monthly:')){
+        const movedStart=addDays(drag.start,delta),date=new Date(`${movedStart}T12:00:00Z`),day=date.getUTCDate(),last=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();
+        const oldWeek=Number(series.repeat.split(':')[1]),week=oldWeek===-1&&day+7>last?-1:Math.ceil(day/7)>4?-1:Math.ceil(day/7);
+        series.repeat=`monthly:${week}:${date.getUTCDay()}`;
+      }
+      series.completedDates=series.completedDates.map(key=>addDays(key,delta));series.excludedDates=series.excludedDates.map(key=>addDays(key,delta));
+      if(series.pinnedDate)series.pinnedDate=addDays(series.pinnedDate,delta);
+      if(series.repeat!=='none'&&[...series.completedDates,...series.excludedDates,...(series.pinnedDate?[series.pinnedDate]:[])].some(key=>!occursOn({...series,excludedDates:[]},key)))throw new Error('반복 일정의 기존 기록을 보존하려면 이번 일정만 이동해 주세요.');
+    }
+  });
+  if(success){jumpTo(target);toast('일정을 옮겼어요',original.title);}
+});
 $('calendarGrid').addEventListener('click',event=>{
   if(event.target.closest('button,input,.event-chip'))return;
   const cell=event.target.closest('[data-date]');if(!cell)return;
@@ -491,6 +567,7 @@ $('tasksList').addEventListener('click',async event=>{
   const b=event.target.closest('[data-task-delete]');if(!b)return;const task=state.tasks.find(t=>t.id===b.dataset.taskDelete);if(!task)return;
   if(await confirmAction('할 일을 삭제할까요?',task.title,'삭제'))if(await commit(s=>{s.tasks=s.tasks.filter(t=>t.id!==task.id);}))undoToast('할 일을 삭제했어요',task.title,()=>commit(s=>{if(s.tasks.some(t=>t.id===task.id))throw new Error('이미 복구된 할 일입니다.');s.tasks.push(structuredClone(task));}));
 });
+$('textScale').onchange=async()=>{const value=Number($('textScale').value);if(!await commit(s=>{s.settings.textScale=value;}))$('textScale').value=String(state.settings.textScale??0);};
 $('hideCompleted').onchange=async()=>{const value=$('hideCompleted').checked;if(!await commit(s=>{s.settings.hideCompleted=value;}))$('hideCompleted').checked=state.settings.hideCompleted;};
 $('settingsButton').onclick=()=>{renderNotifications();renderHotkey();refreshHotkeyStatus();if(nativeDesktop){updateWidget();updatePets();}document.querySelectorAll('#settingsDialog .settings-group').forEach(group=>{group.open=group.id==='petSettings';});showDialog('settingsDialog');$('settingsDialog').scrollTop=0;};
 $('helpButton').onclick=()=>showDialog('helpDialog');
@@ -556,11 +633,12 @@ new ResizeObserver(()=>{
 const tourSteps=[
   {title:'일정을 추가해 보세요',text:'날짜를 선택하고 ‘+ 일정 추가’를 눌러 제목과 시간을 입력한 뒤 저장하세요.',demo:'<span class="tour-demo-button">+ 일정 추가</span>'},
   {title:'Ctrl + Tab으로 빠르게',text:'다른 프로그램을 사용 중에도 캘린더를 숨기거나 다시 열 수 있어요.\n단축키는 설정에서 변경할 수 있어요.',demo:'<kbd>Ctrl</kbd><span>+</span><kbd>Tab</kbd>'},
-  {title:'함께할 펫을 골라보세요',text:'설정 및 백업 → 데스크톱 펫에서 종류를 고르고 ‘한 마리 추가’를 누르세요.',demo:'<span class="tour-demo-pet"></span><span class="tour-demo-button">한 마리 추가</span>'}
+  {title:'함께할 펫을 골라보세요',text:'버튼을 누르면 고양이가 추가돼요. 설정 및 백업에서는 다른 펫도 고를 수 있어요.',demo:'<span class="tour-demo-pet" aria-hidden="true"></span><button id="tourAddPet" type="button" class="button primary">한 마리 추가</button>'}
 ];
 let tourStep=0;
 function renderTour(){
   const step=tourSteps[tourStep];
+  $('tourPetStatus').textContent='';
   $('tourTitle').textContent=step.title;$('tourText').textContent=step.text;$('tourDemo').innerHTML=step.demo;
   $('tourProgress').textContent=`${tourStep+1} / ${tourSteps.length}`;
   $('tourBack').disabled=tourStep===0;$('tourNext').textContent=tourStep===tourSteps.length-1?'시작하기':'다음';
@@ -570,19 +648,32 @@ function finishTour(){
   try{localStorage.setItem('petCalendar.quickTour.v1','done');}catch{}
   $('quickTour').close();
 }
+$('tourDemo').addEventListener('click',async event=>{
+  const button=event.target.closest('#tourAddPet');if(!button||button.disabled)return;
+  button.disabled=true;$('tourPetStatus').textContent='고양이를 데려오는 중이에요…';
+  try{
+    const response=await fetch('/api/pets',{method:'POST',headers:{'Content-Type':'application/json','X-Calendar-Request':'1'},body:JSON.stringify({action:'tour-spawn'}),signal:AbortSignal.timeout(15000)});
+    const result=await response.json();if(!response.ok)throw new Error(result.error||'고양이를 추가하지 못했습니다.');
+    $('tourPetStatus').textContent='고양이 한 마리를 데려왔어요!';
+    updatePets();
+  }catch(error){$('tourPetStatus').textContent=error.message||'고양이를 추가하지 못했습니다.';}
+  finally{button.disabled=false;}
+});
 $('tourSkip').onclick=finishTour;
 $('tourBack').onclick=()=>{if(tourStep>0){tourStep--;renderTour();}};
 $('tourNext').onclick=()=>{if(tourStep===tourSteps.length-1)finishTour();else{tourStep++;renderTour();}};
 $('quickTour').addEventListener('cancel',event=>{event.preventDefault();finishTour();});
+function showQuickTour(){tourStep=0;renderTour();showDialog('quickTour');}
+$('tourHelp').onclick=showQuickTour;
 function startQuickTour(){
   if(!nativeDesktop)return;
   try{if(localStorage.getItem('petCalendar.quickTour.v1')==='done')return;}catch{}
   if(document.querySelector('dialog[open]'))return;
-  tourStep=0;renderTour();showDialog('quickTour');
+  showQuickTour();
 }
 async function init() {
   try{
-    state=await fetchState();loaded=true;render();tick();$('loadingScreen').hidden=true;
+    state=await fetchState();try{const response=await fetch('/holidays.json');if(response.ok)holidayDates=await response.json();}catch{}loaded=true;render();tick();$('loadingScreen').hidden=true;
     if(state.updatedAt)saveStatus(`이 PC에 저장됨 · ${new Date(state.updatedAt).toLocaleDateString('ko-KR')}`);
     await checkReminders();
     if(nativeDesktop)window.chrome.webview.postMessage({type:'desktop-ready',legacyReminders:localStorage.getItem('petCalendar.reminders')||localStorage.getItem('workCalendar.reminders')||'{}'});
@@ -591,7 +682,7 @@ async function init() {
 }
 if(nativeDesktop){
   document.documentElement.classList.add('native-desktop');
-  $('windowControls').hidden=false;
+  $('windowControls').hidden=false;$('tourHelp').hidden=false;
   for(const [id,action] of [['windowMinimize','minimize'],['windowMaximize','maximize'],['windowClose','close']])$(id).onclick=()=>window.chrome.webview.postMessage({type:'window-action',action});
   $('widgetSettings').hidden=false;$('petSettings').hidden=false;
   let pendingAlarm=null;

@@ -62,13 +62,31 @@ namespace PetCalendarDesktop {
             }finally{Directory.Delete(data,true);}
         }
         static int ReactionChecks(){
+            using(var scaling=new PetBubble()){
+                Check(scaling.Font.SizeInPoints==11,"speech uses baseline font");
+                DesktopTheme.TextScale=2;scaling.ApplyTextScale();
+                Check(scaling.Font.SizeInPoints==13,"speech font updates with larger setting");
+                DesktopTheme.TextScale=0;scaling.ApplyTextScale();
+            }
+
             using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.pets.zip"))
             using(var zip=new ZipArchive(stream,ZipArchiveMode.Read)){
                 Sprites.ResourceOpen=name=>{var output=new MemoryStream();using(var input=zip.GetEntry(name).Open())input.CopyTo(output);output.Position=0;return output;};
+                foreach(var kind in Species.All)using(var falling=new PetHost(kind,Palette.For(kind)[0],false,.4){SpawnFromCenter=true}){
+                    falling.Show();Pump(50);var area=Screen.PrimaryScreen.WorkingArea;
+                    Check(falling.Cat.State==Pose.Fall&&Math.Abs(falling.Cat.X-(area.Left+area.Width/2.0))<1&&falling.Cat.Y>=area.Top+area.Height/2.0&&falling.Cat.Y<area.Top+area.Height/2.0+40,kind.Id+" starts falling from center of screen");
+                    double startY=falling.Cat.Y;Pump(250);Check(falling.Cat.Y>startY,kind.Id+" moves downward after spawning");
+                }
                 using(var pet=new PetHost(Species.Cat,Palette.For(Species.Cat)[0],false,.4)){
                     pet.Show();Pump(80);pet.BringToFloor();pet.Cat.Paused=true;
                     var chatter=new PetChatter();
                     try{
+                        Check(PetVoice.Holiday(new DateTime(2026,7,17))=="제헌절","holiday resource identifies Constitution Day");
+                        Check(PetVoice.Holiday(new DateTime(2030,1,1))=="1월 1일","future holiday resource is available");
+                        Check(PetVoice.Holiday(new DateTime(2051,1,1))==null,"years outside supported range are not guessed");
+                        var holidayUtc=new DateTime(2026,7,17,12,0,0,DateTimeKind.Local).ToUniversalTime();
+                        chatter.Tick(new[]{pet},holidayUtc,false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
+                        Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("제헌절"),"pets greet on holidays");chatter.Reset();
                         var morning=new DateTime(2026,11,9,7,0,0,DateTimeKind.Local).ToUniversalTime();
                         chatter.Tick(new[]{pet},morning,false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
                         Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("아침"),"morning greeting");

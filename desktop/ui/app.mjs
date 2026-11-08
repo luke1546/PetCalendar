@@ -244,7 +244,7 @@ function renderNotifications() {
   if(nativeDesktop){
     const enabled=state.settings.desktopPopups;
     $('notificationButton').closest('.notification-card').classList.toggle('enabled',enabled);
-    $('notificationDescription').textContent='창을 숨겨도 알려드립니다. 데스크톱 펫을 켜면 펫의 말풍선으로, 끄면 기존 알림창으로 표시합니다. 알림은 확인할 때까지 유지됩니다. PC 절전 중에는 지연될 수 있으며, 종일 일정은 오전 9시 기준입니다.';
+    $('notificationDescription').textContent='창을 숨겨도 알려드립니다. 데스크톱 펫을 켜면 펫의 말풍선으로, 끄면 알림창으로 표시합니다. 알림은 확인할 때까지 유지됩니다. PC 절전 중에는 지연될 수 있으며, 종일 일정은 오전 9시 기준입니다.';
     document.querySelector('#helpDialog .field-hint').textContent='창의 X는 트레이로 숨기기입니다. 숨겨두어도 알림은 작동하고, 알림을 누르면 해당 일정이 열립니다. 완전 종료와 재시작은 시계 옆 캘린더 아이콘을 우클릭하세요.';
     $('notificationTitle').textContent=enabled?'데스크톱 알림이 켜져 있어요':'일정 알림을 켜둘까요?';
     $('notificationSubtitle').textContent=enabled?'숨겨두어도, 확인할 때까지 알려드려요.':'실행 중인 동안, 놓치지 않도록.';
@@ -598,19 +598,18 @@ async function updatePets(action,species,values={}) {
   if(!nativeDesktop)return;
   if(petsSaving){if(!action)petsRefreshPending=true;return;}
   petsSaving=true;
-  const controls=[$('petsEnabled'),$('petSpecies'),$('addPet'),$('homePets'),$('petSummaryEnabled'),$('petSummaryMinutes'),$('savePetSpeech'),$('previewPetSpeech'),$('petChatterEnabled')];controls.forEach(control=>control.disabled=true);
+  const controls=[$('petsEnabled'),$('petSpecies'),$('addPet'),$('petSummaryEnabled'),$('petSummaryMinutes'),$('savePetSpeech'),$('previewPetSpeech'),$('petChatterEnabled')];controls.forEach(control=>control.disabled=true);
   try {
     const response=await fetch('/api/pets',action?{method:'POST',headers:{'Content-Type':'application/json','X-Calendar-Request':'1'},body:JSON.stringify({action,...(species?{species}:{}),...values}),signal:AbortSignal.timeout(15000)}:{signal:AbortSignal.timeout(8000)});
     const result=await response.json();if(!response.ok)throw new Error(result.error||'데스크톱 펫을 변경하지 못했습니다.');
     petsPreference=result;$('petsEnabled').checked=result.enabled;$('petChatterEnabled').checked=result.chatterEnabled;if(action==='configureSpeech')petSpeechDirty=false;if(!petSpeechDirty){$('petSummaryEnabled').checked=result.summaryEnabled;$('petSummaryMinutes').value=String(result.summaryIntervalMinutes);}
-    $('petsStatus').textContent=result.enabled?(result.count?`펫 ${result.count}마리와 함께하고 있어요. 캘린더를 숨겨도 계속 산책합니다.`:"데스크톱 펫이 켜져 있어요. 원하는 펫을 추가해 보세요."):'데스크톱 펫이 꺼져 있습니다.';
+    $('petsStatus').textContent=result.enabled?(result.count?`펫 ${result.count}마리와 함께하고 있어요.`:"데스크톱 펫이 켜져 있어요. 원하는 펫을 추가해 보세요."):'데스크톱 펫이 꺼져 있습니다.';
   }catch(error){$('petsEnabled').checked=Boolean(petsPreference?.enabled);toast('데스크톱 펫을 확인해 주세요',error.message,'error');}
-  finally {petsSaving=false;$('petChatterEnabled').checked=petsPreference?.chatterEnabled??true;$('petChatterEnabled').disabled=false;$('petsEnabled').disabled=false;for(const control of controls.slice(1,4))control.disabled=!petsPreference?.enabled;$('petSummaryEnabled').disabled=false;$('petSummaryMinutes').disabled=!$('petSummaryEnabled').checked;$('savePetSpeech').disabled=false;$('previewPetSpeech').disabled=!petsPreference?.enabled||!petsPreference?.count;if(petsRefreshPending){petsRefreshPending=false;queueMicrotask(()=>updatePets());}}
+  finally {petsSaving=false;$('petChatterEnabled').checked=petsPreference?.chatterEnabled??true;$('petChatterEnabled').disabled=false;$('petsEnabled').disabled=false;for(const control of controls.slice(1,3))control.disabled=!petsPreference?.enabled;$('petSummaryEnabled').disabled=false;$('petSummaryMinutes').disabled=!$('petSummaryEnabled').checked;$('savePetSpeech').disabled=false;$('previewPetSpeech').disabled=!petsPreference?.enabled||!petsPreference?.count;if(petsRefreshPending){petsRefreshPending=false;queueMicrotask(()=>updatePets());}}
 }
 $('petChatterEnabled').onchange=()=>updatePets('configureChatter',null,{chatterEnabled:$('petChatterEnabled').checked});
 $('petsEnabled').onchange=()=>updatePets($('petsEnabled').checked?'enable':'disable');
 $('addPet').onclick=()=>updatePets('spawn',$('petSpecies').value);
-$('homePets').onclick=()=>updatePets('home');
 $('petSummaryEnabled').onchange=()=>{petSpeechDirty=true;$('petSummaryMinutes').disabled=!$('petSummaryEnabled').checked;};
 $('petSummaryMinutes').oninput=()=>{petSpeechDirty=true;};
 $('savePetSpeech').onclick=()=>{const input=$('petSummaryMinutes');if(!input.checkValidity()){input.reportValidity();return;}updatePets('configureSpeech',null,{summaryEnabled:$('petSummaryEnabled').checked,summaryIntervalMinutes:Number(input.value)});};

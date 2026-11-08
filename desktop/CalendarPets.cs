@@ -217,14 +217,18 @@ namespace PetCalendarDesktop {
     internal sealed class PetSendDialog : Form {
         internal PetSendDialog(int count) {
             Text="펫 모두 보내기";AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
-            FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
-            Font=new Font("Segoe UI",10);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(390,186);Padding=new Padding(20);
+            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
+            Font=new Font("Segoe UI",10);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(390,186);Padding=new Padding(20);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             var text=new Label{Text="이름 없는 펫 "+count+"마리를 정말 보내시겠어요?\n\n이름을 지은 펫은 남아 있어요.\n데스크톱 펫 기능은 켜진 상태로 유지됩니다.",Dock=DockStyle.Fill,UseMnemonic=false};
             var actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=36,FlowDirection=FlowDirection.RightToLeft};
-            var send=new Button{Text="보내기",DialogResult=DialogResult.OK,AutoSize=true};var cancel=new Button{Text="취소",DialogResult=DialogResult.Cancel,AutoSize=true};
-            actions.Controls.Add(send);actions.Controls.Add(cancel);Controls.Add(text);Controls.Add(actions);CancelButton=cancel;AcceptButton=cancel;
+            var send=new WidgetButton{Text="보내기",DialogResult=DialogResult.OK,Primary=true,Size=new Size(88,30)};var cancel=new WidgetButton{Text="취소",DialogResult=DialogResult.Cancel,Size=new Size(88,30)};
+            actions.Controls.Add(cancel);actions.Controls.Add(send);Controls.Add(text);Controls.Add(actions);CancelButton=cancel;AcceptButton=cancel;
             Shown+=delegate{cancel.Focus();};
         }
+        protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnPaintBackground(PaintEventArgs e){DesktopTheme.PaintWindow(this,e.Graphics,14,false);}
     }
     internal sealed class PetNameDialog : Form {
         readonly TextBox input=new TextBox{MaxLength=24,Dock=DockStyle.Fill};

@@ -7,6 +7,13 @@ namespace PetCalendarDesktop {
         internal int Count;
     }
     internal static class PetSchedule {
+        internal static int CompletionReaction(CalendarState before,CalendarState after,DateTime local) {
+            string today=Rules.Key(local);
+            var previous=Rules.Occurrences(before.events,today,today);
+            var current=Rules.Occurrences(after.events,today,today);
+            bool completed=current.Any(o=>Rules.Done(o.@event,o.startDate)&&previous.Any(old=>old.@event.id==o.@event.id&&old.startDate==o.startDate&&!Rules.Done(old.@event,old.startDate)));
+            return !completed?0:current.All(o=>Rules.Done(o.@event,o.startDate))?2:1;
+        }
         static string Title(string value) {return value.Length>90?value.Substring(0,89)+"…":value;}
         static DateTime Start(Occurrence o) {return Rules.Date(o.startDate).Add(TimeSpan.Parse(o.@event.startTime));}
         static DateTime End(Occurrence o) {

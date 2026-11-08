@@ -66,7 +66,7 @@ namespace PetCalendarDesktop {
             var area=Screen.PrimaryScreen.WorkingArea;Size=new Size(Math.Min(1440,area.Width-40),Math.Min(1000,area.Height-40));MinimumSize=new Size(800,600);StartPosition=FormStartPosition.CenterScreen;
             Icon=new Icon(Path.Combine(root,"calendar.ico"));web.Dock=DockStyle.Fill;Controls.Add(web);
             widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();if(id==null)Post(new{type="new-event",startDate=date});else Post(new{type="open-event",eventId=id,startDate=date});},Log);widget.Icon=Icon;
-            foreach(string file in new[]{"index.html","app.mjs","model.mjs","styles.css","icon.svg"})assets["/"+file]=File.ReadAllBytes(Path.Combine(root,"public",file));
+            foreach(string file in new[]{"index.html","app.mjs","model.mjs","styles.css","icon.svg","tour-cat.png"})assets["/"+file]=File.ReadAllBytes(Path.Combine(root,"public",file));
             assets["/"]=assets["/index.html"];
             menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
             widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
@@ -91,7 +91,12 @@ namespace PetCalendarDesktop {
             pets.Snooze+=(id,minutes)=>alarms.Snooze(id,minutes);
             pets.OpenAlarm+=alarm=>{alarms.Acknowledge(alarm.id);ShowCalendar();if(alarm.eventId!="")Post(new{type="open-event",eventId=alarm.eventId,startDate=alarm.startDate});};
             pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)Post(new{type="open-event",eventId=id,startDate=date});};
-            store.Changed+=()=>{if(Visible&&WindowState!=FormWindowState.Minimized)Post(new{type="state-changed"});};
+            var previousCalendar=store.Snapshot;
+            store.Changed+=()=>{
+                var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;
+                try{pets.CalendarChanged(before,next);}catch(Exception error){Log(error);}
+                if(Visible&&WindowState!=FormWindowState.Minimized)Post(new{type="state-changed"});
+            };
         }
         void RouteAlarms(List<Alarm> list,bool fresh,bool force) {
             bool show=(store.Snapshot.settings.desktopPopups||force)&&list.Count>0;
@@ -149,7 +154,7 @@ namespace PetCalendarDesktop {
                     args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(response.body))),response.status,response.status==200?"OK":"Error","Content-Type: application/json; charset=utf-8\r\nCache-Control: no-store");
                 }else {
                     byte[] content;bool exists=assets.TryGetValue(uri.AbsolutePath,out content);
-                    string mime=uri.AbsolutePath.EndsWith(".mjs")?"text/javascript":uri.AbsolutePath.EndsWith(".css")?"text/css":uri.AbsolutePath.EndsWith(".svg")?"image/svg+xml":"text/html";
+                    string mime=uri.AbsolutePath.EndsWith(".png")?"image/png":uri.AbsolutePath.EndsWith(".mjs")?"text/javascript":uri.AbsolutePath.EndsWith(".css")?"text/css":uri.AbsolutePath.EndsWith(".svg")?"image/svg+xml":"text/html";
                     args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(content??new byte[0]),exists?200:404,exists?"OK":"Not Found","Content-Type: "+mime+"; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'\r\nX-Content-Type-Options: nosniff");
                 }
             }catch(Exception error){Log(error);args.Response=web.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(Codec.Json(new{error=error.Message}))),500,"Error","Content-Type: application/json; charset=utf-8");}

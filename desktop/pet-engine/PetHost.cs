@@ -22,6 +22,7 @@ namespace DesktopPet {
         internal Action<Species> AddSpeciesRequested;
         internal Action CloseAllRequested;
         internal Action SpeechClicked;
+        internal Action SpeechDoubleClicked;
         internal Action RenameRequested;
         internal Action<int> PersonalityRequested;
         internal int Personality=2;
@@ -45,7 +46,8 @@ namespace DesktopPet {
         double lastTick,accumulator,nextWorld;
         int dip=96;
         bool press,dragging,menuOpen,systemHidden,disposed;
-        Point pressAt;
+        Point pressAt,lastClickPoint;
+        double lastClickAt=Double.NegativeInfinity;
         double grabX,grabY;
         int lastFrame=-1,lastX,lastY,lastDirection,lastSize;
         internal PetHost() : this(Palette.All[0],true,.6) {}
@@ -177,14 +179,22 @@ namespace DesktopPet {
             base.OnMouseUp(e);
             if(e.Button==MouseButtons.Right) {BuildMenu();menu.Show(Cursor.Position);return;}
             if(e.Button!=MouseButtons.Left || !press)return;
+            bool doubleClicked=false;
             if(dragging) {
+                lastClickAt=Double.NegativeInfinity;
                 Point p=Cursor.Position;double now=World.Now;
                 Cat.X=p.X+grabX;Cat.Y=p.Y+grabY;
                 var recent=samples.Where(s=>now-s.Time<=.1).ToList();double vx=0,vy=0;
                 if(recent.Count>=2 && now-recent[0].Time>=.008) {double elapsed=now-recent[0].Time;vx=(p.X-recent[0].Point.X)/elapsed*.65;vy=(p.Y-recent[0].Point.Y)/elapsed*.65;}
                 Cat.Release(vx,vy);
-            }else {Cat.Wake();if(SpeechClicked!=null)SpeechClicked();}
+            }else {
+                Cat.Wake();var point=Cursor.Position;double now=World.Now;
+                doubleClicked=(now-lastClickAt)*1000<=SystemInformation.DoubleClickTime && Math.Abs(point.X-lastClickPoint.X)<=SystemInformation.DoubleClickSize.Width/2 && Math.Abs(point.Y-lastClickPoint.Y)<=SystemInformation.DoubleClickSize.Height/2;
+                lastClickAt=doubleClicked?Double.NegativeInfinity:now;lastClickPoint=point;
+                if(!doubleClicked&&SpeechClicked!=null)SpeechClicked();
+            }
             press=dragging=false;Capture=false;samples.Clear();DrawCat(true);
+            if(doubleClicked&&SpeechDoubleClicked!=null)SpeechDoubleClicked();
         }
         protected override void OnMouseCaptureChanged(EventArgs e) { base.OnMouseCaptureChanged(e);if(!Capture && press)CancelDrag(); }
         void CancelDrag() {if(dragging)Cat.Release(0,0);press=dragging=false;Capture=false;samples.Clear();}

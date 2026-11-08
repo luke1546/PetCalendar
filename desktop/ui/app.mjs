@@ -492,7 +492,7 @@ $('tasksList').addEventListener('click',async event=>{
   if(await confirmAction('할 일을 삭제할까요?',task.title,'삭제'))if(await commit(s=>{s.tasks=s.tasks.filter(t=>t.id!==task.id);}))undoToast('할 일을 삭제했어요',task.title,()=>commit(s=>{if(s.tasks.some(t=>t.id===task.id))throw new Error('이미 복구된 할 일입니다.');s.tasks.push(structuredClone(task));}));
 });
 $('hideCompleted').onchange=async()=>{const value=$('hideCompleted').checked;if(!await commit(s=>{s.settings.hideCompleted=value;}))$('hideCompleted').checked=state.settings.hideCompleted;};
-$('settingsButton').onclick=()=>{renderNotifications();renderHotkey();refreshHotkeyStatus();if(nativeDesktop){updateWidget();updatePets();}showDialog('settingsDialog');};
+$('settingsButton').onclick=()=>{renderNotifications();renderHotkey();refreshHotkeyStatus();if(nativeDesktop){updateWidget();updatePets();}document.querySelectorAll('#settingsDialog .settings-group').forEach(group=>{group.open=group.id==='petSettings';});showDialog('settingsDialog');$('settingsDialog').scrollTop=0;};
 $('helpButton').onclick=()=>showDialog('helpDialog');
 $('notificationButton').onclick=()=>{if(nativeDesktop){$('settingsButton').click();$('notificationSettings').open=true;$('notificationSettings').scrollIntoView({block:'start'});return;}if(state.settings.notifications&&'Notification' in window&&Notification.permission==='granted'){$('settingsButton').click();}else enableNotifications();};
 $('notificationSound').onchange=async()=>{const value=$('notificationSound').checked;if(!await commit(s=>{s.settings.notificationSound=value;}))$('notificationSound').checked=state.settings.notificationSound;};
@@ -553,12 +553,40 @@ new ResizeObserver(()=>{
   cancelAnimationFrame(resizeFrame);
   resizeFrame=requestAnimationFrame(()=>{if(loaded&&nativeVisible&&calendarDensity()!==lastDensity)renderCalendar();});
 }).observe($('calendarGrid'));
+const tourSteps=[
+  {title:'일정을 추가해 보세요',text:'날짜를 선택하고 ‘+ 일정 추가’를 눌러 제목과 시간을 입력한 뒤 저장하세요.',demo:'<span class="tour-demo-button">+ 일정 추가</span>'},
+  {title:'Ctrl + Tab으로 빠르게',text:'다른 프로그램을 사용 중에도 캘린더를 숨기거나 다시 열 수 있어요.\n단축키는 설정에서 변경할 수 있어요.',demo:'<kbd>Ctrl</kbd><span>+</span><kbd>Tab</kbd>'},
+  {title:'함께할 펫을 골라보세요',text:'설정 및 백업 → 데스크톱 펫에서 종류를 고르고 ‘한 마리 추가’를 누르세요.',demo:'<span class="tour-demo-pet"></span><span class="tour-demo-button">한 마리 추가</span>'}
+];
+let tourStep=0;
+function renderTour(){
+  const step=tourSteps[tourStep];
+  $('tourTitle').textContent=step.title;$('tourText').textContent=step.text;$('tourDemo').innerHTML=step.demo;
+  $('tourProgress').textContent=`${tourStep+1} / ${tourSteps.length}`;
+  $('tourBack').disabled=tourStep===0;$('tourNext').textContent=tourStep===tourSteps.length-1?'시작하기':'다음';
+  [...$('tourDots').children].forEach((dot,index)=>dot.classList.toggle('active',index===tourStep));
+}
+function finishTour(){
+  try{localStorage.setItem('petCalendar.quickTour.v1','done');}catch{}
+  $('quickTour').close();
+}
+$('tourSkip').onclick=finishTour;
+$('tourBack').onclick=()=>{if(tourStep>0){tourStep--;renderTour();}};
+$('tourNext').onclick=()=>{if(tourStep===tourSteps.length-1)finishTour();else{tourStep++;renderTour();}};
+$('quickTour').addEventListener('cancel',event=>{event.preventDefault();finishTour();});
+function startQuickTour(){
+  if(!nativeDesktop)return;
+  try{if(localStorage.getItem('petCalendar.quickTour.v1')==='done')return;}catch{}
+  if(document.querySelector('dialog[open]'))return;
+  tourStep=0;renderTour();showDialog('quickTour');
+}
 async function init() {
   try{
     state=await fetchState();loaded=true;render();tick();$('loadingScreen').hidden=true;
     if(state.updatedAt)saveStatus(`이 PC에 저장됨 · ${new Date(state.updatedAt).toLocaleDateString('ko-KR')}`);
     await checkReminders();
     if(nativeDesktop)window.chrome.webview.postMessage({type:'desktop-ready',legacyReminders:localStorage.getItem('petCalendar.reminders')||localStorage.getItem('workCalendar.reminders')||'{}'});
+    startQuickTour();
   }catch(error){$('loadingScreen').innerHTML=`${icon('flag')}<p>${esc(error.message)}</p><button id="retryLoad" class="button primary">다시 시도</button>`;$('retryLoad').onclick=init;}
 }
 if(nativeDesktop){

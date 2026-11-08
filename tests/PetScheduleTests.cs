@@ -31,6 +31,15 @@ static class PetScheduleTests {
         Check(!clock.Due(utc,30)&&clock.NextUtc==utc.AddMinutes(30),"backward clock change rearms schedule");
         clock.Reset(utc,1);Check(clock.Due(utc.AddMinutes(1),1),"custom one minute interval");
         clock.Reset(utc,1440);Check(clock.NextUtc==utc.AddDays(1),"maximum day-long interval");
+        var before=new CalendarState{events=new[]{Event("a",today,""),Event("b",today,"")}};
+        var after=Codec.Read<CalendarState>(Codec.Json(before));after.events[0].completedDates=new[]{today};
+        Check(PetSchedule.CompletionReaction(before,after,now)==1,"one newly completed schedule celebrates");
+        var allDone=Codec.Read<CalendarState>(Codec.Json(after));allDone.events[1].completedDates=new[]{today};
+        Check(PetSchedule.CompletionReaction(after,allDone,now)==2,"last completed schedule gets special celebration");
+        Check(PetSchedule.CompletionReaction(allDone,after,now)==0,"undoing completion does not celebrate");
+        Check(PetSchedule.CompletionReaction(allDone,allDone,now)==0,"unrelated save does not repeat celebration");
+        Check(PetSchedule.CompletionReaction(new CalendarState(),allDone,now)==0,"imported completed schedules do not celebrate");
+        Check(PetSchedule.CompletionReaction(before,new CalendarState(),now)==0,"deleting schedules does not celebrate");
         Console.WriteLine(checks+" schedule and clock checks passed");
     }
 }

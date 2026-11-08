@@ -13,6 +13,7 @@ foreach($library in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.
 foreach($file in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLoop.cs','Palettes.cs','Sprites.cs','PetMenu.cs','PetHost.cs')){$compile+=Join-Path $engine $file}
 $compile+=Join-Path $PSScriptRoot 'PetSpeechWindowsTests.cs'
 $compile+=('/resource:'+(Join-Path $root 'desktop\pets.zip')+',petcalendar.pets.zip')
+$compile+=('/resource:'+(Join-Path $root 'desktop\emoji.zip')+',petcalendar.emoji.zip')
 & $compiler $compile
 if($LASTEXITCODE -ne 0){throw 'Native speech test build failed'}
 & $exe (Join-Path $root 'artifacts')

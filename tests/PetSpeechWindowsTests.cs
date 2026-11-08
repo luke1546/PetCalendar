@@ -61,10 +61,54 @@ namespace PetCalendarDesktop {
                 Check(errors.Count==0,"bulk-send lifecycle has no errors");
             }finally{Directory.Delete(data,true);}
         }
+        static int ReactionChecks(){
+            using(var stream=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.pets.zip"))
+            using(var zip=new ZipArchive(stream,ZipArchiveMode.Read)){
+                Sprites.ResourceOpen=name=>{var output=new MemoryStream();using(var input=zip.GetEntry(name).Open())input.CopyTo(output);output.Position=0;return output;};
+                using(var pet=new PetHost(Species.Cat,Palette.For(Species.Cat)[0],false,.4)){
+                    pet.Show();Pump(80);pet.BringToFloor();pet.Cat.Paused=true;
+                    var chatter=new PetChatter();
+                    try{
+                        var morning=new DateTime(2026,11,9,7,0,0,DateTimeKind.Local).ToUniversalTime();
+                        chatter.Tick(new[]{pet},morning,false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
+                        Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("아침"),"morning greeting");
+                        chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
+                        Check(!((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("좋은 아침"),"morning greeting is not repeated");
+                        chatter.Reset();pet.Cat.Paused=false;
+                        var night=new DateTime(2026,11,9,23,0,0,DateTimeKind.Local).ToUniversalTime();
+                        chatter.Tick(new[]{pet},night,false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
+                        Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("아직 안 자냥"),"night greeting");
+                        Check(pet.Cat.State==Pose.Sleep&&!pet.Cat.Sleeping,"temporary night nap");
+                    }finally{chatter.Reset();}
+                    pet.BringToFloor();var utc=DateTime.UtcNow;var state=new CalendarState();
+                    using(var speech=new PetSpeech(()=>new[]{pet},()=>state,()=>utc,a=>{},id=>{},(id,date)=>{},e=>{throw e;})){
+                        speech.Start(false,3,false);speech.Celebrate(false);
+                        var bubble=Application.OpenForms.OfType<PetBubble>().Single();
+                        Check(bubble.MessageText.Contains("하나 끝냈다냥")&&pet.Cat.State==Pose.Crouch,"completion celebrates with a jump");
+                        speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done has a special message");
+                        pet.Cat.Paused=true;speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm",title="test",body="test",eventId=""}});
+                        speech.Celebrate(false);Check((string)Field(speech.Inspect(),"alarmId")=="alarm","celebration preserves unread alarm");
+                        pet.BringToFloor();speech.SetAlerts(new List<Alarm>());Check(bubble.MessageText.Contains("하나 끝냈다냥"),"queued celebration follows alarm");
+                    }
+                }
+            }
+            Console.WriteLine(count+" reaction checks passed");return 0;
+        }
         [STAThread] static int Main(string[] args) {
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
+            if(Environment.GetEnvironmentVariable("PET_REACTIONS_ONLY")=="1")return ReactionChecks();
             Point cursor=Cursor.Position;
             try {
+                using(var label=new EmojiLabel{Text="💛",BackColor=Color.White,ForeColor=Color.Black,Size=new Size(60,40)})
+                using(var bitmap=new Bitmap(60,40)) {
+                    label.DrawToBitmap(bitmap,new Rectangle(0,0,60,40));bool yellow=false;
+                    for(int y=0;y<bitmap.Height;y++)for(int x=0;x<bitmap.Width;x++){var color=bitmap.GetPixel(x,y);if(color.R>160&&color.G>100&&color.B<100)yellow=true;}
+                    Check(yellow,"speech emoji renders in color rather than monochrome");
+                    const string sentence="오늘 일정이 없다냥";
+                    int sentenceWidth=TextRenderer.MeasureText(sentence,label.Font,Size.Empty,TextFormatFlags.NoPadding|TextFormatFlags.NoPrefix|TextFormatFlags.SingleLine).Width;
+                    Check(label.MeasureMessage(sentence,1000).Width==sentenceWidth,"Korean sentences retain normal spacing as a complete text run");
+                    Check(label.MeasureMessage("💛\n💛",60).Height>label.MeasureMessage("💛",60).Height,"emoji measurement respects multiline layout");
+                }
                 foreach(var species in Species.All) {
                     Check(PetVoice.ChatterCount(species.Id)==20&&Enumerable.Range(0,20).Select(i=>PetVoice.Chatter(species.Id,i)).Distinct().Count()==20,species.Id+" has twenty distinct casual lines");
                     var sample=new PetSummary{Kind="next",Title="회의 다냥 <태그> & 멍!",Time="11:00",Count=3};
@@ -182,6 +226,10 @@ namespace PetCalendarDesktop {
                             utc=utc.AddSeconds(5);speech.Tick();Check(!bubble.Visible,"clicked summary expires after twenty seconds");
                             speech.Dismiss();
                             Check(!first.SpeechHold&&!second.SpeechHold,"manual close releases movement hold");
+                            speech.Celebrate(false);Check(bubble.Visible&&bubble.MessageText.Contains("🎉"),"completion shows a celebration bubble");
+                            speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done shows special celebration");
+                            Check(first.Cat.Paused&&second.Cat.Paused,"celebration respects paused pets");speech.Dismiss();
+                            Check(PetVoice.TimeGreeting("cat",true).Contains("아침")&&PetVoice.TimeGreeting("cat",false).Contains("아직 안 자냥"),"cat has distinct morning and late night dialogue");
                             speech.Configure(true,2);utc=utc.AddSeconds(60);speech.Tick();Check(!bubble.Visible,"changed interval resets next summary");
                             speech.Resume();utc=utc.AddSeconds(119);speech.Tick();Check(!bubble.Visible,"resume resets summary deadline");
                             utc=utc.AddSeconds(1);speech.Tick();Check(bubble.Visible,"summary appears at resumed deadline");speech.Dismiss();
@@ -252,6 +300,17 @@ namespace PetCalendarDesktop {
                                 chatter.Tick(new[]{first,second},early,false);chatter.Tick(new[]{first,second},late,false);
                                 Check(chatter.ActiveCount==2,"two pets can show separate chatter bubbles at the same time");
                                 Check((long)Field(Field(ChatterEntry(chatter,first),"bubble"),"window")!=(long)Field(Field(ChatterEntry(chatter,second),"bubble"),"window"),"pets do not share or replace a chatter window");
+                                chatter.Reset();var morningUtc=new DateTime(2026,11,9,7,0,0,DateTimeKind.Local).ToUniversalTime();
+                                chatter.Tick(new[]{first},morningUtc,false);var morningDue=ChatterDue(chatter,first);chatter.Tick(new[]{first},morningDue,false);
+                                Check(((string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text")).Contains("아침"),"morning cooldown produces a greeting");
+                                chatter.Tick(new[]{first},ChatterDue(chatter,first),false);
+                                Check(!((string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text")).Contains("좋은 아침"),"morning greeting does not repeat every chatter interval");
+                                chatter.Reset();first.BringToFloor();first.Cat.Paused=false;
+                                var nightUtc=new DateTime(2026,11,9,23,0,0,DateTimeKind.Local).ToUniversalTime();
+                                chatter.Tick(new[]{first},nightUtc,false);chatter.Tick(new[]{first},ChatterDue(chatter,first),false);
+                                Check(((string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text")).Contains("아직 안 자냥"),"late night cooldown produces sleepy dialogue");
+                                Check(first.Cat.State==Pose.Sleep&&!first.Cat.Sleeping,"night nap is temporary rather than persistent sleep");first.Cat.Paused=true;
+
                             }finally{chatter.Reset();}
                             Check(chatter.ActiveCount==0&&((Array)chatter.Inspect()).Length==0,"stopping chatter releases all bubbles and cooldowns");
                         }

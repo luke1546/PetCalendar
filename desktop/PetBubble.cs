@@ -5,8 +5,58 @@ using System.Windows.Forms;
 using DesktopPet;
 
 namespace PetCalendarDesktop {
+    // GDI labels render color fonts in monochrome. Draw bundled emoji artwork
+    // inline, using the same layout for measurement and painting.
+    internal sealed class EmojiLabel : Label {
+        readonly System.Collections.Generic.Dictionary<string,Image> images=new System.Collections.Generic.Dictionary<string,Image>();
+        bool loaded;
+        void LoadImages(){
+            if(loaded)return;loaded=true;
+            using(var stream=typeof(EmojiLabel).Assembly.GetManifestResourceStream("petcalendar.emoji.zip")){
+                if(stream==null)return;
+                using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Read))
+                    foreach(var entry in zip.Entries)using(var input=entry.Open())using(var image=Image.FromStream(input))images[System.IO.Path.GetFileNameWithoutExtension(entry.Name)]=new Bitmap(image);
+            }
+        }
+        internal EmojiLabel(){DoubleBuffered=true;}
+        internal Size MeasureMessage(string text,int width){return LayoutMessage(text,width,null);}
+        Size LayoutMessage(string text,int width,Graphics graphics){
+            LoadImages();int x=0,y=0,max=0;
+            const TextFormatFlags flags=TextFormatFlags.NoPadding|TextFormatFlags.NoPrefix|TextFormatFlags.SingleLine;
+            int line=TextRenderer.MeasureText("가Ag",Font,Size.Empty,flags).Height+2;
+            var run=new System.Text.StringBuilder();
+            Func<string,int> measure=value=>TextRenderer.MeasureText(value,Font,Size.Empty,flags).Width;
+            Action flush=()=>{
+                if(run.Length==0)return;
+                string value=run.ToString();int advance=measure(value);
+                if(graphics!=null)TextRenderer.DrawText(graphics,value,Font,new Rectangle(x,y,advance,line),ForeColor,flags|TextFormatFlags.VerticalCenter);
+                x+=advance;run.Clear();
+            };
+            Action newline=()=>{flush();max=Math.Max(max,x);x=0;y+=line;};
+            var elements=System.Globalization.StringInfo.GetTextElementEnumerator(text);
+            while(elements.MoveNext()){
+                string element=elements.GetTextElement();if(element=="\r")continue;
+                if(element=="\n"||element=="\r\n"){newline();continue;}
+                if(element=="\ufe0f")continue;
+                Image emoji;images.TryGetValue(Char.ConvertToUtf32(element,0).ToString("x"),out emoji);
+                if(emoji!=null){
+                    flush();if(x>0&&x+line>width)newline();
+                    if(graphics!=null)graphics.DrawImage(emoji,new Rectangle(x,y,line-1,line-1));
+                    x+=line;
+                }else{
+                    string candidate=run.ToString()+element;
+                    if(x+measure(candidate)>width&&(x>0||run.Length>0))newline();
+                    run.Append(element);
+                }
+            }
+            flush();return new Size(Math.Min(width,Math.Max(max,x)),y+line);
+        }
+
+        protected override void OnPaint(PaintEventArgs e){LayoutMessage(Text,Math.Max(1,ClientSize.Width),e.Graphics);}
+        protected override void Dispose(bool disposing){if(disposing){foreach(var image in images.Values)image.Dispose();images.Clear();}base.Dispose(disposing);}
+    }
     internal sealed class PetBubble : Form {
-        readonly Label body=new Label();
+        readonly EmojiLabel body=new EmojiLabel();
         readonly Timer typing=new Timer{Interval=30};
         int revealed;
         readonly Button open=new Button(),dismiss=new Button(),close=new Button(),snooze=new Button();
@@ -98,10 +148,9 @@ namespace PetCalendarDesktop {
             LayoutPasses++;layoutValue=value;layoutAlarm=alarm;layoutDpi=DeviceDpi;layoutScreenWidth=area.Width;layoutScreenHeight=area.Height;layoutFontSize=body.Font.SizeInPoints;
             pad=DesktopTheme.Px(this,alarm?16:12);closeSpace=DesktopTheme.Px(this,24);tailSize=DesktopTheme.Px(this,16);
             int maxWidth=Math.Max(1,Math.Min(DesktopTheme.Px(this,290),area.Width-12));
-            var flags=TextFormatFlags.WordBreak|TextFormatFlags.NoPrefix|TextFormatFlags.TextBoxControl;
-            var natural=TextRenderer.MeasureText(value,body.Font,new Size(Math.Max(1,maxWidth-pad*2-closeSpace),Int32.MaxValue),flags);
+            var natural=body.MeasureMessage(value,Math.Max(1,maxWidth-pad*2-closeSpace));
             bubbleWidth=alarm?maxWidth:Math.Min(maxWidth,Math.Max(DesktopTheme.Px(this,80),natural.Width+pad*2+closeSpace));
-            int measured=TextRenderer.MeasureText(value,body.Font,new Size(Math.Max(1,bubbleWidth-pad*2-closeSpace),Int32.MaxValue),flags).Height;
+            int measured=body.MeasureMessage(value,Math.Max(1,bubbleWidth-pad*2-closeSpace)).Height;
             bodyHeight=Math.Max(body.Font.Height,Math.Min(measured+DesktopTheme.Px(this,2),Math.Min(DesktopTheme.Px(this,230),Math.Max(body.Font.Height,area.Height-130))));
             bubbleHeight=(alarm?DesktopTheme.Px(this,62):pad*2)+bodyHeight+tailSize;
             return true;

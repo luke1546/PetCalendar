@@ -123,6 +123,7 @@ namespace PetCalendarDesktop {
                 }
             };
             pet.SpeechClicked=()=>speech.PetClicked(pet);
+            pet.SpeechDoubleClicked=()=>NativeAction(()=>speech.Preview(pet));
             active.Add(pet);
             try {pet.Show();}
             catch {active.Remove(pet);pet.Dispose();throw;}
@@ -183,6 +184,11 @@ namespace PetCalendarDesktop {
             bool previous=preferences.chatterEnabled;preferences.chatterEnabled=(bool)value;
             try{Save();}catch{preferences.chatterEnabled=previous;throw;}
             speech.ConfigureChatter(preferences.chatterEnabled);Notify();
+        }
+        internal void CalendarChanged(CalendarState before,CalendarState after){
+            if(!enabled)return;
+            int reaction=PetSchedule.CompletionReaction(before,after,DateTime.Now);
+            if(reaction>0)speech.Celebrate(reaction==2);
         }
         internal void Announce(){if(enabled&&active.Count==0)throw new AppError(409,"펫을 한 마리 추가한 뒤 오늘 일정 안내를 들어 주세요.");speech.Preview();}
         internal void Deliver(List<Alarm> values){speech.SetAlerts(enabled?values:new List<Alarm>());}

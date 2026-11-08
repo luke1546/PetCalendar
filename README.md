@@ -27,8 +27,30 @@
 - 일정과 할 일, 반복 일정, 완료 표시, 검색 및 D-day
 - 바탕화면 위젯과 일정 알림, JSON 백업
 - 고양이, 포메라니안, 레서판다, 카피바라, 다람쥐, 알파카, 코끼리 데스크톱 펫
-- 펫별 이름과 일상 대화, 오늘 일정 안내 및 알림 말풍선
+- 펫별 이름과 성격, 컬러 이모지가 포함된 일상 대화와 일정 안내
+- 펫 더블클릭으로 오늘 일정 확인
+- 오늘 일정 완료 시 점프와 축하, 전부 완료하면 특별한 축하 멘트
+- 아침 인사와 늦은 밤 졸린 반응
 - 위젯과 펫 표시 여부, 알림 소리와 안내 주기 설정
+- 처음 실행할 때 일정 추가·단축키·펫 추가를 알려주는 3단계 퀵투어
+
+## 처음 시작하기
+
+1. 날짜를 선택하고 **+ 일정 추가**를 눌러 일정을 저장하세요.
+2. **Ctrl + Tab**으로 캘린더를 숨기거나 다시 여세요. 다른 프로그램을 사용 중에도 작동하며, 단축키는 설정에서 변경할 수 있습니다.
+3. **설정 및 백업 → 데스크톱 펫**에서 종류를 고르고 **한 마리 추가**를 누르세요.
+
+새 사용자 설정으로 처음 실행하면 데스크톱 펫이 켜지고 고양이 한 마리가 나타납니다. 퀵투어는 완료하거나 건너뛰면 다시 표시되지 않습니다.
+
+### 펫과 함께하기
+
+펫을 클릭하면 쓰다듬고, 드래그하면 옮길 수 있습니다. 더블클릭하면 해당 펫이 오늘 일정을 말풍선으로 알려줍니다. 우클릭 메뉴에서는 이름과 성격, 크기를 바꾸거나 펫을 추가할 수 있습니다.
+
+오늘 일정을 완료하면 펫이 축하하고, 오늘의 모든 일정을 끝내면 특별한 멘트를 들려줍니다. 미확인 시간 알림이 있으면 먼저 표시하고, 축하는 그 뒤에 이어집니다.
+
+일상 대화를 켜면 오전 6~10시에 아침 인사를 하고, 밤 11시~새벽 5시에는 졸린 인사와 잠깐 조는 동작을 합니다. 반응은 펫의 대화 주기에 맞춰 나타납니다.
+
+설정창은 **데스크톱 펫 → 단축키·바탕화면 위젯 → 일정 알림 → 데이터·백업** 순서이며, 열 때는 데스크톱 펫 항목만 펼쳐집니다. **펫 모두 보내기**는 이름 없는 펫만 보내며, 이름을 지은 펫과 데스크톱 펫 사용 설정은 유지합니다.
 
 ## 다운로드
 
@@ -36,20 +58,20 @@
 
 ## 실행 환경
 
-Windows x64, .NET Framework 4.8, Microsoft Edge WebView2 Runtime이 필요합니다. 일정과 설정은 사용자 PC의 `%LOCALAPPDATA%\\PetCalendar`에 저장됩니다.
+Windows x64, .NET Framework 4.8, Microsoft Edge WebView2 Runtime이 필요합니다. 일정과 설정은 사용자 PC의 `%LOCALAPPDATA%\PetCalendar`에 저장됩니다.
 
 ## 소스에서 빌드
 
 Windows PowerShell에서 다음 명령을 실행합니다.
 
 ```powershell
-.\\desktop\\build.ps1
+.\desktop\build.ps1
 ```
 
 결과물은 `dist/app/PetCalendar.exe`입니다. 설치 파일 생성에는 NSIS가 필요하며, 설치한 컴파일러 경로를 지정할 수 있습니다.
 
 ```powershell
-.\\desktop\\package.ps1 -Compiler 'C:\\Program Files (x86)\\NSIS\\makensis.exe'
+.\desktop\package.ps1 -Compiler 'C:\Program Files (x86)\NSIS\makensis.exe'
 ```
 
 테스트에는 Node.js와 Windows 환경이 필요합니다.
@@ -58,6 +80,7 @@ Windows PowerShell에서 다음 명령을 실행합니다.
 node --test tests/desktop-widget.test.mjs
 node --test tests/desktop-pet-speech.test.mjs
 powershell -ExecutionPolicy Bypass -File tests/pet-schedule.ps1
+powershell -ExecutionPolicy Bypass -File tests/pet-speech-windows.ps1
 ```
 
 ## 구성
@@ -65,7 +88,8 @@ powershell -ExecutionPolicy Bypass -File tests/pet-schedule.ps1
 - `desktop/` — Windows 앱, 위젯, 펫과 화면 소스
 - `desktop/pet-engine/` — 펫 애니메이션 및 동작 엔진
 - `desktop/pets.zip` — 앱에 포함되는 동물 이미지와 프레임 정보
+- `desktop/emoji.zip` — 말풍선에서 사용하는 컬러 이모지 이미지
 - `tests/` — 일정, 위젯, 펫과 설치 동작 검증
 - `docs/screenshots/` — 샘플 데이터로 촬영한 화면
 
-동물 에셋은 제작자의 `token-usage-main` 프로젝트에서 가져왔습니다. WebView2 구성 요소의 출처와 라이선스는 `desktop/webview2/`를 참고하세요.
+동물 에셋은 제작자의 `token-usage-main` 프로젝트에서 가져왔습니다. 컬러 이모지는 Twemoji를 사용하며, 출처와 라이선스는 [EMOJI-LICENSE.md](desktop/EMOJI-LICENSE.md)를 참고하세요. WebView2 구성 요소의 출처와 라이선스는 `desktop/webview2/`를 참고하세요.

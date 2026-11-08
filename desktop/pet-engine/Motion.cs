@@ -44,6 +44,7 @@ namespace DesktopPet {
             Vx=Vy=0; Support=floor.Id; desiredDirection=Direction; Sleeping=false; Held=false; jumpDelay=0; cooldown=1; SetPose(Pose.Idle); actionLeft=2;
         }
         public void Wake() { Sleeping=false; actionLeft=2; if(Support!=null)SetPose(Pose.Pet); }
+        public void Nap(){if(!Held&&Support!=null){Vx=Vy=0;SetPose(Pose.Sleep);actionLeft=10;}}
         public void Sleep() { Sleeping=true; if(Support!=null) { Vx=Vy=0; SetPose(Pose.Sleep); } }
         public void Grab() { Held=true; Sleeping=false; Support=null; Vx=Vy=0; jumpDelay=0; SetPose(Pose.Held); }
         public void Release(double vx,double vy) { Held=false;if(Math.Abs(vx)>1)Direction=vx<0?-1:1;desiredDirection=Direction; Vx=Clamp(vx,-420*Unit,420*Unit); Vy=Clamp(vy,-480*Unit,480*Unit); SetPose(Pose.Fall); }

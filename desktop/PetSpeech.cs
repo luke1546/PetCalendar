@@ -24,7 +24,7 @@ namespace PetCalendarDesktop {
         Alarm current;
         DateTime expires,lastTick,manualUntil;
         bool running,summaryEnabled=true,chatterEnabled=true,manual;
-        int minutes=3,speakerIndex;
+        int minutes=3,speakerIndex,pendingCelebration;
         internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error,Action<string,int> snoozeAlarm=null) {
             pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;snooze=snoozeAlarm;
             timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);ClearBubble();}};
@@ -41,10 +41,16 @@ namespace PetCalendarDesktop {
             if(had&&alerts.Count==0)clock.Reset(now(),minutes);
             if(running)Tick();
         }
+        internal void Celebrate(bool allDone){if(!running)return;pendingCelebration=Math.Max(pendingCelebration,allDone?2:1);Tick();}
         internal void Preview() {
             if(!running)throw new AppError(409,"데스크톱 펫을 먼저 켜 주세요.");
             if(alerts.Count>0)throw new AppError(409,"미확인 알림을 확인한 뒤 오늘 일정 안내를 들어 주세요.");
             manual=true;manualUntil=now().AddSeconds(20);Tick();
+        }
+        internal void Preview(PetHost pet) {
+            if(!running||pet.IsDisposed||alerts.Count>0)return;
+            ClearBubble();speaker=pet;speaker.SpeechHold=true;
+            Preview();
         }
         bool Eligible(PetHost p) {return !p.IsDisposed&&p.ReadyForSpeech&&p.Cat.Support!=null&&p.Cat.State!=Pose.Crouch;}
         bool SelectSpeaker() {
@@ -91,6 +97,12 @@ namespace PetCalendarDesktop {
                 }else if(bubble!=null)bubble.Hide();
             }else {
                 if(current!=null){current=null;ClearBubble();clock.Reset(utc,minutes);}
+                if(pendingCelebration>0&&SelectSpeaker()){
+                    bool allDone=pendingCelebration==2;pendingCelebration=0;manual=false;
+                    summary=new PetSummary{Kind="celebration",Text=PetVoice.Celebration(speaker.Kind.Id,allDone)};expires=utc.AddSeconds(8);
+                    EnsureBubble();
+                    if(!speaker.Cat.Paused&&!speaker.Cat.Held&&!speaker.Cat.Sleeping)speaker.Cat.Jump();
+                }
                 bool due=summaryEnabled&&clock.Due(utc,minutes);
                 if(manual && utc>manualUntil)manual=false;
                 if(manual || (due&&summary==null)) {
@@ -114,12 +126,12 @@ namespace PetCalendarDesktop {
         void ClearBubble(){ReleaseSpeaker();summary=null;if(bubble!=null)bubble.Hide();}
         internal object Inspect() {return new{running,summaryEnabled,chatterEnabled,intervalMinutes=minutes,nextUtc=running?clock.NextUtc.ToString("o"):null,alarmId=current==null?null:current.id,pending=alerts.Count,chatter=chatter.Inspect(),speakerWindow=speaker==null?0:speaker.Handle.ToInt64(),bubble=bubble==null?null:bubble.Inspect()};}
         internal void Capture(string path) {if(bubble==null||!bubble.Visible)throw new InvalidOperationException("말풍선이 표시되지 않았습니다.");using(var image=new System.Drawing.Bitmap(bubble.Width,bubble.Height)){bubble.DrawToBitmap(image,new System.Drawing.Rectangle(0,0,image.Width,image.Height));image.Save(path);}}
-        internal void Stop(){chatter.Reset();running=false;timer.Stop();current=null;manual=false;alerts.Clear();ClearBubble();if(bubble!=null){bubble.Dispose();bubble=null;}lastTick=default(DateTime);}
+        internal void Stop(){chatter.Reset();running=false;timer.Stop();current=null;manual=false;pendingCelebration=0;alerts.Clear();ClearBubble();if(bubble!=null){bubble.Dispose();bubble=null;}lastTick=default(DateTime);}
         public void Dispose(){Stop();timer.Dispose();}
     }
     // Each pet owns its deadline and bubble. One shared tick drives all chatter.
     internal sealed class PetChatter {
-        sealed class Entry {internal DateTime Next,Expires;internal int Last=-1;internal PetBubble Bubble;}
+        sealed class Entry {internal DateTime Next,Expires;internal string Morning,Night;internal int Last=-1;internal PetBubble Bubble;}
         readonly Dictionary<PetHost,Entry> entries=new Dictionary<PetHost,Entry>();
         readonly Random random=new Random();
         DateTime observed;
@@ -147,7 +159,11 @@ namespace PetCalendarDesktop {
                 entry.Last=choice;entry.Expires=utc.AddSeconds(10);
                 var bubble=new PetBubble();entry.Bubble=bubble;
                 bubble.DismissRequested+=()=>Close(entry);bubble.OpenRequested+=()=>Close(entry);
-                bubble.Present(PetVoice.Chatter(pet.Kind.Id,choice),false,0,false,true);bubble.Follow(pet);
+                var local=utc.ToLocalTime();string day=Rules.Key(local);bool morning=local.Hour>=6&&local.Hour<10,night=local.Hour>=23||local.Hour<5;
+                string message=PetVoice.Chatter(pet.Kind.Id,choice);
+                if(morning&&entry.Morning!=day){entry.Morning=day;message=PetVoice.TimeGreeting(pet.Kind.Id,true);}
+                else if(night&&entry.Night!=day){entry.Night=day;message=PetVoice.TimeGreeting(pet.Kind.Id,false);if(!pet.Cat.Paused&&!pet.Cat.Sleeping)pet.Cat.Nap();}
+                bubble.Present(message,false,0,false,true);bubble.Follow(pet);
             }
         }
         internal object Inspect(){return entries.Select(e=>new{window=e.Key.Handle.ToInt64(),species=e.Key.Kind.Id,nextUtc=e.Value.Next.ToString("o"),expiresUtc=e.Value.Bubble==null?null:e.Value.Expires.ToString("o"),bubble=e.Value.Bubble==null?null:e.Value.Bubble.Inspect()}).ToArray();}

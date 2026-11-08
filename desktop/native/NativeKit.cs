@@ -78,11 +78,14 @@ public static class Ui {
         public static int Width(string text,Font font){
             if(String.IsNullOrEmpty(text))return 0;
             string key=font.Name+"|"+font.Size+"|"+(int)font.Style+"|"+text;int w;if(text.Length<64&&widths.TryGetValue(key,out w))return w;
-            w=TextRenderer.MeasureText(text,font,new Size(int.MaxValue,int.MaxValue),Flags|TextFormatFlags.SingleLine).Width;
+            // The overload without a device context ignores NoPadding (~1/3 em too wide),
+            // which pushed centred labels left; measure on a DC like DrawText does.
+            w=TextRenderer.MeasureText(MeasureGraphics,text,font,new Size(int.MaxValue,int.MaxValue),Flags|TextFormatFlags.SingleLine).Width;
             if(text.Length<64){if(widths.Count>4000)widths.Clear();widths[key]=w;}
             return w;
         }
-        static Graphics advanceGraphics;
+        static Graphics advanceGraphics,measureGraphics;
+        static Graphics MeasureGraphics{get{if(measureGraphics==null)measureGraphics=Graphics.FromImage(new Bitmap(1,1));return measureGraphics;}}
         // Typographic advance (no GDI overhang), used for tight layouts such as date/time segments.
         public static float Advance(string text,Font font){
             if(String.IsNullOrEmpty(text))return 0;
@@ -97,7 +100,8 @@ public static class Ui {
         public static void Spaced(Graphics g,string text,Font font,float x,int y,int height,Color color,float spacing){
             if(String.IsNullOrEmpty(text))return;
             // Advance by whole-prefix widths: single-glyph GDI measurements overstate advances.
-            for(int i=0;i<text.Length;i++){char ch=text[i];if(ch==' ')continue;float left=x+(i==0?0:Width(text.Substring(0,i)+"a",font)-Width("a",font))+spacing*i;Text(g,ch.ToString(),font,new Rectangle((int)Math.Round(left),y,Width(ch.ToString(),font)+6,height),color,TextFormatFlags.VerticalCenter);}
+            // The "|" sentinel does not kern (a trailing "a" kerned under T/V/W/Y).
+            for(int i=0;i<text.Length;i++){char ch=text[i];if(ch==' ')continue;float left=x+(i==0?0:Width(text.Substring(0,i)+"|",font)-Width("|",font))+spacing*i;Text(g,ch.ToString(),font,new Rectangle((int)Math.Round(left),y,Width(ch.ToString(),font)+6,height),color,TextFormatFlags.VerticalCenter);}
         }
         // Line breaking follows Chrome's defaults for Korean: any Hangul syllable
         // boundary or space may break; long Latin words break anywhere.
@@ -338,7 +342,8 @@ public static class Ui {
             if(Text.Length>0){content+=Ui.Width(Text,font);parts++;}
             if(Kbd!=null){content+=KbdSize(s).Width/s;parts++;}
             w+=content+Math.Max(0,parts-1)*Gap;
-            float border=Kind==BtnKind.Plain||Kind==BtnKind.Close?0:1.5f;
+            // Chrome snaps a 1.5px border to whole device pixels (1px at 100%).
+            float border=Kind==BtnKind.Plain||Kind==BtnKind.Close?0:Math.Max(1,(float)Math.Floor(1.5f*s))/s;
             float h=Math.Max(MinH,PadY*2+Math.Max(IconName!=null?IconSize:0,Text.Length>0?(FontCss+(1+DesktopTheme.TextScale)*4f/3f)*1.3f:0)+border*2);
             w=Math.Max(Math.Max(MinW,w+border*2),Kind==BtnKind.Icon||Kind==BtnKind.SectionIcon||Kind==BtnKind.Close?h:0);
             return new Size((int)Math.Ceiling(w*s),(int)Math.Ceiling(h*s));
@@ -477,9 +482,11 @@ public static class Ui {
             var g=e.Graphics;g.Clear(Parent==null?DesktopTheme.Card:Parent.BackColor);Ui.Prepare(g);float s=Sc;
             float alpha=Enabled?1:.5f;Color back=Parent==null?DesktopTheme.Card:Parent.BackColor;Func<Color,Color> f=c=>Ui.Fade(c,back,alpha);
             bool focus=Focused;Ui.Box(g,new RectangleF(0,0,Width,Height),7*s,f(Ui.C("#fffaf1")),f(focus?DesktopTheme.Orange:Ui.C("#d5c7ad")),focus?2*s:s);
-            var font=Ui.Font(s,FontCss,400,null,Label);int pad=(int)Math.Round(PadX*s+s);
+            // `.field select` inherits weight 700 from .field; Chrome adds ~4px inside the padding
+            // and draws a heavy chevron about 8px from the right edge.
+            var font=Ui.Font(s,FontCss,700,null,Label);int pad=(int)Math.Round((PadX+4)*s+s);
             Ui.Text(g,Label,font,new Rectangle(pad,0,Math.Max(1,Width-pad-(int)(28*s)),Height),f(DesktopTheme.Ink),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
-            Ui.Icon(g,"chevron",new RectangleF(Width-pad-12*s,Height/2f-6*s,12*s,12*s),f(DesktopTheme.Ink),2.2f);
+            Ui.Icon(g,"chevron",new RectangleF(Width-20*s,Height/2f-6*s,12*s,12*s),f(DesktopTheme.Ink),4.4f);
         }
         protected override void OnMouseDown(MouseEventArgs e){base.OnMouseDown(e);if(e.Button!=MouseButtons.Left||!Enabled)return;Focus();Open();}
         protected override void OnGotFocus(EventArgs e){Invalidate();base.OnGotFocus(e);}

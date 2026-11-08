@@ -28,11 +28,11 @@ namespace PetCalendarDesktop {
         protected void Changed(){Invalidate();if(ValueChanged!=null)ValueChanged(this,EventArgs.Empty);}
         // Web date/time inputs inherit the .field font-weight (700) in dialogs; compact task-row fields stay regular.
         protected Font TextFont{get{return Ui.Font(Sc,FontCss,Compact?400:700);}}
-        public int PreferredHeight(){float s=Sc;return (int)Math.Round(TextFont.GetHeight()+(Compact?2*s:22*s));}
-        public int ContentWidth(){float s=Sc;float w=0;for(int i=0;i<parts.Length;i++)w+=Ui.Advance(SegmentText(i),TextFont)+Ui.Advance(Separator(i),TextFont);return (int)Math.Ceiling(w)+(int)Math.Round((Compact?22:30)*s);}
+        public int PreferredHeight(){float s=Sc;return (int)Math.Round(TextFont.GetHeight()+(Compact?2*s:24*s));}
+        public int ContentWidth(){float s=Sc;float w=0;for(int i=0;i<parts.Length;i++)w+=Ui.Width(SegmentText(i),TextFont)+Ui.Width(Separator(i),TextFont);return (int)Math.Ceiling(w)+(int)Math.Round((Compact?22:30)*s);}
         protected List<Rectangle> Segments(){
             var list=new List<Rectangle>();float s=Sc;float x=Compact?0:PadX*s+s;
-            for(int i=0;i<parts.Length;i++){float w=Ui.Advance(SegmentText(i),TextFont);list.Add(new Rectangle((int)Math.Round(x),0,(int)Math.Ceiling(w),Height));x+=w+Ui.Advance(Separator(i),TextFont);}
+            for(int i=0;i<parts.Length;i++){float w=Ui.Width(SegmentText(i),TextFont);list.Add(new Rectangle((int)Math.Round(x),0,(int)Math.Ceiling(w),Height));x+=w+Ui.Width(Separator(i),TextFont);}
             return list;
         }
         protected Rectangle IconRect{get{float s=Sc;int size=(int)Math.Round(15*s);var seg=Segments();int x=Compact?seg[seg.Count-1].Right+(int)(9*s):Width-(int)Math.Round(PadX*s+s)-size;return new Rectangle(Math.Min(x,Width-size-1),(Height-size)/2,size,size);}}

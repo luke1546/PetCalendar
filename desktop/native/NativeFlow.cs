@@ -25,12 +25,14 @@ namespace PetCalendarDesktop {
         public virtual bool Click(FlowPanel p,Point pt){return false;}
         public virtual bool Hot(Point pt){return false;}
         public FlowItem Margins(float top,float bottom){Top=top;Bottom=bottom;return this;}
+        // CSS margin collapsing: largest positive plus most negative margin.
+        static float Collapse(float a,float b){return Math.Max(0,Math.Max(a,b))+Math.Min(0,Math.Min(a,b));}
         public static int Stack(FlowPanel p,IList<FlowItem> items,int x,int y,int width,bool arrange){
             float s=p.Sc;int cursor=y;float pending=0;bool first=true;
             foreach(var item in items){
                 if(!item.Visible){item.SetShown(false);continue;}
                 item.SetShown(true);
-                int gap=first?(int)Math.Round(item.Top*s):(int)Math.Round(Math.Max(pending,item.Top)*s);
+                int gap=first?(int)Math.Round(item.Top*s):(int)Math.Round(Collapse(pending,item.Top)*s);
                 int h=item.Measure(p,width);
                 // An empty block's own margins collapse through it.
                 if(h==0&&!(item is ControlItem)){if(arrange)item.Arrange(p,new Rectangle(x,cursor,width,0));pending=Math.Max(Math.Max(pending,item.Top),item.Bottom);if(first){cursor+=0;}continue;}
@@ -46,7 +48,7 @@ namespace PetCalendarDesktop {
         public TextItem Set(string text){Runs=new List<Run>{new Run(text??"",-1)};return this;}
         public string Text{get{return String.Concat(Runs.Select(r=>r.Text));}}
         Font FontFor(FlowPanel p,Run r){return Ui.Font(p.Sc,Css,r.Weight<0?Weight:r.Weight,r.Family??Family,r.Text);}
-        float Line(FlowPanel p){var f=Ui.Font(p.Sc,Css,Weight,Family);return LineHeight>0?(Css+(1+DesktopTheme.TextScale)*4f/3f)*LineHeight*p.Sc:f.GetHeight()*1.0f+2*p.Sc;}
+        float Line(FlowPanel p){var f=Ui.Font(p.Sc,Css,Weight,Family);return LineHeight>0?(Css+(1+DesktopTheme.TextScale)*4f/3f)*LineHeight*p.Sc:f.GetHeight();} // Chrome line-height:normal equals the font height
         List<List<KeyValuePair<Run,string>>> Lines(FlowPanel p,int width){
             var result=new List<List<KeyValuePair<Run,string>>>();var line=new List<KeyValuePair<Run,string>>();int used=0;
             foreach(var run in Runs){
@@ -112,7 +114,8 @@ namespace PetCalendarDesktop {
     // `.field`: flex column of label text, optional <small>, and the control.
     public sealed class FieldItem : FlowItem {
         public readonly TextItem Label;public readonly TextItem Small;public readonly ControlItem Input;
-        public FieldItem(string label,Control control,string small=null){Label=new TextItem(label,11,700,DesktopTheme.Ink);Small=small==null?null:new TextItem(small,11,400,Ui.C("#79694f"),1.7f);Input=new ControlItem(control);Bottom=17;}
+        public FieldItem(string label,Control control,string small=null){var input=control as InputBox;if(input!=null&&input.Weight==400)input.Weight=700; // .field input/textarea inherit font-weight:700
+            Label=new TextItem(label,11,700,DesktopTheme.Ink);Small=small==null?null:new TextItem(small,11,400,Ui.C("#79694f"),1.7f);Input=new ControlItem(control);Bottom=17;}
         IEnumerable<FlowItem> Parts{get{yield return Label;if(Small!=null)yield return Small;yield return Input;}}
         public override void Attach(FlowPanel p){Input.Attach(p);}
         public override void SetShown(bool shown){Input.SetShown(shown);}
@@ -264,9 +267,53 @@ namespace PetCalendarDesktop {
         protected override void OnControlAdded(ControlEventArgs e){base.OnControlAdded(e);Hook(e.Control);}
         void Hook(Control c){c.MouseWheel+=delegate(object sender,MouseEventArgs e){var h=e as HandledMouseEventArgs;if(sender is SelectField||(h!=null&&h.Handled))return;if(Scroll.Wheel(e.Delta,Sc))Moved();if(h!=null)h.Handled=true;};foreach(Control child in c.Controls)Hook(child);}
     }
-    // Translucent ::backdrop over the calendar area while a dialog is open.
+    // ::backdrop over the calendar area while a dialog is open:
+    // background:#29241e75; backdrop-filter:blur(3px). With a source view the
+    // calendar is snapshotted, blurred and tinted; without one (stacked dialogs)
+    // it falls back to a plain translucent tint.
     public sealed class Backdrop : Form {
-        public Backdrop(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;BackColor=Ui.C("#29241e");Opacity=0.46;}
+        readonly Control source;Bitmap image;
+        public Backdrop(Control blurSource=null){
+            source=blurSource;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;BackColor=Ui.C("#29241e");
+            SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.UserPaint,true);
+            if(source==null||!Recapture())Opacity=0.46;
+        }
+        // Moving the window only moves the snapshot; a new size needs a new one.
+        public void Place(Rectangle r){bool resized=Size!=r.Size;Bounds=r;if(resized&&image!=null)Recapture();}
+        public bool Recapture(){
+            if(source==null||source.IsDisposed||source.Width<=0||source.Height<=0)return false;
+            try{
+                var shot=new Bitmap(source.Width,source.Height,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                source.DrawToBitmap(shot,new Rectangle(0,0,shot.Width,shot.Height));
+                Blur(shot,(int)Math.Round(3*source.DeviceDpi/96f));
+                using(var g=Graphics.FromImage(shot))using(var tint=new SolidBrush(Color.FromArgb(0x75,0x29,0x24,0x1e)))g.FillRectangle(tint,0,0,shot.Width,shot.Height);
+                if(image!=null)image.Dispose();image=shot;Invalidate();return true;
+            }catch{return false;}
+        }
+        // Three box-blur passes per axis approximate a Gaussian with sigma ~= radius.
+        static void Blur(Bitmap bmp,int sigma){
+            if(sigma<1)return;int w=bmp.Width,h=bmp.Height;
+            var data=bmp.LockBits(new Rectangle(0,0,w,h),System.Drawing.Imaging.ImageLockMode.ReadWrite,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            var px=new int[w*h];Marshal.Copy(data.Scan0,px,0,px.Length);
+            int r=Math.Max(1,(int)Math.Round(Math.Sqrt(4.0*sigma*sigma+1)/2-0.5));var tmp=new int[px.Length];
+            for(int pass=0;pass<3;pass++){BoxPass(px,tmp,w,h,r,true);BoxPass(tmp,px,w,h,r,false);}
+            Marshal.Copy(px,0,data.Scan0,px.Length);bmp.UnlockBits(data);
+        }
+        static void BoxPass(int[] src,int[] dst,int w,int h,int r,bool horizontal){
+            int lines=horizontal?h:w,len=horizontal?w:h,step=horizontal?1:w,div=2*r+1;
+            for(int l=0;l<lines;l++){
+                int start=horizontal?l*w:l;int sr=0,sg=0,sb=0;
+                for(int i=-r;i<=r;i++){int c=src[start+Math.Min(len-1,Math.Max(0,i))*step];sr+=(c>>16)&255;sg+=(c>>8)&255;sb+=c&255;}
+                for(int i=0;i<len;i++){
+                    dst[start+i*step]=unchecked((int)0xff000000)|((sr/div)<<16)|((sg/div)<<8)|(sb/div);
+                    int a=src[start+Math.Max(0,i-r)*step],b=src[start+Math.Min(len-1,i+r+1)*step];
+                    sr+=((b>>16)&255)-((a>>16)&255);sg+=((b>>8)&255)-((a>>8)&255);sb+=(b&255)-(a&255);
+                }
+            }
+        }
+        protected override void OnPaintBackground(PaintEventArgs e){if(image==null)base.OnPaintBackground(e);}
+        protected override void OnPaint(PaintEventArgs e){if(image!=null)e.Graphics.DrawImageUnscaled(image,0,0);}
+        protected override void Dispose(bool disposing){if(disposing&&image!=null){image.Dispose();image=null;}base.Dispose(disposing);}
         // Form.Show(owner) refuses disabled forms, so disable once shown.
         protected override void OnShown(EventArgs e){base.OnShown(e);Enabled=false;}
         protected override bool ShowWithoutActivation{get{return true;}}
@@ -290,8 +337,8 @@ namespace PetCalendarDesktop {
         protected float Sc{get{return DeviceDpi/96f;}}
         protected void SetHeaderAction(Control c){if(HeaderAction!=null)Controls.Remove(HeaderAction);HeaderAction=c;Controls.Add(c);}
         protected void Footer(Control[] left,Control[] right){HasFooter=true;FooterLeft.AddRange(left);FooterRight.AddRange(right);foreach(var c in left.Concat(right)){var b=c as Btn;if(b!=null)b.Surface=DesktopTheme.Card;Controls.Add(c);}}
-        int HeaderHeight{get{float s=Sc;int text=0;if(Eyebrow!=null)text+=(int)Math.Round(Ui.Font(s,8,700).GetHeight()+5*s);if(Heading!=null)text+=(int)Math.Round(Ui.Font(s,23,700).GetHeight()*1.15f);return Math.Max((int)Math.Round(74*s),text+(int)Math.Round(32*s)+(int)s);}}
-        int FooterHeight{get{if(!HasFooter)return 0;float s=Sc;int h=FooterLeft.Concat(FooterRight).Where(c=>!hiddenFooter.Contains(c)).Select(c=>c is Btn?((Btn)c).Outer().Height:c.Height).DefaultIfEmpty(0).Max();return h+(int)Math.Round(28*s)+(int)s;}}
+        int HeaderHeight{get{float s=Sc;int text=0;if(Eyebrow!=null)text+=(int)Math.Round(Ui.Font(s,8,700).GetHeight()+5*s);if(Heading!=null)text+=(int)Math.Round(Ui.Font(s,23,700).GetHeight());return Math.Max((int)Math.Round(74*s),text+(int)Math.Round(32*s)+(int)s);}}
+        int FooterHeight{get{if(!HasFooter)return 0;float s=Sc;int h=FooterLeft.Concat(FooterRight).Where(c=>!hiddenFooter.Contains(c)).Select(c=>c is Btn?((Btn)c).CssSize().Height:c.Height).DefaultIfEmpty(0).Max();return h+(int)Math.Round(28*s)+(int)s;}}
         public virtual void Relayout(){
             if(View==null||View.IsDisposed)return;float s=Sc;var area=View.ViewportScreen();int shadow=(int)Math.Ceiling(3*s);
             int width=(int)Math.Round(Math.Min(WidthCss*s,area.Width-32*s));
@@ -320,7 +367,7 @@ namespace PetCalendarDesktop {
             int header=HeaderHeight,x=(int)Math.Round(25*s);
             using(var b=new SolidBrush(DesktopTheme.Line))g.FillRectangle(b,s,header-s,box.Width-2*s,s);
             if(HasFooter){int footer=FooterHeight;using(var b=new SolidBrush(DesktopTheme.Line))g.FillRectangle(b,s,box.Height-footer,box.Width-2*s,s);}
-            int textH=Heading==null?0:(int)Math.Round(Ui.Font(s,23,700).GetHeight()*1.15f),eyebrowH=Eyebrow!=null?(int)Math.Round(Ui.Font(s,8,700).GetHeight()):0,gap=Eyebrow!=null&&Heading!=null?(int)Math.Round(5*s):0;
+            int textH=Heading==null?0:(int)Math.Round(Ui.Font(s,23,700).GetHeight()),eyebrowH=Eyebrow!=null?(int)Math.Round(Ui.Font(s,8,700).GetHeight()):0,gap=Eyebrow!=null&&Heading!=null?(int)Math.Round(5*s):0;
             int y=(header-(textH+eyebrowH+gap))/2;int titleWidth=(int)box.Width-x*2-(HeaderAction!=null?HeaderAction.Width+(int)(16*s):0);
             if(Eyebrow!=null){Ui.Spaced(g,Eyebrow,Ui.Font(s,8,700,null,Eyebrow),x,y,eyebrowH,Ui.C("#786b59"),1.6f*s);y+=eyebrowH+gap;}
             if(Heading!=null){var titleFont=Ui.Font(s,23,700,null,Heading);Ui.Spaced(g,Heading,titleFont,x,y,textH,DesktopTheme.Ink,-0.7f*s);}
@@ -330,7 +377,7 @@ namespace PetCalendarDesktop {
         public virtual void StateChanged(){}
         public virtual void SavingChanged(){}
         public void Show(Control focus){
-            Open.Add(this);var owner=View.FindForm();backdrop=new Backdrop();backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);
+            Open.Add(this);var owner=View.FindForm();backdrop=new Backdrop(Open.Count==1?View:null);backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);
             Relayout();base.Show(backdrop);View.SetModal(true);Activate();if(focus!=null)focus.Focus();else if(CloseButton!=null)Body.Focus();
             Toasts.Raise();
         }
@@ -338,7 +385,7 @@ namespace PetCalendarDesktop {
         protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);BeginInvoke(new Action(Relayout));}
         public virtual void Cancel(){if(View.Saving)return;CloseDialog();}
         public static void SetAllVisible(bool visible){foreach(var d in Open.ToArray()){if(d.backdrop!=null)d.backdrop.Visible=visible;d.Visible=visible;}if(visible&&Open.Count>0)Open[Open.Count-1].Activate();}
-        public static void RelayoutAll(){foreach(var d in Open.ToArray()){if(d.backdrop!=null&&!d.View.IsDisposed)d.backdrop.Bounds=d.View.ViewportScreen();d.Relayout();}}
+        public static void RelayoutAll(){foreach(var d in Open.ToArray()){if(d.backdrop!=null&&!d.View.IsDisposed)d.backdrop.Place(d.View.ViewportScreen());d.Relayout();}}
         public void CloseDialog(){
             if(closing)return;closing=true;Open.Remove(this);
             // Hand activation back before hiding so Windows does not pick another app.

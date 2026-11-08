@@ -246,15 +246,17 @@ namespace PetCalendarDesktop {
     }
     public sealed class ThemeCheckBox : CheckBox {
         bool hovered;
+        // Box size, box left and label start in logical px (widget defaults; dialogs use .checkbox-label metrics).
+        public float BoxCss=16,BoxLeft=2,TextLeft=24;
         public ThemeCheckBox(){SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);SetStyle(ControlStyles.Opaque,false);Cursor=Cursors.Hand;UseMnemonic=false;}
         public override Size GetPreferredSize(Size proposedSize){var text=TextRenderer.MeasureText(Text,Font);return new Size(DesktopTheme.Px(this,24)+text.Width,Math.Max(DesktopTheme.Px(this,24),text.Height+DesktopTheme.Px(this,4)));}
-        protected override void OnPaint(PaintEventArgs e){var g=e.Graphics;g.Clear(Parent is WidgetEventButton?((WidgetEventButton)Parent).SurfaceColor:Parent==null?BackColor:Parent.BackColor);g.SmoothingMode=SmoothingMode.AntiAlias;float s=DeviceDpi/96f;var box=new RectangleF(2*s,(Height-16*s)/2,16*s,16*s);
+        protected override void OnPaint(PaintEventArgs e){var g=e.Graphics;g.Clear(Parent is WidgetEventButton?((WidgetEventButton)Parent).SurfaceColor:Parent==null?BackColor:Parent.BackColor);g.SmoothingMode=SmoothingMode.AntiAlias;float s=DeviceDpi/96f;float k=BoxCss/16f;var box=new RectangleF(BoxLeft*s,(Height-BoxCss*s)/2,BoxCss*s,BoxCss*s);
             Color fill=ColorTranslator.FromHtml(Checked?(hovered&&Enabled?"#ffd6b9":"#ffe1ca"):(hovered&&Enabled?"#fff0df":"#fffaf1"));
             Color border=ColorTranslator.FromHtml(Checked?(hovered&&Enabled?"#d98d64":"#e7a27e"):(hovered&&Enabled?"#df9871":"#cbb99d"));
             if(!Enabled){fill=DesktopTheme.Paper;border=DesktopTheme.Line;}
-            using(var shape=DesktopTheme.Round(box,5*s)){using(var brush=new SolidBrush(fill))g.FillPath(brush,shape);using(var line=new Pen(border,1.2f*s))g.DrawPath(line,shape);}
-            if(Checked||CheckState==CheckState.Indeterminate)using(var pen=new Pen(Enabled?ColorTranslator.FromHtml("#a95736"):DesktopTheme.Muted,1.9f*s)){pen.StartCap=pen.EndCap=LineCap.Round;pen.LineJoin=LineJoin.Round;if(CheckState==CheckState.Indeterminate)g.DrawLine(pen,box.X+4*s,box.Y+8*s,box.X+12*s,box.Y+8*s);else g.DrawLines(pen,new[]{new PointF(box.X+3.7f*s,box.Y+8*s),new PointF(box.X+6.5f*s,box.Y+10.8f*s),new PointF(box.X+12.3f*s,box.Y+5.2f*s)});}
-            if(Text.Length>0)TextRenderer.DrawText(g,Text,Font,new Rectangle(DesktopTheme.Px(this,24),0,Math.Max(1,Width-DesktopTheme.Px(this,24)),Height),Enabled?ForeColor:DesktopTheme.Muted,TextFormatFlags.VerticalCenter|TextFormatFlags.SingleLine|TextFormatFlags.NoPrefix);
+            using(var shape=DesktopTheme.Round(box,5*s*k)){using(var brush=new SolidBrush(fill))g.FillPath(brush,shape);using(var line=new Pen(border,1.2f*s))g.DrawPath(line,shape);}
+            if(Checked||CheckState==CheckState.Indeterminate)using(var pen=new Pen(Enabled?ColorTranslator.FromHtml("#a95736"):DesktopTheme.Muted,1.9f*s)){pen.StartCap=pen.EndCap=LineCap.Round;pen.LineJoin=LineJoin.Round;if(CheckState==CheckState.Indeterminate)g.DrawLine(pen,box.X+4*s*k,box.Y+8*s*k,box.X+12*s*k,box.Y+8*s*k);else g.DrawLines(pen,new[]{new PointF(box.X+3.7f*s*k,box.Y+8*s*k),new PointF(box.X+6.5f*s*k,box.Y+10.8f*s*k),new PointF(box.X+12.3f*s*k,box.Y+5.2f*s*k)});}
+            if(Text.Length>0)TextRenderer.DrawText(g,Text,Font,new Rectangle((int)Math.Round(TextLeft*s),0,Math.Max(1,Width-(int)Math.Round(TextLeft*s)),Height),Enabled?ForeColor:DesktopTheme.Muted,TextFormatFlags.VerticalCenter|TextFormatFlags.SingleLine|TextFormatFlags.NoPrefix);
             if(Focused&&ShowFocusCues){var focus=box;focus.Inflate(2*s,2*s);using(var shape=DesktopTheme.Round(focus,6*s))using(var pen=new Pen(ColorTranslator.FromHtml("#d98d64"),s)){pen.DashStyle=DashStyle.Dot;g.DrawPath(pen,shape);}}
         }
         protected override void OnMouseEnter(EventArgs e){hovered=true;Invalidate();base.OnMouseEnter(e);}

@@ -26,11 +26,11 @@ namespace PetCalendarDesktop {
     // Checkbox whose font follows DPI and the text scale (CSS px, not points).
     public sealed class CssCheck : FlowItem {
         public readonly ThemeCheckBox Box;readonly ControlItem item;readonly float size;
-        public CssCheck(ThemeCheckBox box,float css,float top=0,float bottom=0){Box=box;size=css;item=new ControlItem(box,false);Top=top;Bottom=bottom;}
+        public CssCheck(ThemeCheckBox box,float css,float top=0,float bottom=0){Box=box;box.BoxCss=15;box.BoxLeft=0;box.TextLeft=20;size=css;item=new ControlItem(box,false);Top=top;Bottom=bottom;}
         public override void Attach(FlowPanel p){item.Attach(p);}
         public override void SetShown(bool shown){Box.Visible=shown;}
-        public override int Measure(FlowPanel p,int width){Box.Font=Ui.Font(p.Sc,size,400,null,Box.Text);return Math.Max((int)Math.Round(18*p.Sc),(int)Math.Ceiling(Box.Font.GetHeight()+2*p.Sc));}
-        public override void Arrange(FlowPanel p,Rectangle r){Bounds=new Rectangle(r.X,r.Y,Math.Min(r.Width,(int)Math.Round(24*p.Sc)+Ui.Width(Box.Text,Box.Font)+(int)(6*p.Sc)),r.Height);item.Bounds=Bounds;}
+        public override int Measure(FlowPanel p,int width){Box.Font=Ui.Font(p.Sc,size,400,null,Box.Text);return Math.Max((int)Math.Round(16*p.Sc),(int)Math.Round(Box.Font.GetHeight()));}
+        public override void Arrange(FlowPanel p,Rectangle r){Bounds=new Rectangle(r.X,r.Y,Math.Min(r.Width,(int)Math.Round(Box.TextLeft*p.Sc)+Ui.Width(Box.Text,Box.Font)+(int)(10*p.Sc)),r.Height);item.Bounds=Bounds;}
         public override void Position(FlowPanel p,int scroll){item.Position(p,scroll);}
     }
     // Radio chip used by the category fieldset.
@@ -39,7 +39,7 @@ namespace PetCalendarDesktop {
         public ChoiceChip(string key,string label,List<ChoiceChip> group){Key=key;Category=key;Text=label;Group=group;group.Add(this);SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.Selectable|ControlStyles.ResizeRedraw,true);TabStop=true;Cursor=Cursors.Hand;}
         public bool Checked{get{return on;}set{on=value;Invalidate();}}
         float Sc{get{return DeviceDpi/96f;}}
-        public Size Preferred(){float s=Sc;var f=Ui.Font(s,11,700,null,Text);return new Size((int)Math.Ceiling(Ui.Width(Text,f)+14*s+24*s+2*s),(int)Math.Ceiling(f.GetHeight()+16*s+2*s));}
+        public Size Preferred(){float s=Sc;var f=Ui.Font(s,11,700,null,Text);return new Size((int)Math.Ceiling(Ui.Width(Text,f)+14*s+24*s+2*s),(int)Math.Round(f.GetHeight()+16*s+2*s));}
         public void Pick(){foreach(var c in Group)c.Checked=c==this;if(Picked!=null)Picked(this,EventArgs.Empty);}
         protected override void OnPaint(PaintEventArgs e){
             var g=e.Graphics;float s=Sc;g.Clear(DesktopTheme.Card);Ui.Prepare(g);var r=new RectangleF(0,0,Width,Height);
@@ -104,7 +104,7 @@ namespace PetCalendarDesktop {
             untilField=Body.Add(new FieldItem("반복 종료일",until,"비워두면 계속 반복 · 시작일 이후부터 선택한 규칙 적용"));
             Body.Add(new FieldItem("메모",note,"선택"));
             Body.Add(new CssCheck(pinned,12,0,14));
-            Body.Add(Css.Hint("종일 일정 알림은 오전 9시 기준입니다. 캘린더를 열어둔 동안 알려드려요."));
+            var allDayHint=Css.Hint("종일 일정 알림은 오전 9시 기준입니다. 캘린더를 열어둔 동안 알려드려요.");allDayHint.Bottom=0;Body.Add(allDayHint); // <p> bottom margin collapses into the footer's 20px
             Body.Add(error);error.Visible=false;
             Footer(new Control[]{delete,copy},new Control[]{cancel,save});SetFooterVisible(delete,editingId!=null);SetFooterVisible(copy,editingId!=null);
             delete.Click+=delegate{View.DeleteSchedule(editingId,true,occurrence,this);};copy.Click+=delegate{View.OpenEvent(editingId,View.selected,true);};cancel.Click+=delegate{Cancel();};save.Click+=delegate{Submit();};

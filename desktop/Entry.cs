@@ -16,7 +16,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("펫 캘린더")]
 [assembly: AssemblyDescription("일정과 할 일을 정리하는 펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
-[assembly: AssemblyVersion("2.6.4.0")]
+[assembly: AssemblyVersion("2.7.0.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8",FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace PetCalendarDesktop {
@@ -72,7 +72,7 @@ namespace PetCalendarDesktop {
                 }
             }finally{if(shell!=null&&System.Runtime.InteropServices.Marshal.IsComObject(shell))System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell);}
         }
-        static int ValidateInstall(string root){foreach(string file in new[]{"PetCalendar.exe","calendar.ico","notification.wav","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg"})if(!File.Exists(Path.Combine(root,file)))throw new Exception("설치 파일이 없습니다: "+file);using(var pack=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.pets.zip"))if(pack==null)throw new Exception("동물 리소스가 없습니다.");Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString(null);return 0;}
+        static int ValidateInstall(string root){foreach(string file in new[]{"PetCalendar.exe","calendar.ico","notification.wav","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg","public/tour-cat.png","EMOJI-LICENSE.md"})if(!File.Exists(Path.Combine(root,file)))throw new Exception("설치 파일이 없습니다: "+file);using(var pack=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.pets.zip"))if(pack==null)throw new Exception("동물 리소스가 없습니다.");using(var emoji=Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.emoji.zip"))if(emoji==null)throw new Exception("이모지 리소스가 없습니다.");Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString(null);return 0;}
         [STAThread]
         public static int Main(string[] args) {
             var options=Options(args);bool automation=options.ContainsKey("automation");

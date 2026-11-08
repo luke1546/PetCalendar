@@ -43,7 +43,7 @@ static class CalendarRemoval {
         foreach(var folder in new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup})Delete(Path.Combine(Environment.GetFolderPath(folder),link));
         string start=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),Path.GetFileNameWithoutExtension(link));
         Delete(Path.Combine(start,link));Empty(start);
-        foreach(string file in new[]{"public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","webview2/LICENSE.txt","webview2/source.json","PetCalendar.exe","PetCalendar.exe.config","calendar.ico","notification.wav","RemovePetCalendar.exe"})Delete(Path.Combine(root,file));
+        foreach(string file in new[]{"public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg","public/tour-cat.png","EMOJI-LICENSE.md","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","webview2/LICENSE.txt","webview2/source.json","PetCalendar.exe","PetCalendar.exe.config","calendar.ico","notification.wav","RemovePetCalendar.exe"})Delete(Path.Combine(root,file));
         Empty(Path.Combine(root,"public"));Empty(Path.Combine(root,"webview2"));
         Registry.CurrentUser.DeleteSubKeyTree(Key(qa),false);Empty(root);
     }

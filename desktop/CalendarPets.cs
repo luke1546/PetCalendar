@@ -188,7 +188,7 @@ namespace PetCalendarDesktop {
         internal void CalendarChanged(CalendarState before,CalendarState after){
             if(!enabled)return;
             int reaction=PetSchedule.CompletionReaction(before,after,DateTime.Now);
-            if(reaction>0)speech.Celebrate(reaction==2);
+            if(reaction>0)speech.Celebrate(reaction==2,before);
         }
         internal void Announce(){if(enabled&&active.Count==0)throw new AppError(409,"펫을 한 마리 추가한 뒤 오늘 일정 안내를 들어 주세요.");speech.Preview();}
         internal void Deliver(List<Alarm> values){speech.SetAlerts(enabled?values:new List<Alarm>());}

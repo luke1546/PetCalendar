@@ -74,21 +74,40 @@ namespace PetCalendarDesktop {
                         Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("아침"),"morning greeting");
                         chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
                         Check(!((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("좋은 아침"),"morning greeting is not repeated");
+                        chatter.Reset();chatter.Tick(new[]{pet},morning.AddMinutes(5),false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
+                        Check(!((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("좋은 아침"),"morning history survives reset");
                         chatter.Reset();pet.Cat.Paused=false;
                         var night=new DateTime(2026,11,9,23,0,0,DateTimeKind.Local).ToUniversalTime();
                         chatter.Tick(new[]{pet},night,false);chatter.Tick(new[]{pet},ChatterDue(chatter,pet),false);
                         Check(((string)Field(Field(ChatterEntry(chatter,pet),"bubble"),"text")).Contains("아직 안 자냥"),"night greeting");
                         Check(pet.Cat.State==Pose.Sleep&&!pet.Cat.Sleeping,"temporary night nap");
                     }finally{chatter.Reset();}
-                    pet.BringToFloor();var utc=DateTime.UtcNow;var state=new CalendarState();
+                    pet.BringToFloor();var utc=DateTime.UtcNow;string today=Rules.Key(utc.ToLocalTime());
+                    var state=new CalendarState{events=new[]{
+                        new CalendarEvent{id="one",title="one",startDate=today,endDate=today,repeat="none",completedDates=new[]{today}},
+                        new CalendarEvent{id="two",title="two",startDate=today,endDate=today,repeat="none"}
+                    }};
                     using(var speech=new PetSpeech(()=>new[]{pet},()=>state,()=>utc,a=>{},id=>{},(id,date)=>{},e=>{throw e;})){
                         speech.Start(false,3,false);speech.Celebrate(false);
                         var bubble=Application.OpenForms.OfType<PetBubble>().Single();
                         Check(bubble.MessageText.Contains("하나 끝냈다냥")&&pet.Cat.State==Pose.Crouch,"completion celebrates with a jump");
-                        speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done has a special message");
-                        pet.Cat.Paused=true;speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm",title="test",body="test",eventId=""}});
-                        speech.Celebrate(false);Check((string)Field(speech.Inspect(),"alarmId")=="alarm","celebration preserves unread alarm");
-                        pet.BringToFloor();speech.SetAlerts(new List<Alarm>());Check(bubble.MessageText.Contains("하나 끝냈다냥"),"queued celebration follows alarm");
+                        state.events[1].completedDates=new[]{today};speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done has a special message");
+                        state.events[1].completedDates=new string[0];speech.Tick();Check(!bubble.MessageText.Contains("전부"),"active celebration updates after undo");
+                        pet.BringToFloor();pet.Cat.Paused=true;
+                        speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm",title="test",body="test",eventId=""}});
+                        var before=Codec.Read<CalendarState>(Codec.Json(state));state.events[1].completedDates=new[]{today};
+                        speech.Celebrate(true,before);Check((string)Field(speech.Inspect(),"alarmId")=="alarm","celebration preserves unread alarm");
+                        state.events[1].completedDates=new string[0];speech.SetAlerts(new List<Alarm>());
+                        Check(!bubble.Visible,"undo cancels queued celebration even when another event was already complete");
+                        speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm2",title="test",body="test",eventId=""}});
+                        state.events[1].completedDates=new[]{today};speech.Celebrate(true,before);speech.SetAlerts(new List<Alarm>());
+                        Check(bubble.Visible&&bubble.MessageText.Contains("전부"),"valid queued celebration follows alarm");
+                        speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm3",title="test",body="test",eventId=""}});
+                        speech.Celebrate(true,before);state.events=state.events.Take(1).ToArray();speech.SetAlerts(new List<Alarm>());
+                        Check(!bubble.Visible,"deleting the completed event cancels its celebration");
+                        speech.SetAlerts(new List<Alarm>{new Alarm{id="alarm4",title="test",body="test",eventId=""}});
+                        speech.Celebrate(true);utc=utc.AddDays(1);speech.SetAlerts(new List<Alarm>());
+                        Check(!bubble.Visible,"queued celebrations expire when the day changes");
                     }
                 }
             }
@@ -226,9 +245,9 @@ namespace PetCalendarDesktop {
                             utc=utc.AddSeconds(5);speech.Tick();Check(!bubble.Visible,"clicked summary expires after twenty seconds");
                             speech.Dismiss();
                             Check(!first.SpeechHold&&!second.SpeechHold,"manual close releases movement hold");
-                            speech.Celebrate(false);Check(bubble.Visible&&bubble.MessageText.Contains("🎉"),"completion shows a celebration bubble");
-                            speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done shows special celebration");
-                            Check(first.Cat.Paused&&second.Cat.Paused,"celebration respects paused pets");speech.Dismiss();
+                            state.events[0].completedDates=new[]{date};speech.Celebrate(false);Check(bubble.Visible&&bubble.MessageText.Contains("🎉"),"completion shows a celebration bubble");
+                            state.events[1].completedDates=new[]{date};speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done shows special celebration");
+                            Check(first.Cat.Paused&&second.Cat.Paused,"celebration respects paused pets");speech.Dismiss();state.events[0].completedDates=state.events[1].completedDates=new string[0];
                             Check(PetVoice.TimeGreeting("cat",true).Contains("아침")&&PetVoice.TimeGreeting("cat",false).Contains("아직 안 자냥"),"cat has distinct morning and late night dialogue");
                             speech.Configure(true,2);utc=utc.AddSeconds(60);speech.Tick();Check(!bubble.Visible,"changed interval resets next summary");
                             speech.Resume();utc=utc.AddSeconds(119);speech.Tick();Check(!bubble.Visible,"resume resets summary deadline");

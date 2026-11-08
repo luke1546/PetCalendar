@@ -1,7 +1,7 @@
 ﻿Unicode true
 !include MUI2.nsh
 !include FileFunc.nsh
-!define VERSION "2.6.4"
+!define VERSION "2.7.0"
 !ifndef APP_DIRECTORY
   !define APP_DIRECTORY "..\dist\app"
 !endif
@@ -28,10 +28,10 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "펫 캘린더"
 Icon "..\calendar.ico"
-VIProductVersion "2.6.4.0"
+VIProductVersion "2.7.0.0"
 VIAddVersionKey /LANG=1042 "ProductName" "펫 캘린더"
 VIAddVersionKey /LANG=1042 "FileDescription" "펫 캘린더 설치"
-VIAddVersionKey /LANG=1042 "FileVersion" "2.6.4.0"
+VIAddVersionKey /LANG=1042 "FileVersion" "2.7.0.0"
 VIAddVersionKey /LANG=1042 "LegalCopyright" "PetCalendar"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\PetCalendar.exe"
@@ -55,6 +55,8 @@ Var AutoStart
   Delete "${Directory}\public\model.mjs"
   Delete "${Directory}\public\styles.css"
   Delete "${Directory}\public\icon.svg"
+  Delete "${Directory}\public\tour-cat.png"
+  Delete "${Directory}\EMOJI-LICENSE.md"
   Delete "${Directory}\webview2\Microsoft.Web.WebView2.Core.dll"
   Delete "${Directory}\webview2\Microsoft.Web.WebView2.WinForms.dll"
   Delete "${Directory}\webview2\WebView2Loader.dll"

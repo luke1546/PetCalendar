@@ -39,7 +39,7 @@ public static class AppFonts {
     static readonly Choice[] choices={
         new Choice{Key="default",Label="기본 (맑은 고딕)"},
         new Choice{Key="jua",Label="주아 · 동글동글",Family="Jua",Files=new[]{"Jua-Regular.ttf"}},
-        new Choice{Key="childfund",Label="초록우산어린이 · 아이 손글씨",Family="Sandoll Childfundkorea TTF",Files=new[]{"SDChildfundkorea.ttf"},Scale=1.12f}};
+        new Choice{Key="childfund",Label="초록우산어린이 · 아이 손글씨",Family="Childfund Hangul Compact Test",Files=new[]{"SDChildfundkorea-Compact.ttf"},Scale=1.12f}};
     public static IEnumerable<KeyValuePair<string,string>> Options{get{return choices.Select(c=>new KeyValuePair<string,string>(c.Key,c.Label));}}
     [DllImport("gdi32.dll",CharSet=CharSet.Unicode)]static extern int AddFontResourceEx(string path,uint flags,IntPtr reserved);
     static readonly PrivateFontCollection collection=new PrivateFontCollection();

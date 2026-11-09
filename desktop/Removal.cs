@@ -47,7 +47,7 @@ static class CalendarRemoval {
         Empty(Path.Combine(root,"public"));Empty(Path.Combine(root,"webview2"));
         // Fonts unpacked on first use (settings → 화면 → 글꼴); data and backups are kept.
         string fonts=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PetCalendar","fonts");
-        foreach(string font in new[]{"Jua-Regular.ttf","SDChildfundkorea.ttf"}){try{Delete(Path.Combine(fonts,font));}catch(IOException){}catch(UnauthorizedAccessException){}}
+        foreach(string font in new[]{"Jua-Regular.ttf","SDChildfundkorea.ttf","SDChildfundkorea-Compact.ttf"}){try{Delete(Path.Combine(fonts,font));}catch(IOException){}catch(UnauthorizedAccessException){}}
         try{Empty(fonts);}catch(IOException){}
         Registry.CurrentUser.DeleteSubKeyTree(Key(qa),false);Empty(root);
     }

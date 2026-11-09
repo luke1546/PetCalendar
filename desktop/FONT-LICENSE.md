@@ -1,12 +1,18 @@
 Bundled fonts for the calendar window (Settings → 화면 → 글꼴).
-Source: https://github.com/google/fonts (ofl/jua). Fonts are used without modification.
+Jua source: https://github.com/google/fonts (ofl/jua). Jua is used without modification.
 
 - Jua (주아): Copyright 2018 The Jua Project Authors
 
 - Sandoll Childfundkorea (Sandoll 초록우산어린이): Copyright 초록우산 어린이재단, ㈜산돌커뮤니케이션.
-  Free for anyone to use, copy and redistribute; embedding in programs is permitted
-  (https://www.sandollcloud.com/free-font/284/Sandoll-Childfundkorea). It is not covered by the OFL
-  below and is included unmodified.
+  Original font information: https://www.sandollcloud.com/free-font/284/Sandoll-Childfundkorea.
+  The bundled `SDChildfundkorea-Compact.ttf` (family: `Childfund Hangul Compact Test`)
+  is an unofficial experimental extension of the original font, not an official Sandoll release.
+  It retains the original glyph outlines and advances and fills 8,822 previously empty modern
+  Hangul syllables by composing original outlines, for coverage of all 11,172 modern syllables.
+  Shared outline components keep the TTF at 2,295,844 bytes. The original copyright notice is
+  retained in the font. The added syllables have not all been manually reviewed for design quality.
+  SHA-256: `d49cc1b4c3c4a695841e726c340c9dbf542185077041c682b4440c16071c8675`.
+  This font is separate from the Jua font and is not covered by the OFL below.
 
 Jua is licensed under the SIL Open Font License, Version 1.1:
 

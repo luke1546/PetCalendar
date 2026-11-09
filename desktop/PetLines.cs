@@ -19,7 +19,7 @@ namespace PetCalendarDesktop {
         internal static string LevelName(int level){return names[Math.Max(1,Math.Min(5,level))-1];}
         // Progress inside the current level, 0..100 (100 at the top level).
         internal static int Percent(int points){int level=Level(points);if(level>=5)return 100;int low=Thresholds[level-1],high=Thresholds[level];return (int)Math.Floor((points-low)*100.0/(high-low));}
-        internal static string Hearts(int level){return level>=5?" ♥♥♥":level==4?" ♥♥":level==3?" ♥":"";}
+        internal static string Hearts(int level){return level>=5?" 💖":level==4?" 💚":" 🌟";}
         static int Tier(int level){return level>=5?2:level>=3?1:0;}
 
         // One line for a situation (morning, done1, doneAll, pet, toy, longtime, diaryEnd, snack),

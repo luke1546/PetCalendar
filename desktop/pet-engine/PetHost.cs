@@ -249,23 +249,65 @@ namespace DesktopPet {
     internal sealed class NameTag : Form {
         // Set by the calendar so name tags use the chosen font; gets the pixel size, returns a new font.
         internal static Func<float,Font> FontFor;
+        sealed class Run {internal string Text;internal Image Emoji;internal float Width;}
+        static readonly Dictionary<string,Image> emojiImages=new Dictionary<string,Image>();
+        static Image EmojiFor(string element){
+            string code=Char.ConvertToUtf32(element,0).ToString("x");Image image;
+            if(emojiImages.TryGetValue(code,out image))return image;
+            using(var stream=typeof(NameTag).Assembly.GetManifestResourceStream("petcalendar.emoji.zip")){
+                if(stream!=null)using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Read)){
+                    var entry=zip.GetEntry(code+".png");
+                    if(entry!=null)using(var input=entry.Open())using(var original=Image.FromStream(input))image=new Bitmap(original);
+                }
+            }
+            emojiImages[code]=image;return image;
+        }
         IntPtr bitmap=IntPtr.Zero;internal int Width2,Height2;internal double Scale=1;internal bool Shown;int x=int.MinValue,y=int.MinValue;
         internal NameTag(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);}
         protected override bool ShowWithoutActivation{get{return true;}}
         protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000|0x80|0x08000000|0x20;return p;}}
         internal void SetText(string text,double scale){
-            Scale=scale;float s=(float)scale;
-            using(var font=FontFor!=null?FontFor(10.5f*s):new Font("Malgun Gothic",10.5f*s,FontStyle.Bold,GraphicsUnit.Pixel)){
-                SizeF measured;using(var probe=new Bitmap(1,1))using(var g=Graphics.FromImage(probe))measured=g.MeasureString(text,font,PointF.Empty,StringFormat.GenericTypographic);
-                int w=(int)Math.Ceiling(measured.Width+16*s),h=(int)Math.Ceiling(font.GetHeight()+7*s);w=Math.Max(w,h);
-                using(var image=new Bitmap(w,h,System.Drawing.Imaging.PixelFormat.Format32bppPArgb))using(var g=Graphics.FromImage(image)){
-                    g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.Transparent);
+            Scale=scale;
+            using(var image=RenderText(text,scale)){
+                IntPtr next=image.GetHbitmap(Color.FromArgb(0));
+                if(bitmap!=IntPtr.Zero)Native.DeleteObject(bitmap);bitmap=next;
+                Width2=image.Width;Height2=image.Height;x=int.MinValue;
+            }
+        }
+        // GDI+ DrawString does not paint color emoji. Keep the selected font for
+        // names and paint bundled emoji artwork with the same measured layout.
+        internal static Bitmap RenderText(string text,double scale){
+            float s=(float)scale;
+            using(var font=FontFor!=null?FontFor(10.5f*s):new Font("Malgun Gothic",10.5f*s,FontStyle.Bold,GraphicsUnit.Pixel))
+            using(var format=(StringFormat)StringFormat.GenericTypographic.Clone()){
+                format.FormatFlags|=StringFormatFlags.MeasureTrailingSpaces;
+                var runs=new List<Run>();var plain=new System.Text.StringBuilder();float contentWidth=0,emojiSize=(float)Math.Ceiling(font.GetHeight());
+                using(var probe=new Bitmap(1,1))using(var g=Graphics.FromImage(probe)){
+                    Action flush=()=>{if(plain.Length==0)return;string value=plain.ToString();float width=g.MeasureString(value,font,PointF.Empty,format).Width;runs.Add(new Run{Text=value,Width=width});contentWidth+=width;plain.Clear();};
+                    var elements=System.Globalization.StringInfo.GetTextElementEnumerator(text??"");
+                    while(elements.MoveNext()){
+                        string element=elements.GetTextElement();if(element=="\ufe0f")continue;
+                        Image emoji=EmojiFor(element);
+                        if(emoji==null)plain.Append(element);
+                        else{flush();runs.Add(new Run{Emoji=emoji,Width=emojiSize});contentWidth+=emojiSize;}
+                    }
+                    flush();
+                }
+                int w=(int)Math.Ceiling(contentWidth+16*s),h=(int)Math.Ceiling(Math.Max(font.GetHeight(),emojiSize)+7*s);w=Math.Max(w,h);
+                var image=new Bitmap(w,h,System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                using(var g=Graphics.FromImage(image)){
+                    g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.Transparent);
                     float r=(h-1)/2f;using(var path=new System.Drawing.Drawing2D.GraphicsPath()){path.AddArc(.5f,.5f,r*2,r*2,90,180);path.AddArc(w-1.5f-r*2,.5f,r*2,r*2,270,180);path.CloseFigure();
                         using(var fill=new SolidBrush(Color.FromArgb(215,255,253,247)))g.FillPath(fill,path);using(var pen=new Pen(Color.FromArgb(200,140,116,80),Math.Max(1f,s)))g.DrawPath(pen,path);}
-                    using(var ink=new SolidBrush(Color.FromArgb(255,74,58,38)))g.DrawString(text,font,ink,(w-measured.Width)/2f,(h-font.GetHeight())/2f,StringFormat.GenericTypographic);
-                    if(bitmap!=IntPtr.Zero)Native.DeleteObject(bitmap);bitmap=image.GetHbitmap(Color.FromArgb(0));
+                    float left=(w-contentWidth)/2f;
+                    using(var ink=new SolidBrush(Color.FromArgb(255,74,58,38)))foreach(var run in runs){
+                        if(run.Emoji!=null)g.DrawImage(run.Emoji,new RectangleF(left,(h-emojiSize)/2f,emojiSize,emojiSize));
+                        else g.DrawString(run.Text,font,ink,left,(h-font.GetHeight())/2f,format);
+                        left+=run.Width;
+                    }
                 }
-                Width2=w;Height2=h;x=int.MinValue;
+                return image;
             }
         }
         internal void HideTag(){if(Shown&&IsHandleCreated){Native.SetWindowPos(Handle,IntPtr.Zero,0,0,0,0,0x93);}Shown=false;}

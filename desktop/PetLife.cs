@@ -15,7 +15,14 @@ namespace PetCalendarDesktop {
     // go to sleep on a cushion at night or while the user is away, and keep daily counts
     // (steps, greetings, bed) for the pet diary.
     internal sealed class PetLife : IDisposable {
-        sealed class Day {public double StartDistance=-1;public int Meets;public bool Bed;}
+        sealed class Day {public double StartDistance=-1;public int Meets,Pets,Toys,LevelUp;public bool Bed;public DateTime PetQuietUntil;}
+        sealed class Note {public PetHost Pet;public PetBubble Bubble;public DateTime Until;}
+        readonly List<Note> notes=new List<Note>();
+        // Affinity points for a pet (owner applies and persists them).
+        internal Action<PetHost,int> Award;
+        // Lets the schedule speech step aside when the user interacts with its speaker.
+        internal Action<PetHost> BeforeSpeak;
+        internal bool Talking(PetHost pet){return notes.Any(n=>n.Pet==pet&&DateTime.UtcNow<n.Until);}
         sealed class Meeting {public PetHost A,B;public PetBubble BubbleA,BubbleB;public DateTime Start;public int Line;public bool Replied;}
         readonly Func<PetHost[]> pets;readonly Action<Exception> log;
         readonly Timer timer=new Timer{Interval=400};
@@ -33,7 +40,7 @@ namespace PetCalendarDesktop {
         [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
         internal PetLife(Func<PetHost[]> hosts,Action<Exception> error){pets=hosts;log=error;timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);}};}
         internal void Start(){timer.Start();}
-        internal void Stop(){timer.Stop();EndToy();if(toy!=null){toy.Dispose();toy=null;}EndMeeting();WakeSleepers();RemoveBed();}
+        internal void Stop(){timer.Stop();foreach(var n in notes)n.Bubble.Dispose();notes.Clear();EndToy();if(toy!=null){toy.Dispose();toy=null;}EndMeeting();WakeSleepers();RemoveBed();}
         internal void ConfigureToy(bool enabled){ToyEnabled=enabled;if(!enabled)EndToy();}
         internal void ConfigureBed(bool enabled,double fraction){BedEnabled=enabled;BedFraction=Math.Max(.05,Math.Min(.95,fraction));if(!enabled){WakeSleepers();RemoveBed();}}
         public void Dispose(){Stop();timer.Dispose();}
@@ -44,8 +51,8 @@ namespace PetCalendarDesktop {
             string key=Rules.Key(DateTime.Now);if(key!=today){today=key;days.Clear();}
             foreach(var pet in all){Day d;if(!days.TryGetValue(pet,out d)){d=new Day();days[pet]=d;}if(d.StartDistance<0)d.StartDistance=pet.Cat.Distance;}
             foreach(var gone in days.Keys.Where(p=>p.IsDisposed||!all.Contains(p)).ToArray())days.Remove(gone);
-            BedTick(all);ToyTick(all);if(!toyMode)MeetTick(all);
-            timer.Interval=toyMode?40:400;
+            BedTick(all);ToyTick(all);if(!toyMode)MeetTick(all);NotesTick();
+            timer.Interval=toyMode?40:(notes.Count>0||meeting!=null?100:400);
         }
 
         // ---------- Toy ----------
@@ -60,6 +67,9 @@ namespace PetCalendarDesktop {
                 bool near=all.Any(p=>free(p)&&Math.Abs(p.Cat.X-c.X)<p.Cat.Size*1.1&&c.Y>p.Cat.Y-p.Cat.Size*2&&c.Y<p.Cat.Y+p.Cat.Size*.4);
                 if(!near||(now-lastMove).TotalSeconds>1)return;
                 toyMode=true;EndMeeting();if(toy==null)toy=new ToyWindow();
+                var first=all.Where(free).OrderBy(p=>Math.Abs(p.Cat.X-c.X)).FirstOrDefault();
+                if(first!=null)Speak(first,PetLines.Say(first.Kind.Id,LevelOf(first),"toy"),4);
+                foreach(var p in all.Where(free).Where(p=>Math.Abs(p.Cat.X-c.X)<900)){var d=DayOf(p);if(d.Toys<3){d.Toys++;if(Award!=null)Award(p,2);}}
             }
             if((now-lastMove).TotalSeconds>6||all.All(p=>Math.Abs(p.Cat.X-c.X)>900)){EndToy();return;}
             toy.ShowAt(c,World.Get(false).DpiAt(c));
@@ -79,9 +89,39 @@ namespace PetCalendarDesktop {
             foreach(var pet in pets())if(!pet.IsDisposed&&pet.Cat.GoalX.HasValue&&!pet.Cat.GoalSleep)pet.Cat.GoalX=null;
         }
         // Today's numbers for the diary.
-        internal void Stats(PetHost pet,out int steps,out int meets,out bool slept){
-            Day d;steps=0;meets=0;slept=false;if(pet==null||!days.TryGetValue(pet,out d))return;
+        internal void Stats(PetHost pet,out int steps,out int meets,out bool slept,out int levelUp){
+            Day d;steps=0;meets=0;slept=false;levelUp=0;if(pet==null||!days.TryGetValue(pet,out d))return;levelUp=d.LevelUp;
             steps=(int)Math.Max(0,(pet.Cat.Distance-Math.Max(0,d.StartDistance))/Math.Max(1,pet.Cat.Unit*9));meets=d.Meets;slept=d.Bed;
+        }
+
+        // ---------- Speaking ----------
+        Day DayOf(PetHost pet){Day d;if(!days.TryGetValue(pet,out d)){d=new Day();days[pet]=d;}return d;}
+        // A short line from one pet (petting, toy, snack, level up). Replaces that pet's previous note.
+        internal void Speak(PetHost pet,string text,double seconds=5){
+            if(pet==null||pet.IsDisposed||String.IsNullOrEmpty(text))return;
+            if(BeforeSpeak!=null)BeforeSpeak(pet);
+            foreach(var old in notes.Where(n=>n.Pet==pet).ToArray()){old.Bubble.Dispose();notes.Remove(old);}
+            var bubble=new PetBubble();var note=new Note{Pet=pet,Bubble=bubble,Until=DateTime.UtcNow.AddSeconds(seconds)};
+            bubble.DismissRequested+=()=>note.Until=DateTime.MinValue;bubble.OpenRequested+=()=>note.Until=DateTime.MinValue;
+            bubble.Present(text,false,0,false,true);bubble.Follow(pet);notes.Add(note);timer.Interval=Math.Min(timer.Interval,100);
+        }
+        void NotesTick(){
+            var now=DateTime.UtcNow;
+            foreach(var n in notes.ToArray()){if(n.Pet.IsDisposed||now>=n.Until){n.Bubble.Dispose();notes.Remove(n);}else if(n.Pet.Visible)n.Bubble.Follow(n.Pet);}
+            if(notes.Count>0)timer.Interval=Math.Min(timer.Interval,100);
+        }
+        internal static int LevelOf(PetHost pet){return PetLines.Level(pet.Affinity);}
+        // Clicked: a petting line now and then (not while the pet is busy talking), +1 up to 5 a day.
+        internal void Petted(PetHost pet){
+            if(pet==null||pet.IsDisposed||Talking(pet))return;var d=DayOf(pet);var now=DateTime.UtcNow;
+            if(now<d.PetQuietUntil)return;d.PetQuietUntil=now.AddSeconds(12);
+            Speak(pet,PetLines.Say(pet.Kind.Id,LevelOf(pet),"pet"),4);
+            if(d.Pets<5){d.Pets++;if(Award!=null)Award(pet,1);}
+        }
+        internal void LeveledUp(PetHost pet,int level){
+            if(pet==null||pet.IsDisposed)return;DayOf(pet).LevelUp=level;
+            Speak(pet,PetLines.LevelUp(pet.Kind.Id,level)+"\n💕 "+PetLines.LevelName(level)+" 사이가 됐어요!",8);
+            if(!pet.Cat.Held&&!pet.Cat.Paused){pet.Cat.Sleeping=false;pet.Cat.Jump();}
         }
 
         // ---------- Meeting ----------
@@ -137,7 +177,7 @@ namespace PetCalendarDesktop {
             a.Cat.Direction=b.Cat.X>a.Cat.X?1:-1;b.Cat.Direction=-a.Cat.Direction;a.DrawCat(true);b.DrawCat(true);
             int line=random.Next(Greetings.Length);
             meeting=new Meeting{A=a,B=b,Start=now,Line=line,BubbleA=Say(a,String.Format(Greetings[line],Call(b)))};
-            Day d;if(days.TryGetValue(a,out d))d.Meets++;if(days.TryGetValue(b,out d))d.Meets++;
+            foreach(var p in new[]{a,b}){var d=DayOf(p);d.Meets++;if(d.Meets<=3&&Award!=null)Award(p,1);}
         }
         PetBubble Say(PetHost pet,string text){var bubble=new PetBubble();bubble.DismissRequested+=EndMeeting;bubble.OpenRequested+=EndMeeting;bubble.Present(text,false,0,false,true);bubble.Follow(pet);return bubble;}
         void EndMeeting(){
@@ -284,7 +324,7 @@ namespace PetCalendarDesktop {
         internal DiaryEntry[] Entries{get{return entries.OrderByDescending(e=>e.date,StringComparer.Ordinal).ToArray();}}
         static string Tail(string species){return species=="cat"?"냥":species=="dog"?"멍":"";}
         static string Short(string t){t=(t??"").Trim();return t.Length>18?t.Substring(0,17)+"…":t;}
-        internal string Write(CalendarState state,string date,PetHost pet,int steps,int meets,bool bed){
+        internal string Write(CalendarState state,string date,PetHost pet,int steps,int meets,bool bed,int levelUp){
             string s=Tail(pet.Kind.Id);
             var day=Rules.Occurrences(state.events,date,date).Where(o=>String.CompareOrdinal(o.startDate,date)<=0&&String.CompareOrdinal(o.endDate,date)>=0).ToList();
             var done=day.Where(o=>Rules.Done(o.@event,o.startDate)).ToList();
@@ -299,7 +339,8 @@ namespace PetCalendarDesktop {
             me+=meets>0?" 친구랑 "+meets+"번 인사했다"+s+".":" 낮잠을 잤다"+s+".";
             lines.Add(me);
             if(bed)lines.Add("침대에서 푹 잤다"+s+" 💤");
-            lines.Add(new Random().Next(2)==0?"내일도 같이 힘내자"+s+" 🐾":"오늘도 수고했다"+s+" 🌙");
+            if(levelUp>0)lines.Add("오늘부터 우리는 ‘"+PetLines.LevelName(levelUp)+"’ 사이다"+s+"! 💕");
+            lines.Add(PetLines.Say(pet.Kind.Id,PetLines.Level(pet.Affinity),"diaryEnd"));
             string text=String.Join("\n",lines);
             string name=String.IsNullOrWhiteSpace(pet.PetName)?pet.PaletteName+" "+pet.Kind.Name:pet.PetName;
             entries.RemoveAll(e=>e.date==date&&e.pet==name);

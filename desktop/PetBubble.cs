@@ -61,7 +61,9 @@ namespace PetCalendarDesktop {
         int revealed;
         readonly Button open=new Button(),dismiss=new Button(),close=new Button(),snooze=new Button();
         readonly ContextMenuStrip snoozeMenu=new ContextMenuStrip();
-        Font textFont=new Font("Segoe UI",11+DesktopTheme.TextScale);
+        // Bubbles follow the calendar font chosen in settings (Segoe UI for the default).
+        internal static Font CreateFont(){string key=DesktopTheme.FontKey;var family=key!="default"?AppFonts.Family(key):null;float size=11+DesktopTheme.TextScale;return family==null?new Font("Segoe UI",size):new Font(family,size*AppFonts.Scale(key));}
+        Font textFont=CreateFont();
         bool alarm,tailBelow=true;
         int tailX,tailSize=10;
         string value="";
@@ -94,7 +96,7 @@ namespace PetCalendarDesktop {
             body.Cursor=Cursors.Hand;body.Click+=delegate{if(OpenRequested!=null)OpenRequested();};
             close.AccessibleName="말풍선 닫기";body.AccessibleName="데스크톱 펫 일정 안내";
         }
-        internal void ApplyTextScale(){var old=textFont;textFont=new Font("Segoe UI",11+DesktopTheme.TextScale);Font=textFont;layoutValue=null;if(following!=null&&!following.IsDisposed)FollowCore(following);old.Dispose();Invalidate(true);}
+        internal void ApplyTextScale(){var old=textFont;textFont=CreateFont();Font=textFont;layoutValue=null;if(following!=null&&!following.IsDisposed)FollowCore(following);old.Dispose();Invalidate(true);}
         protected override bool ShowWithoutActivation {get{return true;}}
         // Form.TopMost activates the window during CreateHandle on .NET Framework.
         // Set the native style instead so the first announcement also preserves focus.

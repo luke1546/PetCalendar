@@ -97,7 +97,7 @@ namespace PetCalendarDesktop {
                 if(DesktopTheme.TextScale!=next.settings.textScale||DesktopTheme.FontKey!=nextFont){
                     DesktopTheme.TextScale=next.settings.textScale;DesktopTheme.FontKey=nextFont;widget.ApplyTextScale();popup.ApplyTextScale();
                     foreach(var bubble in Application.OpenForms.OfType<PetBubble>().ToArray())bubble.ApplyTextScale();
-                    view.TextScaleChanged();
+                    view.TextScaleChanged();pets.FontChanged();
                 }
                 try{pets.CalendarChanged(before,next);}catch(Exception error){Log(error);}
                 view.StoreChanged();
@@ -178,6 +178,7 @@ namespace PetCalendarDesktop {
                     else if(action=="configureSpeech")pets.ConfigureSpeech(request);
                     else if(action=="configureChatter")pets.ConfigureChatter(request);
                     else if(action=="configureBed")pets.ConfigureBed(request);
+                    else if(action=="feed"){object window;if(!request.TryGetValue("window",out window)||!(window is int||window is long))throw new AppError(400,"펫을 확인해 주세요.");pets.FeedWindow(Convert.ToInt64(window));}
                     else if(action=="preview")pets.Announce();
                     else throw new AppError(400,"데스크톱 펫 동작을 확인해 주세요.");
                     return new ApiResponse(200,pets.Inspect());

@@ -22,7 +22,7 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'FONT-LICENSE.md') -Destination 
 $petEngine=Join-Path $calendarRoot 'desktop\pet-engine'
 foreach($petFile in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLoop.cs','Palettes.cs','Sprites.cs','PetMenu.cs','PetHost.cs')){$calendarArgs+=(Join-Path $petEngine $petFile)}
 $calendarArgs+=(Join-Path $PSScriptRoot 'CalendarPets.cs')
-foreach($speechFile in @('PetSchedule.cs','PetVoice.cs','PetBubble.cs','PetSpeech.cs','PetLife.cs')){$calendarArgs+=(Join-Path $PSScriptRoot $speechFile)}
+foreach($speechFile in @('PetSchedule.cs','PetVoice.cs','PetBubble.cs','PetSpeech.cs','PetLife.cs','PetLines.cs','PetLinesData.cs')){$calendarArgs+=(Join-Path $PSScriptRoot $speechFile)}
 $petPack=Join-Path $PSScriptRoot 'pets.zip'
 if(-not (Test-Path $petPack)){throw 'Run tools/build_animal_pack.py to create the validated animal pack.'}
 $calendarArgs+=('/resource:'+$petPack+',petcalendar.pets.zip')

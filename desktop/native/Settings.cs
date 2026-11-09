@@ -24,6 +24,8 @@ namespace PetCalendarDesktop {
         readonly SelectField species=Css.Select("cat","고양이","dog","포메라니안","redPanda","레서판다","capybara","카피바라","squirrel","다람쥐","alpaca","알파카","elephant","코끼리","random","랜덤");
         readonly Btn addPet=Css.Button("한 마리 추가",BtnKind.Primary),savePetSpeech=Css.Button("주기 적용"),previewPetSpeech=Css.Button("지금 안내 듣기");
         readonly ThemeCheckBox bedEnabled=Css.Check("펫 침대 놓기",12,true),toyEnabled=Css.Check("마우스 장난감 놀이",12,true);readonly Btn openDiary=Css.Button("펫 일기 보기",BtnKind.Normal,11);readonly TimeField diaryTime=new TimeField();
+        readonly TextItem affinityList=new TextItem("",12,400,Ui.C("#6e5d45"),1.9f){Top=10,Bottom=4};readonly TextItem snackStatus=Css.Hint("");
+        readonly InputBox userTitle=new InputBox(false){MaxLength=8,Placeholder="예: 집사, 언니, 주인님"};readonly Btn saveTitle=Css.Button("호칭 적용");
         readonly NumberBox minutes=new NumberBox{MinValue=1,MaxValue=1440};readonly TextItem petsStatus=Css.Hint("데스크톱 펫이 꺼져 있습니다.");
         readonly ThemeCheckBox hotkeyEnabled=Css.Check("단축키 사용",12,true),ctrl=Css.Check("Ctrl",12,true),alt=Css.Check("Alt"),shift=Css.Check("Shift");
         readonly SelectField hotkeyKey=new SelectField();readonly HotkeyPreview preview=new HotkeyPreview{Text="Alt + `"};readonly Btn resetHotkey=Css.Button("기본값"),saveHotkey=Css.Button("단축키 적용",BtnKind.Primary);readonly TextItem hotkeyStatus=new TextItem("",11,400,Ui.C("#79694f"),1.8f);
@@ -51,6 +53,7 @@ namespace PetCalendarDesktop {
             speech.Add(Css.Hint("1~1,440분 사이로 설정하세요. 시간 알림은 확인할 때까지 말풍선에 남고, 펫을 끄면 알림창으로 알려드립니다."));pets.Add(speech);
             var chatter=Sub();chatter.Add(Css.H3("일상 대화"),new CssCheck(chatterEnabled,12),Css.Hint("펫이 가끔 말을 걸어요."));pets.Add(chatter);
             var life=Sub();life.Add(Css.H3("침대 · 장난감 · 일기"),new CssCheck(toyEnabled,12),Css.Hint("펫 근처로 마우스를 가져가면 털실 공이 달리고, 펫들이 쫓아와요."),new CssCheck(bedEnabled,12,10),Css.Hint("밤(23시~6시)이나 10분 넘게 자리를 비우면 펫들이 침대로 가서 자요. 침대는 끌어서 옮기고, 우클릭으로 치울 수 있어요."),new RowItem(8,new FieldItem("일기 쓰는 시간",diaryTime){Top=0,Bottom=0},new ControlItem(openDiary,false)){Columns=new[]{-1f,0f},AlignEnd=true,Top=14},Css.Hint("이 시간이 지나면 펫이 그날 하루를 일기로 남겨요. 퇴근 전에 맞춰 두면 좋아요."));pets.Add(life);
+            var bond=Sub();bond.Add(Css.H3("호감도 · 간식"),Css.P("할 일·일정을 끝내고, 쓰다듬고, 함께 놀수록 펫과 가까워져요. 단계가 오르면 말투와 대사가 바뀌어요."),affinityList,snackStatus,new RowItem(8,new FieldItem("나를 부르는 호칭",userTitle){Top=0,Bottom=0},new ControlItem(saveTitle,false)){Columns=new[]{-1f,0f},AlignEnd=true,Top=14},Css.Hint("‘가족’ 단계가 되면 펫이 이 호칭으로 불러요."));pets.Add(bond);
             pets.Add(petsStatus);petGroup.Add(pets);Body.Add(petGroup);
             // 단축키 · 바탕화면 위젯
             keyGroup=new GroupItem("단축키 · 바탕화면 위젯",false);var keys=Section();
@@ -95,6 +98,7 @@ namespace PetCalendarDesktop {
             addPet.Click+=delegate{UpdatePets("spawn",species.Value);};
             bedEnabled.CheckedChanged+=delegate{if(!syncing)UpdatePets("configureBed",null,new Dictionary<string,object>{{"bedEnabled",bedEnabled.Checked}});};
             openDiary.Click+=delegate{View.OpenDiary();};
+            saveTitle.Click+=delegate{SaveTitle();};userTitle.Box.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==System.Windows.Forms.Keys.Enter){k.Handled=k.SuppressKeyPress=true;SaveTitle();}};
             diaryTime.ValueChanged+=delegate{if(!syncing&&diaryTime.Value!="")UpdatePets("configureBed",null,new Dictionary<string,object>{{"diaryTime",diaryTime.Value}});};
             toyEnabled.CheckedChanged+=delegate{if(!syncing)UpdatePets("configureBed",null,new Dictionary<string,object>{{"toyEnabled",toyEnabled.Checked}});};
             summaryEnabled.CheckedChanged+=delegate{if(syncing)return;petSpeechDirty=true;minutes.Enabled=summaryEnabled.Checked;};
@@ -129,6 +133,17 @@ namespace PetCalendarDesktop {
             int used=View.state.events.Count(e=>e.category==id);
             if(used>0&&!await View.Confirm("분류를 삭제할까요?","‘"+def.name+"’ 일정 "+used+"개는 ‘업무’로 바뀝니다.","삭제"))return;
             if(await View.Commit(s=>{s.settings.categories=(s.settings.categories??new CategoryDef[0]).Where(c=>c.id!=id).ToArray();foreach(var e in s.events)if(e.category==id)e.category="work";}))View.CategoryRemoved(id);
+        }
+        void SaveTitle(){string value=userTitle.Text.Trim();if(value.Length==0){Validation.Report(userTitle,"호칭을 적어 주세요.");return;}UpdatePets("configureBed",null,new Dictionary<string,object>{{"title",value}});View.Toast("호칭을 바꿨어요","‘가족’이 된 펫이 이제 ‘"+value+"’(이)라고 불러요.");}
+        // "초코 · 친구 ♥ 72%" per pet, from the pets status.
+        void RenderAffinity(Dictionary<string,object> result){
+            object raw;var lines=new List<string>();
+            if(result!=null&&result.TryGetValue("affinity",out raw)){var items=raw as object[]??(raw is System.Collections.ArrayList?((System.Collections.ArrayList)raw).ToArray():new object[0]);
+                foreach(var o in items.OfType<Dictionary<string,object>>()){object n,l,pc,h,f;o.TryGetValue("name",out n);o.TryGetValue("label",out l);o.TryGetValue("percent",out pc);o.TryGetValue("hearts",out h);o.TryGetValue("fed",out f);int lv=Number(o,"level");
+                    lines.Add("• "+n+" · "+l+(h as string!=""?" "+h:"")+(lv<5?"  ("+pc+"%)":"")+(f is bool&&(bool)f?"  · 배불러요":""));}}
+            affinityList.Set(lines.Count==0?"함께하는 펫이 없어요.":String.Join("\n",lines));
+            snackStatus.Set("간식 "+Number(result,"snacks")+"개 ·할 일이나 일정을 끝내면 하나씩 생겨요. 펫을 우클릭해서 줄 수 있고, 한 번 먹으면 10분 뒤에 또 먹어요.");
+            object t;if(result!=null&&result.TryGetValue("title",out t)&&t is string&&!userTitle.Focused)userTitle.Text=(string)t;
         }
         static BoxItem Section(){return new BoxItem{PadTop=6,PadBottom=16};}
         static BoxItem Sub(){return new BoxItem{RuleTop=true,Top=20,PadTop=18};}
@@ -172,7 +187,7 @@ namespace PetCalendarDesktop {
                 if(action==null)result=await View.Api("GET","/api/pets");
                 else{var body=new Dictionary<string,object>{{"action",action}};if(speciesId!=null)body["species"]=speciesId;if(values!=null)foreach(var v in values)body[v.Key]=v.Value;result=await View.Api("POST","/api/pets",body);}
                 if(IsDisposed)return;petsPreference=result;syncing=true;
-                try{petsEnabled.Checked=Flag(result,"enabled");chatterEnabled.Checked=Flag(result,"chatterEnabled");bedEnabled.Checked=Flag(result,"bedEnabled");toyEnabled.Checked=Flag(result,"toyEnabled");object dt;if(result.TryGetValue("diaryTime",out dt)&&dt is string&&diaryTime.Value!=(string)dt)diaryTime.Value=(string)dt;if(action=="configureSpeech")petSpeechDirty=false;if(!petSpeechDirty){summaryEnabled.Checked=Flag(result,"summaryEnabled");minutes.Text=Number(result,"summaryIntervalMinutes").ToString();}}finally{syncing=false;}
+                try{petsEnabled.Checked=Flag(result,"enabled");chatterEnabled.Checked=Flag(result,"chatterEnabled");bedEnabled.Checked=Flag(result,"bedEnabled");RenderAffinity(result);toyEnabled.Checked=Flag(result,"toyEnabled");object dt;if(result.TryGetValue("diaryTime",out dt)&&dt is string&&diaryTime.Value!=(string)dt)diaryTime.Value=(string)dt;if(action=="configureSpeech")petSpeechDirty=false;if(!petSpeechDirty){summaryEnabled.Checked=Flag(result,"summaryEnabled");minutes.Text=Number(result,"summaryIntervalMinutes").ToString();}}finally{syncing=false;}
                 int count=Number(result,"count");petsStatus.Set(Flag(result,"enabled")?(count>0?"펫 "+count+"마리와 함께하고 있어요.":"데스크톱 펫이 켜져 있어요. 원하는 펫을 추가해 보세요."):"데스크톱 펫이 꺼져 있습니다.");
             }catch(Exception error){if(IsDisposed)return;syncing=true;petsEnabled.Checked=Flag(petsPreference,"enabled");syncing=false;View.Toast("데스크톱 펫을 확인해 주세요",error.Message,"error");}
             finally{

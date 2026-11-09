@@ -76,7 +76,9 @@ namespace PetCalendarDesktop {
             ClearBubble();speaker=pet;speaker.SpeechHold=true;
             Preview();
         }
-        bool Eligible(PetHost p) {return !p.IsDisposed&&p.ReadyForSpeech&&p.Cat.Support!=null&&p.Cat.State!=Pose.Crouch;}
+        // Pets already saying something of their own (petting, snack, level up) are skipped.
+        internal Func<PetHost,bool> Busy=p=>false;
+        bool Eligible(PetHost p) {return !p.IsDisposed&&!Busy(p)&&p.ReadyForSpeech&&p.Cat.Support!=null&&p.Cat.State!=Pose.Crouch;}
         bool SelectSpeaker() {
             // Once speaking, stay attached through dragging, jumping and temporary hiding.
             // Only a closed pet relinquishes its message to another pet.
@@ -97,6 +99,8 @@ namespace PetCalendarDesktop {
                 else NextSummary();
             };
         }
+        // Close a schedule bubble (not an alarm) on this pet so its own reaction can show.
+        internal void Yield(PetHost pet){if(pet!=null&&pet==speaker&&current==null)ClearBubble();}
         internal void PetClicked(PetHost pet){if(pet==speaker&&current==null&&summary!=null)NextSummary();}
         void NextSummary() {
             if(summary==null||current!=null)return;
@@ -158,7 +162,9 @@ namespace PetCalendarDesktop {
             if(chatterEnabled)chatter.Tick(pets(),utc,alerts.Count>0||summary!=null||manual);
             timer.Interval=alerts.Count>0||summary!=null||manual||chatter.ActiveCount>0?100:1000;
         }
-        string CelebrationText(bool allDone){string text=PetVoice.Celebration(speaker==null?"":speaker.Kind.Id,allDone);if(allDone){int streak=PetNotices.Streak(state(),Rules.Key(now().ToLocalTime()));if(streak>=2)text+="\n"+streak+"일 연속 모두 해냈어요 🔥";}return text;}
+        // Snacks earned by the completion being celebrated (shown once in the bubble).
+        internal int PendingSnacks;
+        string CelebrationText(bool allDone){string text=speaker==null?PetVoice.Celebration("",allDone):PetLines.Say(speaker.Kind.Id,PetLines.Level(speaker.Affinity),allDone?"doneAll":"done1");if(PendingSnacks>0){text+="\n🍪 간식 +"+PendingSnacks+" (펫 우클릭 → 간식 주기)";PendingSnacks=0;}if(allDone){int streak=PetNotices.Streak(state(),Rules.Key(now().ToLocalTime()));if(streak>=2)text+="\n"+streak+"일 연속 모두 해냈어요 🔥";}return text;}
         void ReleaseSpeaker(){if(speaker!=null&&!speaker.IsDisposed)speaker.SpeechHold=false;speaker=null;}
         void ClearBubble(){ReleaseSpeaker();summary=null;if(bubble!=null)bubble.Hide();}
         internal object Inspect() {return new{running,summaryEnabled,chatterEnabled,intervalMinutes=minutes,nextUtc=running?clock.NextUtc.ToString("o"):null,alarmId=current==null?null:current.id,pending=alerts.Count,chatter=chatter.Inspect(),speakerWindow=speaker==null?0:speaker.Handle.ToInt64(),bubble=bubble==null?null:bubble.Inspect()};}
@@ -193,17 +199,18 @@ namespace PetCalendarDesktop {
                 entry.Next=Next(pet,utc);
                 if(busy||!pet.ReadyForSpeech||pet.Cat.Support==null||pet.Cat.State==Pose.Crouch)continue;
                 Close(entry);
-                int count=PetVoice.ChatterCount(pet.Kind.Id);if(count==0)continue;
+                // Regular lines plus the ones unlocked by this pet's affinity level.
+                var unlocked=PetLines.Unlocked(pet.Kind.Id,PetLines.Level(pet.Affinity));int baseCount=PetVoice.ChatterCount(pet.Kind.Id);int count=baseCount+unlocked.Length;if(count==0)continue;
                 int choice=entry.Last<0?random.Next(count):count==1?0:random.Next(count-1);if(choice>=entry.Last&&entry.Last>=0&&count>1)choice++;
                 entry.Last=choice;entry.Expires=utc.AddSeconds(10);
                 var bubble=new PetBubble();entry.Bubble=bubble;
                 bubble.DismissRequested+=()=>Close(entry);bubble.OpenRequested+=()=>Close(entry);
                 var greeting=greetings.GetOrCreateValue(pet);
                 var local=utc.ToLocalTime();string day=Rules.Key(local);bool morning=local.Hour>=6&&local.Hour<10,night=local.Hour>=23||local.Hour<5;
-                string message=PetVoice.Chatter(pet.Kind.Id,choice);
+                string message=choice<baseCount?PetVoice.Chatter(pet.Kind.Id,choice):unlocked[choice-baseCount];
                 string holiday=PetVoice.Holiday(local);
                 if(holiday!=null&&greeting.Holiday!=day){greeting.Holiday=day;message=PetVoice.HolidayGreeting(pet.Kind.Id,holiday);}
-                else if(morning&&greeting.Morning!=day){greeting.Morning=day;message=PetVoice.TimeGreeting(pet.Kind.Id,true);}
+                else if(morning&&greeting.Morning!=day){greeting.Morning=day;message=PetLines.Say(pet.Kind.Id,PetLines.Level(pet.Affinity),"morning");}
                 else if(night&&greeting.Night!=day){greeting.Night=day;message=PetVoice.TimeGreeting(pet.Kind.Id,false);if(!pet.Cat.Paused&&!pet.Cat.Sleeping)pet.Cat.Nap();}
                 bubble.Present(message,false,0,false,true);bubble.Follow(pet);
             }

@@ -66,7 +66,7 @@ namespace PetCalendarDesktop {
         }
         void Summary(){var e=state.events.FirstOrDefault(x=>x.pinned);deadlineTarget=e==null?null:Rules.DdayOccurrence(e,Rules.Key(DateTime.Today));}
         internal bool IsDdayOccurrence(Occurrence o){return deadlineTarget!=null&&deadlineTarget.@event.id==o.@event.id&&deadlineTarget.startDate==o.startDate;}
-        internal void Render(){Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}
+        internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
         internal void JumpTo(string key){selected=key;month=key.Substring(0,7);limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void MonthMove(int amount){var next=Rules.Date(month+"-01").AddMonths(amount);month=Rules.Key(next).Substring(0,7);selected=month+"-01";limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void CellClick(string key,bool selectOnly){bool same=selected==key;JumpTo(key);if(same&&!selectOnly)OpenEvent(null,selected,false);}

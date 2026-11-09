@@ -16,7 +16,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("펫 캘린더")]
 [assembly: AssemblyDescription("일정과 할 일을 정리하는 펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
-[assembly: AssemblyVersion("3.0.1.0")]
+[assembly: AssemblyVersion("3.0.2.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8",FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace PetCalendarDesktop {
@@ -99,7 +99,7 @@ namespace PetCalendarDesktop {
                         IntPtr handle=host.Handle;
                         Listen(host);
                         if(automation){host.AutomationReply+=Reply;var reader=new Thread(delegate(){string line;try{while((line=Console.ReadLine())!=null){var request=Codec.Object(line);host.BeginInvoke(new Action(()=>host.Command(request)));}}catch{}finally{try{host.BeginInvoke(new Action(async delegate{await host.Shutdown(false);}));}catch{}}});reader.IsBackground=true;reader.Start();}
-                        Application.Run(host);
+                        PerfProbe.Install();Warmup.Start();Application.Run(host);
                     }
                     mutex.ReleaseMutex();
                 }

@@ -4,7 +4,7 @@
 
 이 버전은 WebView2 없이 **WinForms로 직접 그리는 네이티브 캘린더 창**입니다. 디자인과 기능은 이전 웹 버전과 같고, Edge WebView2 프로세스가 더 이상 실행되지 않아 메모리 사용량이 크게 줄어듭니다. 일정·설정 데이터 형식은 그대로라 기존 사용자 데이터를 그대로 이어서 씁니다.
 
-[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v3.0.1**
+[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v3.0.2**
 
 이 문서는 `main` 브랜치 기준입니다. 설치 파일의 기능은 해당 [릴리스 안내](https://github.com/luke1546/PetCalendar/releases)와 함께 확인하세요.
 

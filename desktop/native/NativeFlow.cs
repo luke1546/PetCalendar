@@ -201,7 +201,7 @@ namespace PetCalendarDesktop {
     }
     // <details class="settings-group"> with its disclosure marker.
     public sealed class GroupItem : BoxItem {
-        public string Summary;public bool Open;public Action Toggled;Rectangle head;
+        public string Summary;public bool Open;Rectangle head;
         public GroupItem(string summary,bool open){Summary=summary;Open=open;PadLeft=PadRight=14;Radius=12;Fill=Ui.C("#fffaf1");Border=DesktopTheme.Line;Bottom=14;}
         protected override IList<FlowItem> Flow{get{return Open?Children:new List<FlowItem>();}}
         public override void SetShown(bool shown){foreach(var c in Children)c.SetShown(shown&&Open&&c.Visible);}
@@ -217,7 +217,7 @@ namespace PetCalendarDesktop {
             var mode=g.SmoothingMode;Ui.Prepare(g);using(var b=new SolidBrush(Ui.C("#b18e67")))g.FillPolygon(b,tri);g.SmoothingMode=mode;
             Ui.Text(g,Summary,font,new Rectangle(x+(int)(15*s),head.Y,head.Width,head.Height),Ui.C("#665540"),TextFormatFlags.VerticalCenter);
         }
-        public override bool Click(FlowPanel p,Point pt){if(head.Contains(pt)){Open=!Open;if(Toggled!=null)Toggled();p.Reflow();return true;}return base.Click(p,pt);}
+        public override bool Click(FlowPanel p,Point pt){if(head.Contains(pt)){Open=!Open;p.Reflow();if(Open)p.Reveal(Bounds);p.Update();return true;}return base.Click(p,pt);}
         public override bool Hot(Point pt){return head.Contains(pt)||base.Hot(pt);}
     }
     public sealed class RuleItem : FlowItem {
@@ -243,6 +243,8 @@ namespace PetCalendarDesktop {
             Invalidate();
         }
         public void ScrollIntoView(Rectangle r){if(r.Top<Scroll.Offset)Scroll.Offset=r.Top-(int)(8*Sc);else if(r.Bottom>Scroll.Offset+Height)Scroll.Offset=r.Bottom-Height+(int)(8*Sc);else return;Scroll.Clamp();Moved();}
+        // Scroll just enough to show a freshly expanded block, never past its top edge.
+        public void Reveal(Rectangle r){int pad=(int)Math.Round(8*Sc);int target=Math.Min(r.Bottom-Height+pad,r.Top-pad);if(target<=Scroll.Offset)return;Scroll.Offset=target;Scroll.Clamp();Moved();}
         void Moved(){SuspendLayout();foreach(var item in Items)if(item.Visible)item.Position(this,Scroll.Offset);ResumeLayout(false);Invalidate(true);Update();}
         protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);Reflow();}
         protected override void OnPaint(PaintEventArgs e){
@@ -282,6 +284,9 @@ namespace PetCalendarDesktop {
         public static readonly List<DialogForm> Open=new List<DialogForm>();
         protected readonly CalendarView View;protected readonly FlowPanel Body=new FlowPanel();
         public string Eyebrow,Heading;public float WidthCss=510,HeaderGap=20;public bool HasFooter;public bool Sticky=true;
+        // Dialogs whose content grows and shrinks in place (settings groups) keep one height,
+        // so expanding a group never moves or re-centres the window under the cursor.
+        public float FixedHeightCss;
         protected readonly List<Control> FooterLeft=new List<Control>(),FooterRight=new List<Control>();readonly HashSet<Control> hiddenFooter=new HashSet<Control>();
         public void SetFooterVisible(Control c,bool visible){if(visible)hiddenFooter.Remove(c);else hiddenFooter.Add(c);c.Visible=visible;if(IsHandleCreated)Relayout();}protected Control HeaderAction;
         protected Btn CloseButton;Backdrop backdrop;bool closing;
@@ -303,6 +308,7 @@ namespace PetCalendarDesktop {
             Body.PadTop=HeaderGap;Body.PadBottom=HasFooter?20:25;
             int header=HeaderHeight,footer=FooterHeight,content=Body.MeasureContent(width);
             int max=(int)Math.Round(area.Height-50*s);int height=Math.Min(max,header+content+footer);
+            if(FixedHeightCss>0)height=Math.Min(max,(int)Math.Round(FixedHeightCss*s));
             if(height<header+content+footer){content=Body.MeasureContent(width-(int)Math.Round(12*s));height=Math.Min(max,header+content+footer);}
             Bounds=new Rectangle(area.X+(area.Width-width)/2,area.Y+(area.Height-height)/2,width+shadow,height+shadow);
             int bodyH=Math.Max(1,height-header-footer);Body.SetBounds((int)Math.Round(s),header,width-2*(int)Math.Round(s),HasFooter?bodyH:bodyH-(int)Math.Round(s));Body.PadLeft=Body.PadRight=24;

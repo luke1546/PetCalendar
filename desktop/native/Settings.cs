@@ -65,7 +65,7 @@ namespace PetCalendarDesktop {
             dataGroup.Add(data);Body.Add(dataGroup);
             // 화면
             screenGroup=new GroupItem("화면",false);var screen=Section();screen.Add(Css.H3("글씨 크기"),new FieldItem("화면 글씨",textScale){Top=17,Bottom=0});screenGroup.Add(screen);Body.Add(screenGroup);
-            foreach(var g in new[]{petGroup,keyGroup,notifyGroup,dataGroup,screenGroup})g.Toggled=()=>Relayout();
+            FixedHeightCss=760;
             // Behaviour
             petsEnabled.CheckedChanged+=delegate{if(!syncing)UpdatePets(petsEnabled.Checked?"enable":"disable");};
             chatterEnabled.CheckedChanged+=delegate{if(!syncing)UpdatePets("configureChatter",null,new Dictionary<string,object>{{"chatterEnabled",chatterEnabled.Checked}});};

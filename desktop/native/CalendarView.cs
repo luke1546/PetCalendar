@@ -119,7 +119,8 @@ namespace PetCalendarDesktop {
         }
         // ---------- Layout ----------
         bool paintAll=true;int paintedOffset=-1;List<KeyValuePair<string,List<Hit>>> sectionHits=new List<KeyValuePair<string,List<Hit>>>();
-        void Relayout(){
+        void Relayout(){using(PerfProbe.T("layout"))RelayoutCore();}
+        void RelayoutCore(){
             if(!IsHandleCreated||Width<=0||Height<=0)return;paintAll=true;
             s=DeviceDpi/96f;m=new Metrics(Width/s,Height/s);
             int x0=0,width=Width;if(!m.Fit){pageScroll.Bounds=ClientRectangle;}
@@ -230,8 +231,8 @@ namespace PetCalendarDesktop {
         }
         // ---------- Painting ----------
         void Push(int dy,Rectangle area){frames.Push(new KeyValuePair<int,Rectangle>(ty,clip));var a=area;a.Offset(0,ty);clip=Rectangle.Intersect(clip,a);ty+=dy;}
-        void Pop(Graphics g){var f=frames.Pop();ty=f.Key;clip=f.Value;g.ResetTransform();g.TranslateTransform(0,ty);g.SetClip(clip);}
-        void Apply(Graphics g){g.ResetTransform();g.SetClip(clip);g.TranslateTransform(0,ty);}
+        void Pop(Graphics g){var f=frames.Pop();ty=f.Key;clip=f.Value;g.ResetTransform();g.TranslateTransform(-bx,-by);g.TranslateTransform(0,ty);g.SetClip(clip);}
+        void Apply(Graphics g){g.ResetTransform();g.TranslateTransform(-bx,-by);g.SetClip(clip);g.TranslateTransform(0,ty);}
         Hit AddHit(string id,Rectangle r,Action click,string tip=null,Rectangle? repaint=null){
             var c=r;c.Offset(0,ty);c.Intersect(clip);if(c.Width<=0||c.Height<=0)return null;
             var rp=repaint??r;rp.Offset(0,ty);
@@ -241,7 +242,37 @@ namespace PetCalendarDesktop {
         bool Pressed(string id){return pressId==id&&hoverId==id;}
         void FocusRing(Graphics g,string id,RectangleF r,float radius){if(focusId!=id||!Focused||!ShowFocusCues)return;var ring=r;ring.Inflate(4.5f*s,4.5f*s);using(var pen=new Pen(DesktopTheme.Orange,3*s))using(var p=Ui.Round(ring,radius+4*s))g.DrawPath(pen,p);}
         protected override void OnPaint(PaintEventArgs e){
-            if(m==null)Relayout();if(m==null)return;PaintAll(e.Graphics,e.ClipRectangle);}
+            if(m==null)Relayout();if(m==null)return;using(PerfProbe.T("calpaint"))PaintAll(e.Graphics,e.ClipRectangle);}
+        // ---------- Section cache ----------
+        // Text is the expensive part of a paint (GDI DrawText, ~0.1 ms per Korean run), so
+        // each section is drawn once into an offscreen DIB and blitted while its inputs are
+        // unchanged: selecting a date redraws the grid and day panel, not the masthead,
+        // summary cards and task list. A signature lists every input a section reads.
+        sealed class SectionCache{public string Sig;public DibSurface Dib;public Rectangle Area;public List<Hit> Hits;}
+        readonly Dictionary<string,SectionCache> caches=new Dictionary<string,SectionCache>();
+        int bx,by,dataStamp;CalendarState stampedState;
+        string Interactive(SectionCache c){
+            if(c==null||c.Hits==null)return "new";string h="",p="",f="";
+            if(!modal)foreach(var hit in c.Hits){if(hit.Id==hoverId)h=hoverId;if(hit.Id==pressId)p=pressId;if(hit.Id==focusId)f=focusId;}
+            return h+"|"+p+"|"+(f!=""&&Focused&&ShowFocusCues?f:"");
+        }
+        string SectionSig(string name,SectionCache c){
+            if(drag!=null)return null;
+            string today=Rules.Key(DateTime.Today);
+            string common=s+"|"+DesktopTheme.TextScale+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
+            switch(name){
+                case "masthead":return common+todayText+"|"+clockText+"|"+maximized;
+                case "summary":return common+dataStamp+"|"+today;
+                case "banner":return common+bannerText;
+                case "calendar":return common+dataStamp+"|"+today+"|"+month+"|"+filter+"|"+search+"|"+limits["search"]+"|"+searchBox.Focused+"|"+searchScroll.Offset+"|"+searchScroll.Hover+"|"+searchScroll.Dragging+"|"+dropDate;
+                case "day":return common+dataStamp+"|"+today+"|"+selected+"|"+filter+"|"+search+"|"+limits["day"]+"|"+dayScroll.Offset+"|"+dayScroll.Hover+"|"+dayScroll.Dragging;
+                case "task":if((DateTime.UtcNow-highlight).TotalSeconds<2.2)return null;return common+dataStamp+"|"+today+"|"+limits["tasks"]+"|"+taskScroll.Offset+"|"+taskScroll.Hover+"|"+taskScroll.Dragging+"|"+taskTitle.Focused+"|"+saving;
+                case "notif":return common+dataStamp;
+                // The footer touches the panels above it (and is cheap), so it is drawn directly.
+            }
+            return null;
+        }
+        void DropCaches(){foreach(var c in caches.Values)if(c.Dib!=null)c.Dib.Dispose();caches.Clear();foreach(var c in cells.Values)if(c.Dib!=null)c.Dib.Dispose();cells.Clear();}
         // Only sections touching the dirty region are drawn (the OS clips the rest); the
         // others keep the hit targets from their last paint. Layout/scroll changes repaint all.
         void PaintAll(Graphics g,Rectangle dirty){
@@ -252,11 +283,26 @@ namespace PetCalendarDesktop {
             Action<string,Rectangle,Action<Graphics>> section=(name,area,paint)=>{
                 var r=Page(area);r.Inflate(P(12),P(12));
                 if(!full&&!r.IntersectsWith(dirty)){foreach(var pair in previous)if(pair.Key==name){sectionHits.Add(pair);return;}}
-                clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);building=new List<Hit>();paint(g);sectionHits.Add(new KeyValuePair<string,List<Hit>>(name,building));
+                SectionCache c;caches.TryGetValue(name,out c);
+                var cap=Page(area);cap.Inflate(P(5),P(5));cap.Intersect(ClientRectangle);
+                string sig=cap.Width>0&&cap.Height>0?SectionSig(name,c):null;
+                if(sig==null){clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);building=new List<Hit>();using(PerfProbe.T("sec:"+name))paint(g);sectionHits.Add(new KeyValuePair<string,List<Hit>>(name,building));return;}
+                if(c==null||c.Sig!=sig||c.Area!=cap){
+                    if(c==null){c=new SectionCache();caches[name]=c;}
+                    if(c.Dib==null||c.Dib.Width!=cap.Width||c.Dib.Height!=cap.Height){if(c.Dib!=null)c.Dib.Dispose();c.Dib=new DibSurface(cap.Width,cap.Height);}
+                    using(var dg=Graphics.FromHdc(c.Dib.Dc)){
+                        dg.Clear(DesktopTheme.Paper);Ui.Prepare(dg);dg.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                        bx=cap.X;by=cap.Y;clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(dg);building=new List<Hit>();
+                        try{using(PerfProbe.T("sec:"+name))paint(dg);}finally{bx=by=0;}
+                    }
+                    c.Hits=building;c.Area=cap;c.Sig=SectionSig(name,c);
+                }
+                c.Dib.BlitTo(g,cap.Location);
+                sectionHits.Add(new KeyValuePair<string,List<Hit>>(name,c.Hits));
             };
             section("masthead",masthead,PaintMasthead);section("summary",summary,PaintSummary);
             if(bannerVisible)section("banner",banner,PaintBanner);
-            section("calendar",calendarPanel,PaintCalendarPanel);section("day",dayPanel,PaintDayPanel);section("task",taskPanel,PaintTaskPanel);
+            section("calendar",calendarPanel,PaintCalendarPanel);section("grid",gridRect,PaintGrid);section("day",dayPanel,PaintDayPanel);section("task",taskPanel,PaintTaskPanel);
             section("notif",notifCard,PaintNotification);section("footer",footer,PaintFooter);
             clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);building=new List<Hit>();if(drag!=null)PaintDragGhost(g);
             g.ResetTransform();g.ResetClip();if(!m.Fit)Ui.ScrollBar(g,pageScroll,s);
@@ -379,7 +425,6 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             string[] ko={"일","월","화","수","목","금","토"},en={"SUN","MON","TUE","WED","THU","FRI","SAT"};var wf=F(11,700,"일");var sf=F(8,400,null,"consolas");
             for(int d=0;d<7;d++){int cx0=wr.X+wr.Width*d/7+P(m.WkX);Color ink=d==0?Ui.C("#cf6154"):d==6?Ui.C("#5d8db3"):DesktopTheme.Ink;int ww=Ui.Width(ko[d],wf);
                 Ui.Text(g,ko[d],wf,new Rectangle(cx0,wr.Y+P(1),ww+2,wr.Height-P(2)),ink,TextFormatFlags.VerticalCenter);Ui.Text(g,en[d],sf,new Rectangle(cx0+ww+P(5),wr.Y+P(1),P(40),wr.Height-P(2)),Ui.Fade(ink,Ui.C("#f9f3e7"),.55f),TextFormatFlags.VerticalCenter);}
-            PaintGrid(g);
             if(!searchRect.IsEmpty)PaintSearchResults(g);
             // Bottom bar
             var br=bottomRect;using(var b=new SolidBrush(Ui.C("#ded2bb")))g.FillRectangle(b,br.X,br.Y,br.Width,P(1));
@@ -389,15 +434,16 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
         }
         int[] RowHeights(){if(!m.Fit)return GridRowHeights(gridRect.Width);var h=new int[rows];for(int r=0;r<rows;r++)h[r]=gridRect.Height*(r+1)/rows-gridRect.Height*r/rows;return h;}
         int Density(int rowHeight){float h=rowHeight/s;return m.Fit?(h<76?0:h<100?1:h<125?2:3):3;}
-        void PaintGrid(Graphics g){
+        void PaintGrid(Graphics target){
             var range=RangeForMonth();var index=MonthIndex();string today=Rules.Key(DateTime.Today);var heights=RowHeights();int y=gridRect.Y;
             var numberFontCss=m.DayNumCss;var chipFont=F(m.ChipFont,600);var timeFont=F(10);int chipH=ChipHeight();
             for(int r=0;r<rows;r++){
                 int rowH=heights[r];int perDay=Density(rowH);
                 for(int c=0;c<7;c++){
                     int x0=gridRect.X+gridRect.Width*c/7,x1=gridRect.X+gridRect.Width*(c+1)/7;var cell=new Rectangle(x0,y,x1-x0,rowH);
-                    string key=Rules.AddDays(range.Key,r*7+c);bool same=key.StartsWith(month,StringComparison.Ordinal),isToday=key==today,isSel=key==selected;string holiday;holidays.TryGetValue(key,out holiday);
-                    List<Occurrence> items;if(!index.TryGetValue(key,out items))items=new List<Occurrence>();
+                    string key=Rules.AddDays(range.Key,r*7+c);List<Occurrence> items;if(!index.TryGetValue(key,out items))items=new List<Occurrence>();
+                    CachedCell(target,r*7+c,cell,key,items,today,perDay,g=>{
+                    bool same=key.StartsWith(month,StringComparison.Ordinal),isToday=key==today,isSel=key==selected;string holiday;holidays.TryGetValue(key,out holiday);
                     string id="cell-"+key;bool hover=Hover(id)||HoverIn(id);bool over=dropDate==key;
                     Color bg=over||isSel?Ui.C("#fff1d1"):hover?Ui.C("#fff8e9"):!same?Ui.C("#f8f4eb"):DesktopTheme.Card;
                     using(var b=new SolidBrush(bg))g.FillRectangle(b,cell);
@@ -429,9 +475,37 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
                         var mhit=AddHit(id+"-more",mr,()=>{JumpTo(newKey);});if(mhit!=null)mhit.DropDate=key;}
                     Pop(g);
                     FocusRing(g,id,new RectangleF(cell.X+3*s,cell.Y+3*s,cell.Width-6*s,cell.Height-6*s),0);
+                    });
                 }
                 y+=rowH;
             }
+        }
+        // Per-cell cache inside the grid: hovering or pressing a date, or ticking one event,
+        // redraws only the cells involved instead of all 35-42.
+        sealed class CellCache{public string Sig;public DibSurface Dib;public List<Hit> Hits;}
+        readonly Dictionary<int,CellCache> cells=new Dictionary<int,CellCache>();
+        string Mine(string a,string b){return a!=null&&!modal&&a.StartsWith(b,StringComparison.Ordinal)?a:"";}
+        void CachedCell(Graphics g,int slot,Rectangle cell,string key,List<Occurrence> items,string today,int perDay,Action<Graphics> paint){
+            if(drag!=null||frames.Count>0||ty!=-pageScroll.Offset){paint(g);return;}
+            var sb=new System.Text.StringBuilder();
+            sb.Append(key).Append('|').Append(cell).Append('|').Append(key.StartsWith(month,StringComparison.Ordinal)).Append('|').Append(key==selected).Append('|').Append(key==today).Append('|').Append(perDay).Append('|').Append(dropDate==key).Append('|').Append(s).Append('|').Append(DesktopTheme.TextScale).Append('|');
+            string cellId="cell-"+key,chipId="chip-"+key+"-";
+            sb.Append(Mine(hoverId,cellId)).Append(Mine(hoverId,chipId)).Append('|').Append(Mine(pressId,cellId)).Append(Mine(pressId,chipId)).Append('|');
+            if(Focused&&ShowFocusCues)sb.Append(Mine(focusId,cellId)).Append(Mine(focusId,chipId));sb.Append('|');
+            foreach(var o in items){var e=o.@event;sb.Append(o.key).Append('/').Append(o.startDate).Append('/').Append(e.title).Append('/').Append(e.startTime).Append('/').Append(e.category).Append('/').Append(e.repeat).Append('/').Append(Rules.Done(e,o.startDate)).Append('/').Append(IsDdayOccurrence(o)).Append(';');}
+            string sig=sb.ToString();CellCache cc;cells.TryGetValue(slot,out cc);
+            if(cc==null||cc.Sig!=sig){
+                if(cc==null){cc=new CellCache();cells[slot]=cc;}
+                if(cc.Dib==null||cc.Dib.Width!=cell.Width||cc.Dib.Height!=cell.Height){if(cc.Dib!=null)cc.Dib.Dispose();cc.Dib=new DibSurface(cell.Width,cell.Height);}
+                int sx=bx,sy=by;var outerClip=clip;var outer=building;building=new List<Hit>();
+                using(var dg=Graphics.FromHdc(cc.Dib.Dc)){
+                    dg.Clear(DesktopTheme.Card);Ui.Prepare(dg);dg.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+                    bx=cell.X;by=cell.Y+ty;Apply(dg);
+                    try{paint(dg);}finally{bx=sx;by=sy;clip=outerClip;}
+                }
+                cc.Hits=building;cc.Sig=sig;building=outer;Apply(g);
+            }
+            cc.Dib.BlitTo(g,new Point(cell.X-bx,cell.Y+ty-by));building.AddRange(cc.Hits);
         }
         bool HoverIn(string id){return hoverId!=null&&hoverId.StartsWith(id+"-",StringComparison.Ordinal)&&!modal;}
         void PaintChip(Graphics g,Occurrence o,string key,Rectangle r,Font font,Font timeFont){
@@ -681,6 +755,6 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             if(e.KeyCode==Keys.Right){MonthMove(1);e.Handled=true;return true;}
             return false;
         }
-        protected override void Dispose(bool disposing){if(disposing){clock.Dispose();searchTimer.Dispose();tips.Dispose();}base.Dispose(disposing);}
+        protected override void Dispose(bool disposing){if(disposing){DropCaches();clock.Dispose();searchTimer.Dispose();tips.Dispose();}base.Dispose(disposing);}
     }
 }

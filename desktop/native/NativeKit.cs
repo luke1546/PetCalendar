@@ -84,13 +84,16 @@ public static class Ui {
             if(text.Length<64){if(widths.Count>4000)widths.Clear();widths[key]=w;}
             return w;
         }
-        static Graphics advanceGraphics,measureGraphics;
+        static Graphics advanceGraphics,measureGraphics;static readonly Dictionary<string,float> advances=new Dictionary<string,float>();
         static Graphics MeasureGraphics{get{if(measureGraphics==null)measureGraphics=Graphics.FromImage(new Bitmap(1,1));return measureGraphics;}}
         // Typographic advance (no GDI overhang), used for tight layouts such as date/time segments.
         public static float Advance(string text,Font font){
             if(String.IsNullOrEmpty(text))return 0;
             if(advanceGraphics==null){advanceGraphics=Graphics.FromImage(new Bitmap(1,1));}
-            return advanceGraphics.MeasureString(text,font,PointF.Empty,StringFormat.GenericTypographic).Width;
+            string key=font.Name+"|"+font.Size+"|"+(int)font.Style+"|"+text;float w;if(text.Length<80&&advances.TryGetValue(key,out w))return w;
+            w=advanceGraphics.MeasureString(text,font,PointF.Empty,StringFormat.GenericTypographic).Width;
+            if(text.Length<80){if(advances.Count>6000)advances.Clear();advances[key]=w;}
+            return w;
         }
         public static int LineHeight(Font font){return (int)Math.Ceiling(font.GetHeight());}
         public static float Ascent(Font font){var f=font.FontFamily;return font.Size*f.GetCellAscent(font.Style)/f.GetEmHeight(font.Style);}
@@ -105,9 +108,20 @@ public static class Ui {
         }
         // Line breaking follows Chrome's defaults for Korean: any Hangul syllable
         // boundary or space may break; long Latin words break anywhere.
+        // Layout and paint both wrap the same strings several times per frame; each wrap
+        // measures every break candidate, so results are memoised per text/font/width.
+        static readonly Dictionary<string,List<string>> wraps=new Dictionary<string,List<string>>();
         public static List<string> Wrap(string text,Font font,int width){
-            var lines=new List<string>();if(text==null)text="";width=Math.Max(1,width);
+            if(text==null)text="";width=Math.Max(1,width);
+            string key=font.Name+"|"+font.Size+"|"+(int)font.Style+"|"+width+"|"+text;List<string> cached;
+            if(wraps.TryGetValue(key,out cached))return new List<string>(cached);
+            var result=WrapUncached(text,font,width);if(wraps.Count>3000)wraps.Clear();wraps[key]=result;return new List<string>(result);
+        }
+        static List<string> WrapUncached(string text,Font font,int width){
+            var lines=new List<string>();
             foreach(string paragraph in text.Replace("\r","").Split('\n')){
+                // A paragraph that fits whole is one line (the unit loop would accept every unit).
+                if(paragraph.Length<300){string whole=paragraph.TrimEnd();if(Advance(whole,font)<=width){lines.Add(whole);continue;}}
                 var units=new List<string>();var word=new StringBuilder();
                 foreach(char ch in paragraph){
                     bool hangul=(ch>=0xac00&&ch<=0xd7af)||(ch>=0x3130&&ch<=0x318f);
@@ -524,6 +538,50 @@ public static class Ui {
             protected override void OnMouseWheel(MouseEventArgs e){int max=Math.Max(0,owner.Options.Count*Row+(int)(8*Sc)-Height);offset=Math.Max(0,Math.Min(max,offset-e.Delta/120*Row*2));Invalidate();}
             protected override bool IsInputKey(Keys k){return k==Keys.Up||k==Keys.Down||k==Keys.Enter||base.IsInputKey(k);}
             protected override void OnKeyDown(KeyEventArgs e){if(e.KeyCode==Keys.Up&&hover>0)hover--;else if(e.KeyCode==Keys.Down&&hover<owner.Options.Count-1)hover++;else if(e.KeyCode==Keys.Enter&&hover>=0&&Picked!=null){Picked(owner.Options[hover].Key);return;}int top=hover*Row;if(top<offset)offset=top;if(top+Row>offset+Height-(int)(8*Sc))offset=top+Row-Height+(int)(8*Sc);Invalidate();}
+        }
+    }
+    // Offscreen 32bpp DIB section with its own memory DC. GDI text drawn through
+    // Graphics.FromHdc(Dc) goes straight to the DIB (an image-backed Graphics would make
+    // every TextRenderer call copy pixels through a temporary DC), and BitBlt copies it out.
+    public sealed class DibSurface : IDisposable {
+        [StructLayout(LayoutKind.Sequential)] struct BITMAPINFOHEADER{public int biSize,biWidth,biHeight;public short biPlanes,biBitCount;public int biCompression,biSizeImage,biXPelsPerMeter,biYPelsPerMeter,biClrUsed,biClrImportant;}
+        [DllImport("gdi32.dll")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+        [DllImport("gdi32.dll")] static extern IntPtr CreateDIBSection(IntPtr dc,ref BITMAPINFOHEADER info,int usage,out IntPtr bits,IntPtr section,int offset);
+        [DllImport("gdi32.dll")] static extern IntPtr SelectObject(IntPtr dc,IntPtr obj);
+        [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr obj);
+        [DllImport("gdi32.dll")] static extern bool DeleteDC(IntPtr dc);
+        [DllImport("gdi32.dll")] static extern bool BitBlt(IntPtr dest,int x,int y,int w,int h,IntPtr src,int sx,int sy,int rop);
+        public readonly int Width,Height;public IntPtr Dc{get{return dc;}}
+        IntPtr dc,bitmap,previous;
+        public DibSurface(int width,int height){
+            Width=Math.Max(1,width);Height=Math.Max(1,height);
+            var info=new BITMAPINFOHEADER{biSize=Marshal.SizeOf(typeof(BITMAPINFOHEADER)),biWidth=Width,biHeight=-Height,biPlanes=1,biBitCount=32};
+            dc=CreateCompatibleDC(IntPtr.Zero);IntPtr bits;bitmap=CreateDIBSection(dc,ref info,0,out bits,IntPtr.Zero,0);
+            if(bitmap==IntPtr.Zero){DeleteDC(dc);dc=IntPtr.Zero;throw new OutOfMemoryException("DIB section");}
+            previous=SelectObject(dc,bitmap);
+        }
+        public void BlitTo(Graphics g,Point at){var target=g.GetHdc();try{BitBlt(target,at.X,at.Y,Width,Height,dc,0,0,0x00CC0020);}finally{g.ReleaseHdc(target);}}
+        public void Dispose(){if(dc==IntPtr.Zero)return;SelectObject(dc,previous);DeleteObject(bitmap);DeleteDC(dc);dc=IntPtr.Zero;}
+    }
+}
+namespace PetCalendarDesktop {
+    // The first dialog of a session paid ~130 ms of JIT compilation on the UI thread.
+    // A low-priority background thread compiles the UI types ahead of time instead.
+    public static class Warmup {
+        public static void Start(){
+            var thread=new System.Threading.Thread(()=>{
+                System.Threading.Thread.Sleep(2500);
+                foreach(var type in typeof(Warmup).Assembly.GetTypes()){
+                    if(type.Namespace!="PetCalendarDesktop"||type.ContainsGenericParameters)continue;
+                    if(!(typeof(Control).IsAssignableFrom(type)||typeof(FlowItem).IsAssignableFrom(type)||type==typeof(Ui)||type.Name=="Css"||type.Name=="Rules"))continue;
+                    foreach(var method in type.GetMethods(System.Reflection.BindingFlags.DeclaredOnly|System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.Public|System.Reflection.BindingFlags.NonPublic)){
+                        if(method.IsAbstract||method.ContainsGenericParameters)continue;
+                        try{System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(method.MethodHandle);}catch{}
+                    }
+                    foreach(var ctor in type.GetConstructors(System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.Public|System.Reflection.BindingFlags.NonPublic)){try{System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(ctor.MethodHandle);}catch{}}
+                }
+            }){IsBackground=true,Priority=System.Threading.ThreadPriority.BelowNormal,Name="ui-warmup"};
+            thread.Start();
         }
     }
 }

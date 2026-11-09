@@ -29,6 +29,8 @@ namespace PetCalendarDesktop {
         readonly HashSet<string> celebrationKeys=new HashSet<string>();
         // Remembers which one-off notices were shown (persisted by the owner).
         internal Func<string,bool> NoticeSeen=key=>false;internal Action<string> MarkNotice=key=>{};
+        // Writes the speaker's diary for today and returns its text (owner persists it).
+        internal Func<PetHost,string> WriteDiary;
         DateTime noticeCheck;
         internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error,Action<string,int> snoozeAlarm=null) {
             pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;snooze=snoozeAlarm;
@@ -126,9 +128,15 @@ namespace PetCalendarDesktop {
                     EnsureBubble();
                     if(!speaker.Cat.Paused&&!speaker.Cat.Held&&!speaker.Cat.Sleeping)speaker.Cat.Jump();
                 }
-                if(summaryEnabled&&summary==null&&!manual&&utc>=noticeCheck){
+                if(summary==null&&!manual&&utc>=noticeCheck){
                     noticeCheck=utc.AddSeconds(20);
-                    var notice=PetNotices.Next(state(),utc.ToLocalTime(),NoticeSeen);
+                    var local=utc.ToLocalTime();string diaryKey="diary:"+Rules.Key(local);
+                    if(WriteDiary!=null&&local.Hour>=21&&!NoticeSeen(diaryKey)&&SelectSpeaker()){
+                        MarkNotice(diaryKey);WriteDiary(speaker);
+                        summary=new PetSummary{Kind="notice",Key=diaryKey,Text="오늘 일기를 썼어요 📔\n캘린더에서 D를 누르면 볼 수 있어요"};expires=utc.AddSeconds(15);
+                        EnsureBubble();bubble.Present(summary.Text,false,0,false);bubble.Follow(speaker);clock.Reset(utc,minutes);
+                    }
+                    var notice=summary!=null||!summaryEnabled?null:PetNotices.Next(state(),local,NoticeSeen);
                     if(notice!=null&&SelectSpeaker()){MarkNotice(notice.Key);summary=notice;expires=utc.AddSeconds(15);EnsureBubble();bubble.Present(notice.Text,false,0,false);bubble.Follow(speaker);clock.Reset(utc,minutes);}
                 }
                 bool due=summaryEnabled&&clock.Due(utc,minutes);

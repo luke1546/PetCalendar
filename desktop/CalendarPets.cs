@@ -10,7 +10,7 @@ using DesktopPet;
 
 namespace PetCalendarDesktop {
     public sealed class PetRecord {public string species="cat",palette="치즈",name="";public int personality;}
-    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];public string[] notices=new string[0];}
+    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];public string[] notices=new string[0];public bool bedEnabled=true,toyEnabled=true;public double bedFraction=.82;}
 
     // The engine runs on the existing calendar UI thread. No extra process, tray or browser.
     internal sealed class CalendarPets : IDisposable {
@@ -21,6 +21,7 @@ namespace PetCalendarDesktop {
         readonly string path;
         readonly Action<Exception> log;
         readonly PetSpeech speech;
+        readonly PetLife life;readonly PetDiary diary;
         DateTime? testUtc;
         internal event Action<Alarm> OpenAlarm;
         internal event Action<string> Acknowledge;
@@ -45,6 +46,11 @@ namespace PetCalendarDesktop {
             speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log,(id,minutes)=>{if(Snooze!=null)Snooze(id,minutes);});
             // One-off notices (morning briefing, deadline eve, weekly review) are remembered here so
             // a restart does not repeat them. Only the latest 60 keys are kept.
+            diary=new PetDiary(dataDir);
+            life=new PetLife(()=>active.ToArray(),log);life.ConfigureBed(preferences.bedEnabled,preferences.bedFraction);life.ConfigureToy(preferences.toyEnabled);
+            life.BedMoved=fraction=>{preferences.bedFraction=fraction;try{Save();}catch(Exception e){log(e);}};
+            life.BedHidden=()=>NativeAction(()=>ConfigureBed(new Dictionary<string,object>{{"bedEnabled",false}}));
+            speech.WriteDiary=pet=>{int steps,meets;bool bed;life.Stats(pet,out steps,out meets,out bed);return diary.Write(snapshot(),Rules.Key(DateTime.Now),pet,steps,meets,bed);};
             speech.NoticeSeen=key=>preferences.notices!=null&&preferences.notices.Contains(key);
             speech.MarkNotice=key=>{var list=(preferences.notices??new string[0]).Concat(new[]{key}).ToList();if(list.Count>60)list=list.Skip(list.Count-60).ToList();preferences.notices=list.ToArray();try{Save();}catch(Exception e){log(e);}};
             preferences.pets=(preferences.pets??new PetRecord[0]).Where(p=>p!=null&&Species.Find(p.species)!=null).Take(256).ToArray();
@@ -98,10 +104,10 @@ namespace PetCalendarDesktop {
                         var palette=Array.Find(Palette.For(kind),p=>p.Name==record.palette);
                         SpawnInternal(kind,palette??Palette.For(kind)[0],CleanName(record.name),record.personality);
                     }
-                    preferences.enabled=true;preferences.pets=Records();Save();if(active.Count>0)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);
+                    preferences.enabled=true;preferences.pets=Records();Save();life.Start();if(active.Count>0)speech.Start(preferences.summaryEnabled,preferences.summaryIntervalMinutes,preferences.chatterEnabled);
                 }catch {enabled=false;speech.Stop();CloseActive();CloseArchive();throw;}
             }else {
-                preferences.pets=Records();preferences.enabled=false;Save();enabled=false;speech.Stop();CloseActive();CloseArchive();
+                preferences.pets=Records();preferences.enabled=false;Save();enabled=false;life.Stop();speech.Stop();CloseActive();CloseArchive();
             }
             Notify();
         }
@@ -197,6 +203,15 @@ namespace PetCalendarDesktop {
             try{Save();}catch{preferences.chatterEnabled=previous;throw;}
             speech.ConfigureChatter(preferences.chatterEnabled);Notify();
         }
+        // Bed and toy switches (either key may be sent).
+        internal void ConfigureBed(Dictionary<string,object> request){
+            object bed,toy;bool hasBed=request.TryGetValue("bedEnabled",out bed),hasToy=request.TryGetValue("toyEnabled",out toy);
+            if((!hasBed&&!hasToy)||(hasBed&&!(bed is bool))||(hasToy&&!(toy is bool)))throw new AppError(400,"펫 침대·장난감 사용 여부를 확인해 주세요.");
+            bool oldBed=preferences.bedEnabled,oldToy=preferences.toyEnabled;if(hasBed)preferences.bedEnabled=(bool)bed;if(hasToy)preferences.toyEnabled=(bool)toy;
+            try{Save();}catch{preferences.bedEnabled=oldBed;preferences.toyEnabled=oldToy;throw;}
+            life.ConfigureBed(preferences.bedEnabled,preferences.bedFraction);life.ConfigureToy(preferences.toyEnabled);Notify();
+        }
+        internal DiaryEntry[] DiaryEntries(){return diary.Entries;}
         internal void CalendarChanged(CalendarState before,CalendarState after){
             if(!enabled)return;
             int reaction=PetSchedule.CompletionReaction(before,after,DateTime.Now);
@@ -214,7 +229,7 @@ namespace PetCalendarDesktop {
             else throw new AppError(400,"지원하지 않는 말풍선 검사입니다.");
         }
         internal void Home() {foreach(var pet in active)pet.BringToFloor();}
-        internal object Inspect() {return new {enabled,count=active.Count,chatterEnabled=preferences.chatterEnabled,summaryEnabled=preferences.summaryEnabled,summaryIntervalMinutes=preferences.summaryIntervalMinutes,species=Species.All.Select(s=>new{id=s.Id,label=s.Name}).ToArray()};}
+        internal object Inspect() {return new {enabled,count=active.Count,chatterEnabled=preferences.chatterEnabled,bedEnabled=preferences.bedEnabled,toyEnabled=preferences.toyEnabled,summaryEnabled=preferences.summaryEnabled,summaryIntervalMinutes=preferences.summaryIntervalMinutes,species=Species.All.Select(s=>new{id=s.Id,label=s.Name}).ToArray()};}
         internal object Diagnostic() {return new {enabled,count=active.Count,packLoaded=archive!=null,decodedAtlases=Sprites.SourceCount,loopCount=SimulationLoop.Count,cacheBytes=Sprites.CachedBytes,speech=speech.Inspect(),pets=active.Select(p=>new{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName,personality=p.Personality,window=p.Handle.ToInt64(),x=p.Cat.X,y=p.Cat.Y,size=p.Cat.Size,pose=p.Cat.State.ToString()}).ToArray()};}
         void CloseActive() {
             stopping=true;
@@ -225,10 +240,10 @@ namespace PetCalendarDesktop {
         internal void Stop() {
             if(disposed)return;
             if(enabled){preferences.enabled=true;preferences.pets=Records();try{Save();}catch(Exception error){log(error);}}
-            speech.Stop();CloseActive();CloseArchive();enabled=false;
+            life.Stop();speech.Stop();CloseActive();CloseArchive();enabled=false;
         }
         public void Dispose() {
-            if(disposed)return;Stop();speech.Dispose();disposed=true;
+            if(disposed)return;Stop();speech.Dispose();life.Dispose();disposed=true;
             Sprites.ResourceOpen=previousLoader;PetHost.SettingsDirectory=previousSettings;PetHost.WindowPrefix=previousPrefix;PetHost.CloseAllLabel=previousClose;PetMenu.Noun=previousNoun;
         }
     }

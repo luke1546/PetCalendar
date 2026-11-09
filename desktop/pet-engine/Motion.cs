@@ -22,6 +22,8 @@ namespace DesktopPet {
         public List<Surface> Surfaces=new List<Surface>();
         public List<Rectangle> Screens=new List<Rectangle>();
         public bool Paused, Sleeping, Held;
+        // Optional walking goal on the floor (the pet bed): walk there, then sleep or idle.
+        public double? GoalX; public bool GoalSleep;
         readonly Random random;
         double actionLeft=2, jumpVx, jumpVy, jumpDelay, cooldown;
         int desiredDirection=1;
@@ -46,7 +48,7 @@ namespace DesktopPet {
         public void Wake() { Sleeping=false; actionLeft=2; if(Support!=null)SetPose(Pose.Pet); }
         public void Nap(){if(!Held&&Support!=null){Vx=Vy=0;SetPose(Pose.Sleep);actionLeft=10;}}
         public void Sleep() { Sleeping=true; if(Support!=null) { Vx=Vy=0; SetPose(Pose.Sleep); } }
-        public void Grab() { Held=true; Sleeping=false; Support=null; Vx=Vy=0; jumpDelay=0; SetPose(Pose.Held); }
+        public void Grab() { GoalX=null; Held=true; Sleeping=false; Support=null; Vx=Vy=0; jumpDelay=0; SetPose(Pose.Held); }
         public void Release(double vx,double vy) { Held=false;if(Math.Abs(vx)>1)Direction=vx<0?-1:1;desiredDirection=Direction; Vx=Clamp(vx,-420*Unit,420*Unit); Vy=Clamp(vy,-480*Unit,480*Unit); SetPose(Pose.Fall); }
         public static double Clamp(double v,double min,double max) { return Math.Max(min,Math.Min(max,v)); }
         public static bool Trajectory(double x,double y,double tx,double ty,double unit,out double vx,out double vy) {
@@ -104,6 +106,13 @@ namespace DesktopPet {
             if(State==Pose.Land) { Vx*=Math.Exp(-16*dt); if(Age<.26/Profile.Tempo)return; SetPose(Sleeping?Pose.Sleep:Pose.Idle); actionLeft=.8; }
             if(Sleeping) { Vx=0; SetPose(Pose.Sleep);return; }
             if(!autonomous) { Vx=0;return; }
+            if(GoalX.HasValue) {
+                var here=Surfaces.FirstOrDefault(s=>s.Id==Support);double goal=GoalX.Value;
+                bool reachable=here!=null&&here.Floor&&Surfaces.Any(s=>s.Floor&&goal>=s.Left&&goal<=s.Right&&Math.Abs(s.Y-Y)<2);
+                if(!reachable)GoalX=null;
+                else if(Math.Abs(goal-X)<=4*Unit) {Vx=0;GoalX=null;if(GoalSleep){Sleep();return;}SetPose(Pose.Idle);actionLeft=1.5;return;}
+                else {desiredDirection=goal<X?-1:1;if(State!=Pose.Walk)SetPose(Pose.Walk);actionLeft=1;}
+            }
             actionLeft-=dt;
             if(actionLeft<=0) {
                 if(State==Pose.Groom || State==Pose.Sleep || State==Pose.Pet) {SetPose(Pose.Idle);actionLeft=.6;}

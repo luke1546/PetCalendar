@@ -760,6 +760,7 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             if(e.KeyCode==Keys.OemQuestion||e.KeyCode==Keys.Divide){searchBox.Focus();e.Handled=e.SuppressKeyPress=true;return true;}
             if(e.KeyCode==Keys.T){JumpTo(Rules.Key(DateTime.Today));e.Handled=e.SuppressKeyPress=true;return true;}
             if(e.KeyCode==Keys.W){OpenUpcoming();e.Handled=e.SuppressKeyPress=true;return true;}
+            if(e.KeyCode==Keys.D){OpenDiary();e.Handled=e.SuppressKeyPress=true;return true;}
             if(focusId!=null)return false;
             if(e.KeyCode==Keys.Left){MonthMove(-1);e.Handled=true;return true;}
             if(e.KeyCode==Keys.Right){MonthMove(1);e.Handled=true;return true;}

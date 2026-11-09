@@ -202,6 +202,7 @@ namespace PetCalendarDesktop {
             if(!await Commit(s=>{var item=s.events.FirstOrDefault(x=>x.id==id);if(item==null)return;item.completedDates=item.completedDates.Where(d=>d!=key).Concat(done?new[]{key}:new string[0]).ToArray();}))Render();
         }
         internal void ToggleOccurrence(string id,string key){ToggleEvent(id,key);}
+        internal void OpenDiary(){new DiaryDialog(this).Show(null);}
         internal void OpenUpcoming(){if(modal)return;new UpcomingDialog(this).Show(null);}
         internal void OpenDayList(string key){if(modal)return;var dialog=new DayListDialog(this,key);dialog.Show(null);}
         internal void OpenEvent(string id,string key,bool duplicate){

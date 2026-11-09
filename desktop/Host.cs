@@ -163,6 +163,7 @@ namespace PetCalendarDesktop {
                 if(method=="PUT"&&path=="/api/state")return new ApiResponse(200,await store.Save(body,ApplyHotkey,force));
                 if(method=="GET"&&path=="/api/hotkey")return new ApiResponse(200,HotkeyStatus());
                 if(method=="GET"&&path=="/api/pets")return new ApiResponse(200,pets.Inspect());
+                if(method=="GET"&&path=="/api/pets/diary")return new ApiResponse(200,new{entries=pets.DiaryEntries()});
                 if(method=="POST"&&path=="/api/pets") {
                     var request=Codec.Object(body);string action=request.ContainsKey("action")?request["action"] as string:"";
                     if(action=="enable")pets.SetEnabled(true);
@@ -176,6 +177,7 @@ namespace PetCalendarDesktop {
                     }
                     else if(action=="configureSpeech")pets.ConfigureSpeech(request);
                     else if(action=="configureChatter")pets.ConfigureChatter(request);
+                    else if(action=="configureBed")pets.ConfigureBed(request);
                     else if(action=="preview")pets.Announce();
                     else throw new AppError(400,"데스크톱 펫 동작을 확인해 주세요.");
                     return new ApiResponse(200,pets.Inspect());

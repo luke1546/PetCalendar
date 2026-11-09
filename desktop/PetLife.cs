@@ -77,7 +77,7 @@ namespace PetCalendarDesktop {
             }
             if(next!=toyPet){
                 EndToy();if(next==null)return;
-                EndMeeting();toyPet=next;toyMode=true;nextToyJump=DateTime.MinValue;if(toy==null)toy=new ToyWindow();
+                EndMeeting();toyPet=next;toyPet.FormClosed+=ToyPetClosed;toyMode=true;nextToyJump=DateTime.MinValue;if(toy==null)toy=new ToyWindow();
                 Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
                 var day=DayOf(next);if(day.Toys<3){day.Toys++;if(Award!=null)Award(next,2);}
             }
@@ -102,9 +102,10 @@ namespace PetCalendarDesktop {
             foreach(var target in targets)if(cat.JumpToward(target.X,target.Y)){nextToyJump=now.AddMilliseconds(1400);return;}
             if(dy<-35*dpi&&cat.JumpToward(Motion.Clamp(cursor.X,here.Left+pad,here.Right-pad),cat.Y))nextToyJump=now.AddMilliseconds(1400);
         }
+        void ToyPetClosed(object sender,FormClosedEventArgs args){if(Object.ReferenceEquals(sender,toyPet))EndToy();}
         void EndToy(){
             toyMode=false;if(toy!=null)toy.HideToy();
-            if(toyPet!=null&&!toyPet.IsDisposed)toyPet.Cat.StopToy();toyPet=null;
+            if(toyPet!=null){toyPet.FormClosed-=ToyPetClosed;if(!toyPet.IsDisposed)toyPet.Cat.StopToy();}toyPet=null;
         }
         // Today's numbers for the diary.
         internal void Stats(PetHost pet,out int steps,out int meets,out bool slept,out int levelUp){

@@ -79,6 +79,8 @@ public static class ToyFollowTests {
             Check(Object.ReferenceEquals(Get(life,"toyPet"),second)&&Get(firstCat,"ToyTargetX")==null,"An unavailable target must release before choosing another nearby pet.");
             Call(life,"ConfigureToy",false);
             Check(Get(life,"toyPet")==null&&Get(secondCat,"ToyTargetX")==null&&!(bool)Get(Get(life,"toy"),"shown"),"Disabling toys must clear the single target and window immediately.");
+            Call(life,"ConfigureToy",true);update(new Point(250,480),false);((Form)second).Close();
+            Check(Get(life,"toyPet")==null&&!(bool)Get(Get(life,"toy"),"shown"),"Closing the selected pet must hide the toy without waiting for another animation frame.");
             Check(errors.Count==0,"Toy play logged an unexpected error.");
             ((IDisposable)manager).Dispose();manager=null;
             Check((int)loop.GetProperty("FrameListenerCount",Flags).GetValue(null,null)==0,"Stopping pets must detach toy frame tracking.");

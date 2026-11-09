@@ -56,7 +56,8 @@ namespace PetCalendarDesktop {
             foreach(var list in days.Values)list.Sort(CompareDay);
             indexCache=days;indexState=state;indexToken=token;return days;
         }
-        internal List<Occurrence> SelectedRows(){List<Occurrence> rows;if(MonthIndex().TryGetValue(selected,out rows))return rows;rows=Rules.Occurrences(state.events.Where(Matches),selected,selected,false).Where(o=>String.CompareOrdinal(o.startDate,selected)<=0&&String.CompareOrdinal(o.endDate,selected)>=0).ToList();rows.Sort(CompareDay);return rows;}
+        internal List<Occurrence> SelectedRows(){return RowsFor(selected);}
+        internal List<Occurrence> RowsFor(string key){List<Occurrence> rows;if(MonthIndex().TryGetValue(key,out rows))return rows;rows=Rules.Occurrences(state.events.Where(Matches),key,key,false).Where(o=>String.CompareOrdinal(o.startDate,key)<=0&&String.CompareOrdinal(o.endDate,key)>=0).ToList();rows.Sort(CompareDay);return rows;}
         int TodayCount(){string today=Rules.Key(DateTime.Today);return Rules.Occurrences(state.events,today,today,false).Count(o=>String.CompareOrdinal(o.startDate,today)<=0&&String.CompareOrdinal(o.endDate,today)>=0);}
         List<CalendarEvent> SearchFound(){if(searchCache!=null&&searchState==state&&searchToken==filter+"|"+search)return searchCache;searchState=state;searchToken=filter+"|"+search;return searchCache=state.events.Where(Matches).OrderBy(e=>e.startDate,StringComparer.Ordinal).ToList();}
         string VisibleCount(){
@@ -84,8 +85,9 @@ namespace PetCalendarDesktop {
         // Saves run one after another; each re-applies its change to the latest saved state,
         // so quick successive clicks are never dropped. A failure restores the saved state.
         Task saveChain=Task.FromResult(true);int pendingSaves;bool saveFailedInBatch;
-        internal async Task<bool> Commit(Action<CalendarState> change,bool applyHotkey=false){
-            var preview=Clone(state);
+        internal Task<bool> Commit(Action<CalendarState> change,bool applyHotkey=false){return Commit(change,applyHotkey,true);}
+        async Task<bool> Commit(Action<CalendarState> change,bool applyHotkey,bool record){
+            var before=state;var preview=Clone(state);
             try{change(preview);Rules.Validate(Codec.Json(preview));}catch(Exception error){Toast("내용을 확인해 주세요",error.Message,"error");return false;}
             pendingSaves++;saving=true;state=preview;Render();
             if(pendingSaves==1){saveFailedInBatch=false;foreach(var d in DialogForm.Open.ToArray())d.SavingChanged();}
@@ -98,6 +100,7 @@ namespace PetCalendarDesktop {
                 if(response.status==409)throw new Exception("다른 창의 변경 내용을 불러왔습니다. 입력 중인 내용을 확인한 뒤 다시 저장해 주세요.");
                 if(response.status!=200)throw new Exception(ErrorOf(response.body)??"저장하지 못했습니다.");
                 ok=true;
+                if(record)Record(before,preview);
             }catch(Exception error){
                 saveFailedInBatch=true;Banner(error.Message);SetSaveStatus("저장하지 못함 · 입력 내용을 확인해 주세요",true);Toast("저장을 완료하지 못했어요",error.Message,"error",10000);
             }finally{
@@ -112,6 +115,62 @@ namespace PetCalendarDesktop {
             }
             return ok;
         }
+        // ---------- Undo / redo ----------
+        // Each saved change to events or tasks is remembered as per-item before/after copies.
+        // Undo writes the "before" copies back onto the latest state (and redo the "after" ones),
+        // so it merges with unrelated edits made since, e.g. from the widget or another window.
+        internal sealed class HistoryEntry {public List<ItemChange> Events=new List<ItemChange>(),Tasks=new List<ItemChange>();public string Label="";}
+        internal sealed class ItemChange {public string Id,Before,After;public int BeforeIndex,AfterIndex;}
+        readonly List<HistoryEntry> undoStack=new List<HistoryEntry>(),redoStack=new List<HistoryEntry>();
+        internal HistoryEntry LastRecorded{get{return undoStack.Count>0?undoStack[undoStack.Count-1]:null;}}
+        static List<ItemChange> Diff<T>(T[] before,T[] after,Func<T,string> id){
+            var result=new List<ItemChange>();var b=new Dictionary<string,int>();var a=new Dictionary<string,int>();
+            for(int i=0;i<before.Length;i++)b[id(before[i])]=i;for(int i=0;i<after.Length;i++)a[id(after[i])]=i;
+            foreach(var key in b.Keys.Concat(a.Keys.Where(k=>!b.ContainsKey(k)))){
+                int bi,ai;bool hb=b.TryGetValue(key,out bi),ha=a.TryGetValue(key,out ai);
+                string bj=hb?Codec.Json(before[bi]):null,aj=ha?Codec.Json(after[ai]):null;
+                if(bj!=aj)result.Add(new ItemChange{Id=key,Before=bj,After=aj,BeforeIndex=hb?bi:-1,AfterIndex=ha?ai:-1});
+            }
+            return result;
+        }
+        void Record(CalendarState before,CalendarState after){
+            if(before==null||after==null)return;
+            var entry=new HistoryEntry{Events=Diff(before.events,after.events,e=>e.id),Tasks=Diff(before.tasks,after.tasks,t=>t.id)};
+            if(entry.Events.Count+entry.Tasks.Count==0)return;
+            var first=entry.Events.Concat(entry.Tasks).First();string json=first.After??first.Before;
+            try{var o=Codec.Object(json);object title;if(o!=null&&o.TryGetValue("title",out title))entry.Label=title as string??"";}catch{}
+            int count=entry.Events.Count+entry.Tasks.Count;if(count>1&&entry.Label.Length>0)entry.Label+=" 외 "+(count-1)+"개";
+            undoStack.Add(entry);if(undoStack.Count>100)undoStack.RemoveAt(0);redoStack.Clear();
+        }
+        static T[] Patch<T>(T[] current,List<ItemChange> changes,bool undo,Func<T,string> id){
+            var list=current.ToList();
+            foreach(var c in changes){
+                string json=undo?c.Before:c.After;int at=undo?c.BeforeIndex:c.AfterIndex;int index=list.FindIndex(x=>id(x)==c.Id);
+                if(json==null){if(index>=0)list.RemoveAt(index);continue;}
+                var item=Codec.Read<T>(json);if(index>=0)list[index]=item;else list.Insert(Math.Max(0,Math.Min(list.Count,at)),item);
+            }
+            return list.ToArray();
+        }
+        static void Apply(CalendarState s,HistoryEntry entry,bool undo){
+            s.events=Patch(s.events,entry.Events,undo,e=>e.id);s.tasks=Patch(s.tasks,entry.Tasks,undo,t=>t.id);
+            // Only one schedule can be the D-day; keep the restored one.
+            var restored=new HashSet<string>(entry.Events.Select(c=>c.Id));
+            if(s.events.Count(e=>e.pinned)>1){foreach(var e in s.events)if(e.pinned&&!restored.Contains(e.id)){e.pinned=false;e.pinnedDate="";}
+                bool kept=false;foreach(var e in s.events)if(e.pinned){if(kept){e.pinned=false;e.pinnedDate="";}kept=true;}}
+        }
+        // Returns false when there was nothing to undo or the save failed.
+        internal async Task<bool> Undo(HistoryEntry only=null){
+            var entry=LastRecorded;if(entry==null||(only!=null&&entry!=only))return false;undoStack.RemoveAt(undoStack.Count-1);
+            if(await Commit(s=>Apply(s,entry,true),false,false)){redoStack.Add(entry);return true;}
+            undoStack.Add(entry);return false;
+        }
+        internal async Task<bool> Redo(){
+            if(redoStack.Count==0)return false;var entry=redoStack[redoStack.Count-1];redoStack.RemoveAt(redoStack.Count-1);
+            if(await Commit(s=>Apply(s,entry,false),false,false)){undoStack.Add(entry);return true;}
+            redoStack.Add(entry);return false;
+        }
+        async void UndoKey(){if(undoStack.Count==0){Toast("되돌릴 작업이 없어요");return;}var entry=LastRecorded;var label=entry.Label;if(await Undo()){Toasts.CloseFor(entry);Toast("실행을 취소했어요",label+"\nCtrl+Y로 다시 실행할 수 있어요.");}}
+        async void RedoKey(){if(redoStack.Count==0){Toast("다시 실행할 작업이 없어요");return;}var label=redoStack[redoStack.Count-1].Label;if(await Redo())Toast("다시 실행했어요",label);}
         internal string LastError{get{return bannerText??"";}}
         void Reload(){if(saving)return;state=store.Snapshot;bannerVisible=false;Render();SetSaveStatus("최신 내용을 불러왔어요",false);Toast("최신 내용을 불러왔어요","입력 중인 내용은 확인 후 다시 저장해 주세요.");}
         internal void StoreChanged(){
@@ -120,7 +179,13 @@ namespace PetCalendarDesktop {
         }
         // ---------- Toasts and prompts ----------
         internal void Toast(string title,string detail="",string kind="info",int duration=6000){Toasts.Show(title,detail,kind,duration);}
-        internal void UndoToast(string title,string detail,Func<Task<bool>> restore,string restored="삭제를 되돌렸어요"){Toasts.Show(title,detail,"info",10000,"되돌리기",restore,restored);}
+        // The undo button rolls back through the shared history while this change is still the
+        // latest one (so Ctrl+Z and the button agree); otherwise it falls back to a targeted restore.
+        internal void UndoToast(string title,string detail,Func<Task<bool>> restore,string restored="삭제를 되돌렸어요"){
+            var entry=LastRecorded;
+            var toast=Toasts.Show(title,detail,"info",10000,"되돌리기",async()=>{if(entry!=null&&LastRecorded==entry)return await Undo(entry);return await restore();},restored);
+            if(toast!=null)toast.Entry=entry;
+        }
         internal Task<bool> Confirm(string title,string text,string label="확인"){
             if(DialogForm.Open.OfType<ConfirmDialog>().Any())return Task.FromResult(false);
             var source=new TaskCompletionSource<bool>();var dialog=new ConfirmDialog(this,title,text,label,source);dialog.Show(dialog.Accept);return source.Task;
@@ -131,6 +196,8 @@ namespace PetCalendarDesktop {
             var e=state.events.FirstOrDefault(x=>x.id==id);if(e==null)return;bool done=!Rules.Done(e,key);
             if(!await Commit(s=>{var item=s.events.FirstOrDefault(x=>x.id==id);if(item==null)return;item.completedDates=item.completedDates.Where(d=>d!=key).Concat(done?new[]{key}:new string[0]).ToArray();}))Render();
         }
+        internal void ToggleOccurrence(string id,string key){ToggleEvent(id,key);}
+        internal void OpenDayList(string key){if(modal)return;var dialog=new DayListDialog(this,key);dialog.Show(null);}
         internal void OpenEvent(string id,string key,bool duplicate){
             if(saving||modal&&!DialogForm.Open.OfType<EventDialog>().Any()&&false)return;
             if(DialogForm.Open.OfType<EventDialog>().Any()&&!duplicate)return;
@@ -199,7 +266,23 @@ namespace PetCalendarDesktop {
                         if(series.completedDates.Concat(series.excludedDates).Concat(series.pinnedDate!=""?new[]{series.pinnedDate}:new string[0]).Any(k=>!Rules.OccursOn(probe,k)))throw new AppError(400,"반복 일정의 기존 기록을 보존하려면 이번 일정만 이동해 주세요.");}
                 }
             });
-            if(ok){JumpTo(target);Toast("일정을 옮겼어요",original.title);}
+            if(ok){JumpTo(target);UndoToast("일정을 옮겼어요",original.title,()=>Task.FromResult(false),"이동을 되돌렸어요");}
+        }
+        // A schedule dropped on the task panel becomes a task due on that date. For a repeating
+        // schedule the user picks this occurrence only (skipped in the series) or the whole series.
+        async void DropToTasks(DragInfo d){
+            var original=state.events.FirstOrDefault(e=>e.id==d.EventId);if(original==null)return;
+            string scope="all";if(original.repeat!="none"){scope=await RepeatScope("할 일로 이동",d.Start);if(scope==null)return;}
+            bool done=Rules.Done(original,d.Start);string due=scope=="one"||original.repeat=="none"?d.Start:original.startDate;
+            var task=new CalendarTask{id=scope=="one"?Guid.NewGuid().ToString():original.id,title=original.title,dueDate=due,done=scope=="one"||original.repeat=="none"?done:false,createdAt=DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ",CultureInfo.InvariantCulture)};
+            bool ok=await Commit(s=>{
+                var series=s.events.FirstOrDefault(e=>e.id==d.EventId);if(series==null)throw new AppError(400,"일정을 찾지 못했습니다.");
+                if(scope=="one"){series.excludedDates=series.excludedDates.Concat(new[]{d.Start}).Distinct().ToArray();if(series.pinned&&series.pinnedDate==d.Start){series.pinned=false;series.pinnedDate="";}}
+                else s.events=s.events.Where(e=>e.id!=series.id).ToArray();
+                if(s.tasks.Any(t=>t.id==task.id))task.id=Guid.NewGuid().ToString();
+                s.tasks=s.tasks.Concat(new[]{task}).ToArray();
+            });
+            if(ok)UndoToast("일정을 할 일로 옮겼어요",original.title,()=>Task.FromResult(false),"일정으로 되돌렸어요");
         }
         // ---------- Tasks ----------
         async void AddTask(){

@@ -366,22 +366,29 @@ namespace PetCalendarDesktop {
     public static class Toasts {
         static readonly List<ToastWindow> active=new List<ToastWindow>();static CalendarView view;
         public static void Attach(CalendarView owner){view=owner;}
-        public static void Show(string title,string detail,string kind,int duration,string action=null,Func<Task<bool>> onAction=null,string restored=null){
-            if(view==null||view.IsDisposed)return;
+        public static ToastWindow Show(string title,string detail,string kind,int duration,string action=null,Func<Task<bool>> onAction=null,string restored=null){
+            if(view==null||view.IsDisposed)return null;
             var toast=new ToastWindow(title,detail,kind,action,onAction,restored);active.Add(toast);toast.FormClosed+=delegate{active.Remove(toast);Layout();};
             Layout();if(view.FindForm().Visible)toast.Show(view.FindForm());var timer=new Timer{Interval=duration};toast.Timer=timer;timer.Tick+=delegate{timer.Stop();timer.Dispose();toast.Close();};timer.Start();
+            return toast;
         }
+        // Undoing a change by keyboard retires the toast that offered to undo it.
+        public static void CloseFor(object entry){foreach(var t in active.ToArray())if(t.Entry!=null&&t.Entry==entry&&!t.IsDisposed){if(t.Timer!=null)t.Timer.Dispose();t.Close();}}
         public static void Layout(){
             if(view==null||view.IsDisposed)return;float s=view.DeviceDpi/96f;var area=view.ViewportScreen();int bottom=area.Bottom-(int)Math.Round(22*s),right=area.Right-(int)Math.Round(20*s);
             int width=active.Select(t=>t.PreferredWidth(area.Width-(int)(40*s))).DefaultIfEmpty(0).Max();
             for(int i=active.Count-1;i>=0;i--){var t=active[i];int h=t.PreferredHeight(width);bottom-=h;t.Bounds=new Rectangle(right-width,bottom,width+(int)Math.Ceiling(2*s),h+(int)Math.Ceiling(2*s));t.Invalidate();bottom-=(int)Math.Round(9*s);}
         }
-        public static void Raise(){if(view==null)return;var owner=DialogForm.Open.Count>0?(Form)DialogForm.Open[DialogForm.Open.Count-1]:view.FindForm();foreach(var t in active.ToArray()){if(t.IsDisposed)continue;t.Owner=owner;if(t.Visible)t.BringToFront();}}
-        public static void SetVisible(bool visible){foreach(var t in active.ToArray()){if(visible){if(!t.Visible)t.Show(view.FindForm());}else t.Hide();}Layout();}
+        public static void Raise(){if(view==null)return;var owner=DialogForm.Open.Count>0?(Form)DialogForm.Open[DialogForm.Open.Count-1]:view.FindForm();foreach(var t in active.ToArray()){if(t.IsDisposed)continue;Reown(t,owner);if(t.Visible)t.BringToFront();}}
+        // WinForms rejects moving a form to an owner that is already further up its own owner
+        // chain (toast → dialog → backdrop → main window) as a "circular reference", so a toast
+        // is detached first. Without this, closing a dialog while a toast was up crashed the app.
+        static void Reown(Form t,Form owner){if(t.Owner==owner)return;t.Owner=null;t.Owner=owner;}
+        public static void SetVisible(bool visible){foreach(var t in active.ToArray()){if(visible){if(!t.Visible){t.Owner=null;t.Show(view.FindForm());}}else t.Hide();}Layout();}
         public static int Count{get{return active.Count;}}
     }
     public sealed class ToastWindow : Form {
-        readonly string title,detail,kind,action,restored;readonly Func<Task<bool>> onAction;public Timer Timer;bool hoverAction,busy;
+        readonly string title,detail,kind,action,restored;readonly Func<Task<bool>> onAction;public Timer Timer;public object Entry;bool hoverAction,hoverClose,busy;
         public ToastWindow(string title,string detail,string kind,string action,Func<Task<bool>> onAction,string restored){
             this.title=title;this.detail=detail??"";this.kind=kind;this.action=action;this.onAction=onAction;this.restored=restored;
             FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;DoubleBuffered=true;AutoScaleMode=AutoScaleMode.None;
@@ -391,12 +398,16 @@ namespace PetCalendarDesktop {
         float Sc{get{return DeviceDpi/96f;}}
         Font TitleFont{get{return Ui.Font(Sc,12,700,null,title);}}
         Font DetailFont{get{return Ui.Font(Sc,11,400,null,detail);}}
-        Font ActionFont{get{return Ui.Font(Sc,17,400,null,action??"×");}}
-        int ActionWidth{get{return Ui.Width(action??"×",ActionFont);}}
+        Font ActionFont{get{return action==null?Ui.Font(Sc,17,400,null,"×"):Ui.Font(Sc,12,700,null,action);}}
+        int ActionWidth{get{return Ui.Width(action??"×",ActionFont)+(action!=null?CloseWidth+(int)Math.Round(10*Sc):0);}}
+        Font CloseFont{get{return Ui.Font(Sc,17,400,null,"×");}}
+        int CloseWidth{get{return Ui.Width("×",CloseFont);}}
         public int PreferredWidth(int max){float s=Sc;int text=Math.Max(Ui.Width(title,TitleFont),detail.Split('\n').Select(l=>Ui.Width(l,DetailFont)).DefaultIfEmpty(0).Max());int w=(int)Math.Round(17*2*s+3*s+20*s+12*s*2)+text+ActionWidth;return Math.Min(Math.Min((int)Math.Round(390*s),max),w);}
         int TextWidth(int width){float s=Sc;return width-(int)Math.Round(17*2*s+3*s+20*s+12*s*2)-ActionWidth;}
         public int PreferredHeight(int width){float s=Sc;int h=(int)Math.Round(TitleFont.GetHeight()*1.15f);if(detail.Length>0)h+=(int)Math.Round(4*s)+Ui.Paragraph(null,detail,DetailFont,0,0,TextWidth(width),(11+(1+DesktopTheme.TextScale)*4f/3f)*1.7f*s,Color.Black,true);return Math.Max(h,(int)Math.Round(20*s))+(int)Math.Round(28*s+3*s);}
-        Rectangle ActionRect{get{float s=Sc;int shadow=(int)Math.Ceiling(2*s);return new Rectangle(Width-shadow-(int)Math.Round(17*s+1.5f*s)-ActionWidth,(int)Math.Round(12*s),ActionWidth,(int)Math.Round(ActionFont.GetHeight()));}}
+        Rectangle ActionRect{get{float s=Sc;int shadow=(int)Math.Ceiling(2*s);int w=Ui.Width(action??"×",ActionFont);return new Rectangle(Width-shadow-(int)Math.Round(17*s+1.5f*s)-ActionWidth,(int)Math.Round(12*s),w,(int)Math.Round(ActionFont.GetHeight()));}}
+        Rectangle CloseRect{get{if(action==null)return Rectangle.Empty;float s=Sc;int shadow=(int)Math.Ceiling(2*s);return new Rectangle(Width-shadow-(int)Math.Round(17*s+1.5f*s)-CloseWidth,(int)Math.Round(12*s),CloseWidth,(int)Math.Round(CloseFont.GetHeight()));}}
+        Rectangle Grown(Rectangle r){if(r.IsEmpty)return r;r.Inflate((int)(4*Sc),(int)(4*Sc));return r;}
         protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);BeginInvoke(new Action(Toasts.Layout));}
         protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);float s=Sc;int shadow=(int)Math.Ceiling(2*s);var p=new GraphicsPath();p.AddPath(Ui.Round(new RectangleF(0,0,Width-shadow,Height-shadow),12*s),false);p.AddPath(Ui.Round(new RectangleF(shadow,shadow,Width-shadow,Height-shadow),12*s),false);p.FillMode=FillMode.Winding;Region=new Region(p);p.Dispose();}
         protected override void OnPaint(PaintEventArgs e){
@@ -408,15 +419,16 @@ namespace PetCalendarDesktop {
             int tw=TextWidth(Width-shadow);int th=(int)Math.Round(TitleFont.GetHeight()*1.15f);Ui.Text(g,title,TitleFont,new Rectangle(x,y,tw,th),DesktopTheme.Ink,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
             if(detail.Length>0)Ui.Paragraph(g,detail,DetailFont,x,y+th+(int)Math.Round(4*s),tw,(11+(1+DesktopTheme.TextScale)*4f/3f)*1.7f*s,DesktopTheme.Ink);
             Ui.Text(g,action??"×",ActionFont,ActionRect,busy?DesktopTheme.Muted:hoverAction?Ui.C("#bf4722"):DesktopTheme.Ink,TextFormatFlags.Default);
+            if(action!=null)Ui.Text(g,"×",CloseFont,CloseRect,hoverClose?Ui.C("#bf4722"):DesktopTheme.Muted,TextFormatFlags.Default);
         }
         protected override void WndProc(ref Message m){
-            if(m.Msg==0x0084){long packed=m.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));var r=ActionRect;r.Inflate((int)(4*Sc),(int)(4*Sc));m.Result=r.Contains(p)?new IntPtr(1):new IntPtr(-1);return;}
+            if(m.Msg==0x0084){long packed=m.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));m.Result=Grown(ActionRect).Contains(p)||Grown(CloseRect).Contains(p)?new IntPtr(1):new IntPtr(-1);return;}
             base.WndProc(ref m);
         }
-        protected override void OnMouseMove(MouseEventArgs e){base.OnMouseMove(e);bool h=ActionRect.Contains(e.Location);if(h!=hoverAction){hoverAction=h;Cursor=h?Cursors.Hand:Cursors.Default;Invalidate();}}
-        protected override void OnMouseLeave(EventArgs e){base.OnMouseLeave(e);hoverAction=false;Invalidate();}
+        protected override void OnMouseMove(MouseEventArgs e){base.OnMouseMove(e);bool h=Grown(ActionRect).Contains(e.Location),c=Grown(CloseRect).Contains(e.Location);if(h!=hoverAction||c!=hoverClose){hoverAction=h;hoverClose=c;Cursor=h||c?Cursors.Hand:Cursors.Default;Invalidate();}}
+        protected override void OnMouseLeave(EventArgs e){base.OnMouseLeave(e);hoverAction=hoverClose=false;Invalidate();}
         protected override async void OnMouseClick(MouseEventArgs e){
-            base.OnMouseClick(e);var r=ActionRect;r.Inflate((int)(4*Sc),(int)(4*Sc));if(!r.Contains(e.Location)||busy)return;
+            base.OnMouseClick(e);if(Grown(CloseRect).Contains(e.Location)){if(Timer!=null)Timer.Dispose();Close();return;}if(!Grown(ActionRect).Contains(e.Location)||busy)return;
             if(onAction==null){Close();return;}
             busy=true;Invalidate();bool ok=false;try{ok=await onAction();}catch{}
             if(IsDisposed)return;busy=false;Invalidate();

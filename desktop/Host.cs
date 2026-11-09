@@ -235,15 +235,25 @@ namespace PetCalendarDesktop {
             if(message.Msg==0x0083){message.Result=IntPtr.Zero;return;}
             if(message.Msg==0x0084){
                 base.WndProc(ref message);
-                long packed=message.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));int edge=DesktopTheme.Px(this,6);
+                long packed=message.LParam.ToInt64();var p=PointToClient(new Point((short)(packed&0xffff),(short)((packed>>16)&0xffff)));
+                int code=ResizeHit(p);if(code!=0){message.Result=new IntPtr(code);return;}
                 int corner=DesktopTheme.Px(this,22);
-                if(p.Y>=0&&p.Y<Padding.Top&&p.X>=corner&&p.X<ClientSize.Width-corner){message.Result=new IntPtr(2);return;}
-                if(WindowState==FormWindowState.Maximized)return;
-                bool left=p.X<edge,right=p.X>=ClientSize.Width-edge,top=p.Y<edge,bottom=p.Y>=ClientSize.Height-edge;
-                if(left||right||top||bottom)message.Result=new IntPtr(top?(left?13:right?14:12):bottom?(left?16:right?17:15):left?10:11);
+                if(p.Y>=0&&p.Y<Padding.Top&&p.X>=corner&&p.X<ClientSize.Width-corner)message.Result=new IntPtr(2);
                 return;
             }
             base.WndProc(ref message);
+        }
+        // Sizing band along the window edge. It reaches a little past the paper margin into the
+        // calendar surface (which passes these points through), so edges are easy to grab.
+        // Corners get a longer grab zone along each side.
+        internal int ResizeHit(Point p){
+            if(WindowState!=FormWindowState.Normal)return 0;int edge=DesktopTheme.Px(this,10),corner=DesktopTheme.Px(this,22);
+            bool left=p.X<edge,right=p.X>=ClientSize.Width-edge,top=p.Y<edge,bottom=p.Y>=ClientSize.Height-edge;
+            if(!(left||right||top||bottom))return 0;
+            bool nearLeft=p.X<corner,nearRight=p.X>=ClientSize.Width-corner,nearTop=p.Y<corner,nearBottom=p.Y>=ClientSize.Height-corner;
+            if((top&&nearLeft)||(left&&nearTop))return 13;if((top&&nearRight)||(right&&nearTop))return 14;
+            if((bottom&&nearLeft)||(left&&nearBottom))return 16;if((bottom&&nearRight)||(right&&nearBottom))return 17;
+            return top?12:bottom?15:left?10:11;
         }
         protected override void OnFormClosing(FormClosingEventArgs e){if(!exiting&&e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();return;}base.OnFormClosing(e);}
         protected override void Dispose(bool disposing){if(disposing){pets.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();}base.Dispose(disposing);}

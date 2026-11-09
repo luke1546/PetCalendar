@@ -2,9 +2,9 @@
 
 일정과 할 일을 정리하고, 데스크톱 펫과 함께하는 Windows 캘린더입니다.
 
-[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v2.7.0**
+[웹뷰 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/download/v2.7.1/PetCalendar-Setup.exe) · **v2.7.1**
 
-이 문서는 `main` 브랜치 기준입니다. 설치 파일의 기능은 해당 [릴리스 안내](https://github.com/luke1546/PetCalendar/releases)와 함께 확인하세요.
+이 문서는 `webview-version` 브랜치의 WebView2 버전 기준입니다. 설치 파일의 기능은 해당 [릴리스 안내](https://github.com/luke1546/PetCalendar/releases/tag/v2.7.1)와 함께 확인하세요.
 
 ## 화면
 
@@ -29,6 +29,7 @@
 - 일정과 할 일, 반복 일정, 완료 표시, 검색 및 D-day
 - 바탕화면 위젯과 일정 알림, JSON 백업
 - 달력에서 일정 드래그 이동과 반복 일정 적용 범위 선택
+- 할 일을 달력으로 끌어 일정으로 전환하고 되돌리기
 - 2020~2050년 대한민국 공휴일 표시와 공휴일 펫 인사
 - 글씨 크기 선택: 작게 · 보통 · 크게
 - 펫별 이름과 성격, 컬러 이모지가 포함된 일상 대화와 일정 안내

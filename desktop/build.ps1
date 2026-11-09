@@ -6,7 +6,13 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $OutputDirectory 'public'),(Join-Path $OutputDirectory 'webview2') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $calendarRoot 'calendar.ico') -Destination $OutputDirectory
 foreach($calendarAsset in @('index.html','app.mjs','model.mjs','styles.css','icon.svg','holidays.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\ui\'+$calendarAsset)) -Destination (Join-Path $OutputDirectory 'public')}
-Copy-Item -LiteralPath (Join-Path $calendarRoot 'desktop\pets-assets\meowser-atlas.png') -Destination (Join-Path $OutputDirectory 'public\tour-cat.png')
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$calendarPetArchive=[IO.Compression.ZipFile]::OpenRead((Join-Path $PSScriptRoot 'pets.zip'))
+try {
+ $calendarTourAtlas=$calendarPetArchive.GetEntry('meowser-atlas.png')
+ if(-not $calendarTourAtlas){throw 'The pet resource pack is missing the quick tour cat image.'}
+ [IO.Compression.ZipFileExtensions]::ExtractToFile($calendarTourAtlas,(Join-Path $OutputDirectory 'public\tour-cat.png'),$true)
+}finally{$calendarPetArchive.Dispose()}
 foreach($calendarLibrary in @('Microsoft.Web.WebView2.Core.dll','Microsoft.Web.WebView2.WinForms.dll','WebView2Loader.dll','LICENSE.txt','source.json')){Copy-Item -LiteralPath (Join-Path $calendarRoot ('desktop\webview2\'+$calendarLibrary)) -Destination (Join-Path $OutputDirectory 'webview2')}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PetCalendar.exe.config') -Destination $OutputDirectory
 $calendarCompiler=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'

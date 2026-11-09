@@ -267,53 +267,11 @@ namespace PetCalendarDesktop {
         protected override void OnControlAdded(ControlEventArgs e){base.OnControlAdded(e);Hook(e.Control);}
         void Hook(Control c){c.MouseWheel+=delegate(object sender,MouseEventArgs e){var h=e as HandledMouseEventArgs;if(sender is SelectField||(h!=null&&h.Handled))return;if(Scroll.Wheel(e.Delta,Sc))Moved();if(h!=null)h.Handled=true;};foreach(Control child in c.Controls)Hook(child);}
     }
-    // ::backdrop over the calendar area while a dialog is open:
-    // background:#29241e75; backdrop-filter:blur(3px). With a source view the
-    // calendar is snapshotted, blurred and tinted; without one (stacked dialogs)
-    // it falls back to a plain translucent tint.
+    // Dim layer over the calendar while a dialog is open (a translucent layered window,
+    // so opening a dialog costs nothing extra).
     public sealed class Backdrop : Form {
-        readonly Control source;Bitmap image;
-        public Backdrop(Control blurSource=null){
-            source=blurSource;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;BackColor=Ui.C("#29241e");
-            SetStyle(ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.UserPaint,true);
-            if(source==null||!Recapture())Opacity=0.46;
-        }
-        // Moving the window only moves the snapshot; a new size needs a new one.
-        public void Place(Rectangle r){bool resized=Size!=r.Size;Bounds=r;if(resized&&image!=null)Recapture();}
-        public bool Recapture(){
-            if(source==null||source.IsDisposed||source.Width<=0||source.Height<=0)return false;
-            try{
-                var shot=new Bitmap(source.Width,source.Height,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-                source.DrawToBitmap(shot,new Rectangle(0,0,shot.Width,shot.Height));
-                Blur(shot,(int)Math.Round(3*source.DeviceDpi/96f));
-                using(var g=Graphics.FromImage(shot))using(var tint=new SolidBrush(Color.FromArgb(0x75,0x29,0x24,0x1e)))g.FillRectangle(tint,0,0,shot.Width,shot.Height);
-                if(image!=null)image.Dispose();image=shot;Invalidate();return true;
-            }catch{return false;}
-        }
-        // Three box-blur passes per axis approximate a Gaussian with sigma ~= radius.
-        static void Blur(Bitmap bmp,int sigma){
-            if(sigma<1)return;int w=bmp.Width,h=bmp.Height;
-            var data=bmp.LockBits(new Rectangle(0,0,w,h),System.Drawing.Imaging.ImageLockMode.ReadWrite,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-            var px=new int[w*h];Marshal.Copy(data.Scan0,px,0,px.Length);
-            int r=Math.Max(1,(int)Math.Round(Math.Sqrt(4.0*sigma*sigma+1)/2-0.5));var tmp=new int[px.Length];
-            for(int pass=0;pass<3;pass++){BoxPass(px,tmp,w,h,r,true);BoxPass(tmp,px,w,h,r,false);}
-            Marshal.Copy(px,0,data.Scan0,px.Length);bmp.UnlockBits(data);
-        }
-        static void BoxPass(int[] src,int[] dst,int w,int h,int r,bool horizontal){
-            int lines=horizontal?h:w,len=horizontal?w:h,step=horizontal?1:w,div=2*r+1;
-            for(int l=0;l<lines;l++){
-                int start=horizontal?l*w:l;int sr=0,sg=0,sb=0;
-                for(int i=-r;i<=r;i++){int c=src[start+Math.Min(len-1,Math.Max(0,i))*step];sr+=(c>>16)&255;sg+=(c>>8)&255;sb+=c&255;}
-                for(int i=0;i<len;i++){
-                    dst[start+i*step]=unchecked((int)0xff000000)|((sr/div)<<16)|((sg/div)<<8)|(sb/div);
-                    int a=src[start+Math.Max(0,i-r)*step],b=src[start+Math.Min(len-1,i+r+1)*step];
-                    sr+=((b>>16)&255)-((a>>16)&255);sg+=((b>>8)&255)-((a>>8)&255);sb+=(b&255)-(a&255);
-                }
-            }
-        }
-        protected override void OnPaintBackground(PaintEventArgs e){if(image==null)base.OnPaintBackground(e);}
-        protected override void OnPaint(PaintEventArgs e){if(image!=null)e.Graphics.DrawImageUnscaled(image,0,0);}
-        protected override void Dispose(bool disposing){if(disposing&&image!=null){image.Dispose();image=null;}base.Dispose(disposing);}
+        public Backdrop(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;StartPosition=FormStartPosition.Manual;BackColor=Ui.C("#29241e");Opacity=0.42;}
+        public void Place(Rectangle r){Bounds=r;}
         // Form.Show(owner) refuses disabled forms, so disable once shown.
         protected override void OnShown(EventArgs e){base.OnShown(e);Enabled=false;}
         protected override bool ShowWithoutActivation{get{return true;}}
@@ -361,7 +319,7 @@ namespace PetCalendarDesktop {
         protected override void OnPaintBackground(PaintEventArgs e){
             var g=e.Graphics;float s=Sc;int shadow=(int)Math.Ceiling(3*s);Ui.Prepare(g);g.Clear(Ui.C("#b9a98e"));
             var box=new RectangleF(0,0,Width-shadow,Height-shadow);
-            using(var under=new SolidBrush(View==null?DesktopTheme.Paper:Ui.Mix(DesktopTheme.Paper,Ui.C("#29241e"),.46f)))g.FillRectangle(under,0,0,Width,Height);
+            using(var under=new SolidBrush(View==null?DesktopTheme.Paper:Ui.Mix(DesktopTheme.Paper,Ui.C("#29241e"),.42f)))g.FillRectangle(under,0,0,Width,Height);
             Ui.Fill(g,new RectangleF(shadow,shadow,box.Width,box.Height),18*s,Ui.C("#b9a98e"));
             Ui.Box(g,box,18*s,DesktopTheme.Card,DesktopTheme.Frame,s);
             int header=HeaderHeight,x=(int)Math.Round(25*s);
@@ -377,7 +335,7 @@ namespace PetCalendarDesktop {
         public virtual void StateChanged(){}
         public virtual void SavingChanged(){}
         public void Show(Control focus){
-            Open.Add(this);var owner=View.FindForm();backdrop=new Backdrop(Open.Count==1?View:null);backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);
+            Open.Add(this);var owner=View.FindForm();backdrop=new Backdrop();backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);
             Relayout();base.Show(backdrop);View.SetModal(true);Activate();if(focus!=null)focus.Focus();else if(CloseButton!=null)Body.Focus();
             Toasts.Raise();
         }

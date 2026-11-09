@@ -80,22 +80,37 @@ namespace PetCalendarDesktop {
         static string ErrorOf(object body){try{var o=Codec.Object(Codec.Json(body));object e;return o!=null&&o.TryGetValue("error",out e)?e as string:null;}catch{return null;}}
         internal void SetSaveStatus(string text,bool failed){saveStatus=text;saveFailed=failed;Invalidate(Page(footer));}
         void Banner(string message){bannerText=message;bannerVisible=true;Relayout();}
+        // Saves are optimistic: the change is shown at once and written in the background.
+        // Saves run one after another; each re-applies its change to the latest saved state,
+        // so quick successive clicks are never dropped. A failure restores the saved state.
+        Task saveChain=Task.FromResult(true);int pendingSaves;bool saveFailedInBatch;
         internal async Task<bool> Commit(Action<CalendarState> change,bool applyHotkey=false){
-            if(saving)return false;
-            var next=Clone(state);
-            try{change(next);Rules.Validate(Codec.Json(next));}catch(Exception error){Toast("내용을 확인해 주세요",error.Message,"error");return false;}
-            saving=true;SetSaveStatus("저장 중…",false);foreach(var d in DialogForm.Open.ToArray())d.SavingChanged();
+            var preview=Clone(state);
+            try{change(preview);Rules.Validate(Codec.Json(preview));}catch(Exception error){Toast("내용을 확인해 주세요",error.Message,"error");return false;}
+            pendingSaves++;saving=true;state=preview;Render();
+            if(pendingSaves==1){saveFailedInBatch=false;foreach(var d in DialogForm.Open.ToArray())d.SavingChanged();}
+            var previous=saveChain;var mine=new TaskCompletionSource<bool>();saveChain=mine.Task;
+            await previous;
+            bool ok=false;
             try{
+                var next=Clone(store.Snapshot);change(next);
                 var response=await CallApi("PUT","/api/state",Codec.Json(next),applyHotkey);
-                if(response.status==409){state=store.Snapshot;Render();throw new Exception("다른 창의 변경 내용을 불러왔습니다. 입력 중인 내용을 확인한 뒤 다시 저장해 주세요.");}
+                if(response.status==409)throw new Exception("다른 창의 변경 내용을 불러왔습니다. 입력 중인 내용을 확인한 뒤 다시 저장해 주세요.");
                 if(response.status!=200)throw new Exception(ErrorOf(response.body)??"저장하지 못했습니다.");
-                state=(CalendarState)response.body;bannerVisible=false;Render();
-                DateTime at;DateTime.TryParse(state.updatedAt,CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal,out at);
-                SetSaveStatus("이 PC에 저장됨 · "+at.ToLocalTime().ToString("HH:mm",CultureInfo.InvariantCulture),false);
-                return true;
+                ok=true;
             }catch(Exception error){
-                Banner(error.Message);SetSaveStatus("저장하지 못함 · 입력 내용을 확인해 주세요",true);Toast("저장을 완료하지 못했어요",error.Message,"error",10000);return false;
-            }finally{saving=false;foreach(var d in DialogForm.Open.ToArray())d.SavingChanged();Invalidate();}
+                saveFailedInBatch=true;Banner(error.Message);SetSaveStatus("저장하지 못함 · 입력 내용을 확인해 주세요",true);Toast("저장을 완료하지 못했어요",error.Message,"error",10000);
+            }finally{
+                if(--pendingSaves==0){
+                    saving=false;var saved=store.Snapshot;
+                    // The optimistic view already matches unless something failed.
+                    if(saveFailedInBatch){state=saved;Render();}else{state=saved;bannerVisible=false;}
+                    if(!saveFailedInBatch){DateTime at;DateTime.TryParse(state.updatedAt,CultureInfo.InvariantCulture,DateTimeStyles.AdjustToUniversal|DateTimeStyles.AssumeUniversal,out at);SetSaveStatus("이 PC에 저장됨 · "+at.ToLocalTime().ToString("HH:mm",CultureInfo.InvariantCulture),false);}
+                    foreach(var d in DialogForm.Open.ToArray()){d.SavingChanged();d.StateChanged();}
+                }
+                mine.SetResult(ok);
+            }
+            return ok;
         }
         internal string LastError{get{return bannerText??"";}}
         void Reload(){if(saving)return;state=store.Snapshot;bannerVisible=false;Render();SetSaveStatus("최신 내용을 불러왔어요",false);Toast("최신 내용을 불러왔어요","입력 중인 내용은 확인 후 다시 저장해 주세요.");}
@@ -113,7 +128,7 @@ namespace PetCalendarDesktop {
         internal Task<string> RepeatScope(string action,string date){var source=new TaskCompletionSource<string>();var dialog=new RepeatScopeDialog(this,FormatDay(date)+" 일정을 "+action+"합니다. 적용할 범위를 선택해 주세요.",source);dialog.Show(dialog.One);return source.Task;}
         // ---------- Schedules ----------
         async void ToggleEvent(string id,string key){
-            if(saving)return;var e=state.events.FirstOrDefault(x=>x.id==id);if(e==null)return;bool done=!Rules.Done(e,key);
+            var e=state.events.FirstOrDefault(x=>x.id==id);if(e==null)return;bool done=!Rules.Done(e,key);
             if(!await Commit(s=>{var item=s.events.FirstOrDefault(x=>x.id==id);if(item==null)return;item.completedDates=item.completedDates.Where(d=>d!=key).Concat(done?new[]{key}:new string[0]).ToArray();}))Render();
         }
         internal void OpenEvent(string id,string key,bool duplicate){

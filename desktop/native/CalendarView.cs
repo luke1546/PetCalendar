@@ -12,7 +12,7 @@ namespace PetCalendarDesktop {
     // (min-width:1001px) and (min-height:620px) layout that keeps the whole
     // calendar in view; outside it the page scrolls like the web version.
     sealed class Metrics {
-        public bool Fit,Short,Narrow,Wide,Single;
+        public bool Fit,Short,Narrow,Wide,Single,Tight;
         public float ShellT,ShellX,ShellB,MastPadB,MastMarB,Brand,H1;
         public float CardGap,CardMarB,CardMinH,CardPadY,CardPadX,Stat,Deadline,H3,CardInner,StatIconGap;public bool CardIcons,DeadlineIcon;
         public float WsGap,SideW;
@@ -25,16 +25,18 @@ namespace PetCalendarDesktop {
         public float EmptyT,EmptyB,EmptyDraw,EmptyIcon,EmptyDrawMB;
         public float NotifY,NotifX,FootT,FootMinH,BannerMB,DayMax,TaskMax;
         public Metrics(float w,float h){
-            Fit=w>=1001&&h>=620;Short=Fit&&h<=760;Narrow=w<=1250;Wide=w>=1600;Single=w<=1000;
-            if(Fit){ShellT=Short?12:18;ShellX=28;ShellB=Short?8:10;MastPadB=Short?8:13;MastMarB=Short?11:16;Brand=Short?34:40;H1=Short?22:24;
-                CardGap=17;CardMarB=Short?12:18;CardMinH=Short?64:78;CardPadY=Short?10:14;CardPadX=Short?16:20;Stat=Short?28:34;}
+            // The window always fits on one screen (no page scrolling); narrower windows
+            // slim the sidebar and gutters instead of stacking panels.
+            Fit=true;Tight=w<1000;Short=h<=760;Narrow=w<=1250;Wide=w>=1600;Single=false;
+            if(Fit){ShellT=Short?12:18;ShellX=Tight?16:28;ShellB=Short?8:10;MastPadB=Short?8:13;MastMarB=Short?11:16;Brand=Short?34:40;H1=Short?22:24;
+                CardGap=Tight?12:17;CardMarB=Short?12:18;CardMinH=Short?60:78;CardPadY=Short?10:14;CardPadX=Short?16:20;Stat=Short?28:34;}
             else{ShellT=Narrow?24:(Wide?35:28);ShellX=Narrow?24:38;ShellB=Narrow?24:18;MastPadB=22;MastMarB=22;Brand=46;H1=26;
                 CardGap=Single?15:19;CardMarB=27;CardMinH=104;CardPadY=Single?18:(Narrow?19:21);CardPadX=Single?16:(Narrow?19:24);Stat=Single?34:(Narrow?36:40);}
-            Deadline=Narrow?22:25;H3=Single?12:(Narrow?13:14);CardInner=Narrow?8:16;StatIconGap=Narrow?5:14;CardIcons=!Single;DeadlineIcon=!Narrow;
-            WsGap=Fit?20:(Narrow?18:22);SideW=Wide?330:(Narrow?280:310);
+            Deadline=Narrow?22:25;H3=Single?12:(Narrow?13:14);CardInner=Narrow?8:16;StatIconGap=Narrow?5:14;CardIcons=!Tight;DeadlineIcon=!Narrow;
+            WsGap=Fit?(Tight?14:20):(Narrow?18:22);SideW=Wide?330:(Tight?250:(Narrow?280:310));
             if(Fit){TbT=Short?10:15;TbX=Short?14:18;TbB=Short?8:12;FtX=Short?14:18;FtB=Short?8:12;WkY=Short?7:9;WkX=12;}
             else{TbT=Narrow?19:22;TbX=Narrow?15:22;TbB=Narrow?15:17;FtX=Narrow?15:22;FtB=Narrow?15:18;WkY=Narrow?11:12;WkX=Narrow?10:13;}
-            MonthH2=Narrow?23:26;English=!Narrow;MonthGap=Narrow?8:12;AddMargin=Narrow?4:9;AddPadX=Narrow?10:14;AddKbd=!Narrow;ChipPadX=Narrow?6:8;SearchW=Narrow?158:195;
+            MonthH2=Narrow?23:26;English=!Narrow;MonthGap=Narrow?8:12;AddMargin=Narrow?4:9;AddPadX=Narrow?10:14;AddKbd=!Narrow;ChipPadX=Narrow?6:8;SearchW=Tight?128:(Narrow?158:195);
             if(Fit){CellT=Short?3:6;CellB=Short?3:6;CellX=Short?4:5;DayTopH=Short?20:23;DayTopMB=Short?2:3;DayNum=Short?20:23;DayNumCss=Short?11:12;ChipFont=10;ChipLH=1.2f;MorePadT=3;}
             else{CellT=Narrow?7:9;CellB=Narrow?7:8;CellX=Narrow?4:6;DayTopH=24;DayTopMB=6;DayNum=23;DayNumCss=12;ChipFont=Narrow?9:10;ChipLH=1.25f;MorePadT=4;}
             GridMinRow=Wide?112:(Narrow&&!Single?100:105);
@@ -116,8 +118,9 @@ namespace PetCalendarDesktop {
             string day=Rules.Key(DateTime.Today);if(day!=dayAtRender){dayAtRender=day;Render();}
         }
         // ---------- Layout ----------
+        bool paintAll=true;int paintedOffset=-1;List<KeyValuePair<string,List<Hit>>> sectionHits=new List<KeyValuePair<string,List<Hit>>>();
         void Relayout(){
-            if(!IsHandleCreated||Width<=0||Height<=0)return;
+            if(!IsHandleCreated||Width<=0||Height<=0)return;paintAll=true;
             s=DeviceDpi/96f;m=new Metrics(Width/s,Height/s);
             int x0=0,width=Width;if(!m.Fit){pageScroll.Bounds=ClientRectangle;}
             int shellW=Math.Min(width,P(1540));int sx=(width-shellW)/2;
@@ -238,14 +241,26 @@ namespace PetCalendarDesktop {
         bool Pressed(string id){return pressId==id&&hoverId==id;}
         void FocusRing(Graphics g,string id,RectangleF r,float radius){if(focusId!=id||!Focused||!ShowFocusCues)return;var ring=r;ring.Inflate(4.5f*s,4.5f*s);using(var pen=new Pen(DesktopTheme.Orange,3*s))using(var p=Ui.Round(ring,radius+4*s))g.DrawPath(pen,p);}
         protected override void OnPaint(PaintEventArgs e){
-            if(m==null)Relayout();if(m==null)return;
-            var g=e.Graphics;g.Clear(DesktopTheme.Paper);Ui.Prepare(g);g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
-            building=new List<Hit>();clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);
+            if(m==null)Relayout();if(m==null)return;PaintAll(e.Graphics,e.ClipRectangle);}
+        // Only sections touching the dirty region are drawn (the OS clips the rest); the
+        // others keep the hit targets from their last paint. Layout/scroll changes repaint all.
+        void PaintAll(Graphics g,Rectangle dirty){
+            g.Clear(DesktopTheme.Paper);Ui.Prepare(g);g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
             Summary();
-            PaintMasthead(g);PaintSummary(g);if(bannerVisible)PaintBanner(g);PaintCalendarPanel(g);PaintDayPanel(g);PaintTaskPanel(g);PaintNotification(g);PaintFooter(g);
-            if(drag!=null)PaintDragGhost(g);
+            bool full=paintAll||drag!=null||pageScroll.Offset!=paintedOffset||dirty.Contains(ClientRectangle);
+            paintAll=false;paintedOffset=pageScroll.Offset;var previous=sectionHits;sectionHits=new List<KeyValuePair<string,List<Hit>>>();
+            Action<string,Rectangle,Action<Graphics>> section=(name,area,paint)=>{
+                var r=Page(area);r.Inflate(P(12),P(12));
+                if(!full&&!r.IntersectsWith(dirty)){foreach(var pair in previous)if(pair.Key==name){sectionHits.Add(pair);return;}}
+                clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);building=new List<Hit>();paint(g);sectionHits.Add(new KeyValuePair<string,List<Hit>>(name,building));
+            };
+            section("masthead",masthead,PaintMasthead);section("summary",summary,PaintSummary);
+            if(bannerVisible)section("banner",banner,PaintBanner);
+            section("calendar",calendarPanel,PaintCalendarPanel);section("day",dayPanel,PaintDayPanel);section("task",taskPanel,PaintTaskPanel);
+            section("notif",notifCard,PaintNotification);section("footer",footer,PaintFooter);
+            clip=ClientRectangle;ty=-pageScroll.Offset;frames.Clear();Apply(g);building=new List<Hit>();if(drag!=null)PaintDragGhost(g);
             g.ResetTransform();g.ResetClip();if(!m.Fit)Ui.ScrollBar(g,pageScroll,s);
-            hits=building;
+            var all=new List<Hit>();foreach(var pair in sectionHits)all.AddRange(pair.Value);all.AddRange(building);hits=all;
         }
         void PaintMasthead(Graphics g){
             var r=masthead;int contentH=r.Height-P(m.MastPadB)-P(2);int cy=r.Y+contentH/2;

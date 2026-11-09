@@ -24,6 +24,8 @@ namespace DesktopPet {
         public bool Paused, Sleeping, Held;
         // Optional walking goal on the floor (the pet bed): walk there, then sleep or idle.
         public double? GoalX; public bool GoalSleep;
+        // Separate from bed/meeting goals: only the selected toy pet uses this.
+        public double? ToyTargetX;
         readonly Random random;
         double actionLeft=2, jumpVx, jumpVy, jumpDelay, cooldown;
         int desiredDirection=1;
@@ -48,7 +50,7 @@ namespace DesktopPet {
         public void Wake() { Sleeping=false; actionLeft=2; if(Support!=null)SetPose(Pose.Pet); }
         public void Nap(){if(!Held&&Support!=null){Vx=Vy=0;SetPose(Pose.Sleep);actionLeft=10;}}
         public void Sleep() { Sleeping=true; if(Support!=null) { Vx=Vy=0; SetPose(Pose.Sleep); } }
-        public void Grab() { GoalX=null; Held=true; Sleeping=false; Support=null; Vx=Vy=0; jumpDelay=0; SetPose(Pose.Held); }
+        public void Grab() { GoalX=null;ToyTargetX=null; Held=true; Sleeping=false; Support=null; Vx=Vy=0; jumpDelay=0; SetPose(Pose.Held); }
         public void Release(double vx,double vy) { Held=false;if(Math.Abs(vx)>1)Direction=vx<0?-1:1;desiredDirection=Direction; Vx=Clamp(vx,-420*Unit,420*Unit); Vy=Clamp(vy,-480*Unit,480*Unit); SetPose(Pose.Fall); }
         public static double Clamp(double v,double min,double max) { return Math.Max(min,Math.Min(max,v)); }
         public static bool Trajectory(double x,double y,double tx,double ty,double unit,out double vx,out double vy) {
@@ -92,6 +94,25 @@ namespace DesktopPet {
             return true;
         }
         bool HasHeadroom(double x,double y) { return Screens.Any(r=>x>=r.Left && x<r.Right && y-Size*.9>=r.Top); }
+        public bool JumpToward(double x,double y){
+            if(Held||Paused||Support==null||jumpDelay>0||!Profile.CanJump)return false;
+            double vx,vy;if(!TryTrajectory(x,y,out vx,out vy)||!HasHeadroom(x,y)||!HasArcHeadroom(vx,vy))return false;
+            Sleeping=false;PrepareJump(vx,vy);return true;
+        }
+        public void StopToy(){
+            ToyTargetX=null;if(Held||Support==null)return;
+            Vx=0;jumpDelay=0;if(!Sleeping){SetPose(Pose.Idle);actionLeft=.8;}
+        }
+        void FollowToy(double dt,double goal){
+            var surface=Surfaces.FirstOrDefault(s=>s.Id==Support);if(surface==null){ToyTargetX=null;return;}
+            double dx=goal-X;if(Math.Abs(dx)>10*Unit)Direction=desiredDirection=dx<0?-1:1;
+            double pad=surface.Floor?0:Math.Min(Size*.22,(surface.Right-surface.Left)/3);
+            double step=Math.Sign(dx)*Math.Min(120*Unit*dt,Math.Max(0,Math.Abs(dx)-10*Unit));
+            double next=Clamp(X+step,surface.Left+pad,surface.Right-pad);
+            if(!InsideScreen(next,Y))next=X;
+            double moved=next-X;X=next;Distance+=Math.Abs(moved);Vx=dt>0?moved/dt:0;
+            SetPose(Math.Abs(moved)>0?Pose.Walk:Pose.Idle);actionLeft=.8;
+        }
         void PrepareJump(double vx,double vy) { if(Math.Abs(vx)>1)Direction=vx<0?-1:1; desiredDirection=Direction; jumpVx=vx; jumpVy=vy; jumpDelay=.22/Profile.Tempo; Vx=0; SetPose(Pose.Crouch); }
         public void Step(double dt,bool autonomous) {
             if(Paused)return;
@@ -106,6 +127,7 @@ namespace DesktopPet {
             if(State==Pose.Land) { Vx*=Math.Exp(-16*dt); if(Age<.26/Profile.Tempo)return; SetPose(Sleeping?Pose.Sleep:Pose.Idle); actionLeft=.8; }
             if(Sleeping) { Vx=0; SetPose(Pose.Sleep);return; }
             if(!autonomous) { Vx=0;return; }
+            if(ToyTargetX.HasValue){FollowToy(dt,ToyTargetX.Value);return;}
             if(GoalX.HasValue) {
                 var here=Surfaces.FirstOrDefault(s=>s.Id==Support);double goal=GoalX.Value;
                 bool reachable=here!=null&&here.Floor&&Surfaces.Any(s=>s.Floor&&goal>=s.Left&&goal<=s.Right&&Math.Abs(s.Y-Y)<2);

@@ -32,15 +32,15 @@ namespace PetCalendarDesktop {
         readonly HashSet<PetHost> sleepers=new HashSet<PetHost>(),excused=new HashSet<PetHost>();
         Meeting meeting;DateTime nextMeet,nextSteer;string steered;string today;bool bedTime;BedWindow bed;
         internal bool BedEnabled=true,ToyEnabled=true;internal double BedFraction=.82;
-        ToyWindow toy;bool toyMode;Point lastCursor;DateTime lastMove;
+        ToyWindow toy;bool toyMode,trackingToy;PetHost toyPet;DateTime nextToyJump;
         internal Action<double> BedMoved;internal Action BedHidden;
         // Test switch: PETCAL_BEDTIME=1 makes it bedtime now.
         static readonly bool ForceBed=Environment.GetEnvironmentVariable("PETCAL_BEDTIME")=="1";
         [StructLayout(LayoutKind.Sequential)] struct LastInput {public uint Size,Time;}
         [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
         internal PetLife(Func<PetHost[]> hosts,Action<Exception> error){pets=hosts;log=error;timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);}};}
-        internal void Start(){timer.Start();}
-        internal void Stop(){timer.Stop();foreach(var n in notes)n.Bubble.Dispose();notes.Clear();EndToy();if(toy!=null){toy.Dispose();toy=null;}EndMeeting();WakeSleepers();RemoveBed();}
+        internal void Start(){string key=Rules.Key(DateTime.Now);if(today!=key){today=key;days.Clear();}if(!trackingToy){SimulationLoop.FrameAdvanced+=TrackToy;trackingToy=true;}timer.Start();}
+        internal void Stop(){timer.Stop();if(trackingToy){SimulationLoop.FrameAdvanced-=TrackToy;trackingToy=false;}foreach(var n in notes)n.Bubble.Dispose();notes.Clear();EndToy();if(toy!=null){toy.Dispose();toy=null;}EndMeeting();WakeSleepers();RemoveBed();}
         internal void ConfigureToy(bool enabled){ToyEnabled=enabled;if(!enabled)EndToy();}
         internal void ConfigureBed(bool enabled,double fraction){BedEnabled=enabled;BedFraction=Math.Max(.05,Math.Min(.95,fraction));if(!enabled){WakeSleepers();RemoveBed();}}
         public void Dispose(){Stop();timer.Dispose();}
@@ -51,42 +51,60 @@ namespace PetCalendarDesktop {
             string key=Rules.Key(DateTime.Now);if(key!=today){today=key;days.Clear();}
             foreach(var pet in all){Day d;if(!days.TryGetValue(pet,out d)){d=new Day();days[pet]=d;}if(d.StartDistance<0)d.StartDistance=pet.Cat.Distance;}
             foreach(var gone in days.Keys.Where(p=>p.IsDisposed||!all.Contains(p)).ToArray())days.Remove(gone);
-            BedTick(all);ToyTick(all);if(!toyMode)MeetTick(all);NotesTick();
-            timer.Interval=toyMode?40:(notes.Count>0||meeting!=null?100:400);
+            BedTick(all);if(!toyMode)MeetTick(all);NotesTick();
+            timer.Interval=notes.Count>0||meeting!=null?100:400;
         }
 
         // ---------- Toy ----------
-        // Near a pet the cursor gets a yarn ball, and pets on the floor chase it.
+        // Same selection policy as token-usage-main/public/meowser.js:
+        // acquire the nearest pet within 50 CSS pixels of its sprite bounds,
+        // retain only that pet up to 110 pixels, and release on the next frame.
         // (The real cursor is left alone: changing the system cursor could stick after a crash.)
-        void ToyTick(PetHost[] all){
-            if(!ToyEnabled||bedTime||all.Length==0){EndToy();return;}
-            var c=Cursor.Position;var now=DateTime.UtcNow;
-            if(c!=lastCursor){lastCursor=c;lastMove=now;}
-            Func<PetHost,bool> free=p=>!p.IsDisposed&&p.Visible&&!p.Cat.Held&&!p.Cat.Paused&&!p.SpeechHold&&p.Cat.Support!=null&&!sleepers.Contains(p);
-            if(!toyMode){
-                bool near=all.Any(p=>free(p)&&Math.Abs(p.Cat.X-c.X)<p.Cat.Size*1.1&&c.Y>p.Cat.Y-p.Cat.Size*2&&c.Y<p.Cat.Y+p.Cat.Size*.4);
-                if(!near||(now-lastMove).TotalSeconds>1)return;
-                toyMode=true;EndMeeting();if(toy==null)toy=new ToyWindow();
-                var first=all.Where(free).OrderBy(p=>Math.Abs(p.Cat.X-c.X)).FirstOrDefault();
-                if(first!=null)Speak(first,PetLines.Say(first.Kind.Id,LevelOf(first),"toy"),4);
-                foreach(var p in all.Where(free).Where(p=>Math.Abs(p.Cat.X-c.X)<900)){var d=DayOf(p);if(d.Toys<3){d.Toys++;if(Award!=null)Award(p,2);}}
+        internal static double ToyDistance(Motion cat,Point cursor){
+            double x=Motion.Clamp(cursor.X,cat.X-cat.Size/2,cat.X+cat.Size/2);
+            double y=Motion.Clamp(cursor.Y,cat.Y-cat.Size*.875,cat.Y+cat.Size*.125);
+            double dx=cursor.X-x,dy=cursor.Y-y;return Math.Sqrt(dx*dx+dy*dy);
+        }
+        void TrackToy(){try{UpdateToy(pets(),Cursor.Position,DateTime.UtcNow,Control.MouseButtons!=MouseButtons.None);}catch(Exception error){EndToy();log(error);}}
+        internal void UpdateToy(PetHost[] all,Point cursor,DateTime now,bool mouseDown){
+            if(!ToyEnabled||bedTime||all.Length==0||mouseDown||SimulationLoop.Suspended){EndToy();return;}
+            double dpi=World.Get(false).DpiAt(cursor);
+            Func<PetHost,bool> free=p=>!p.IsDisposed&&p.ReadyForSpeech&&!p.Cat.Paused&&!p.SpeechHold&&!p.Cat.GoalSleep&&!sleepers.Contains(p);
+            PetHost next=toyPet;
+            if(next==null||!all.Contains(next)||!free(next)||ToyDistance(next.Cat,cursor)>110*dpi){
+                next=null;double distance=50*dpi;
+                foreach(var pet in all){if(!free(pet))continue;double d=ToyDistance(pet.Cat,cursor);if(d<=distance){next=pet;distance=d;}}
             }
-            if((now-lastMove).TotalSeconds>6||all.All(p=>Math.Abs(p.Cat.X-c.X)>900)){EndToy();return;}
-            toy.ShowAt(c,World.Get(false).DpiAt(c));
-            int slot=0;
-            foreach(var pet in all.OrderBy(p=>Math.Abs(p.Cat.X-c.X))){
-                if(!free(pet)||Math.Abs(pet.Cat.X-c.X)>900)continue;
-                if(pet.Cat.Sleeping)pet.Cat.Wake();
-                double target=c.X+(slot==0?0:((slot%2==1)?-1:1)*pet.Cat.Size*.55*((slot+1)/2));slot++;
-                if(!pet.Cat.GoalX.HasValue||Math.Abs(pet.Cat.GoalX.Value-target)>12*pet.Cat.Unit){pet.Cat.GoalX=target;pet.Cat.GoalSleep=false;}
-                // Close under a toy held up high: sometimes leap for it.
-                double dx=Math.Abs(pet.Cat.X-c.X),above=pet.Cat.Y-pet.Cat.Size*.9-c.Y;
-                if(pet.Kind.CanJump&&dx<pet.Cat.Size*.5&&above>10&&above<pet.Cat.Size*1.6&&pet.Cat.State!=Pose.Crouch&&random.NextDouble()<.03){pet.Cat.GoalX=null;pet.Cat.Jump();}
+            if(next!=toyPet){
+                EndToy();if(next==null)return;
+                EndMeeting();toyPet=next;toyMode=true;nextToyJump=DateTime.MinValue;if(toy==null)toy=new ToyWindow();
+                Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
+                var day=DayOf(next);if(day.Toys<3){day.Toys++;if(Award!=null)Award(next,2);}
             }
+            if(toyPet==null)return;
+            if(toyPet.Cat.Sleeping)toyPet.Cat.Wake();
+            toy.ShowAt(cursor,dpi);toyPet.Cat.ToyTargetX=cursor.X;
+            ToyJump(toyPet,cursor,now,dpi);
+        }
+        void ToyJump(PetHost pet,Point cursor,DateTime now,double dpi){
+            var cat=pet.Cat;if(!pet.Kind.CanJump||cat.Support==null||cat.State==Pose.Crouch||now<nextToyJump)return;
+            var here=cat.Surfaces.FirstOrDefault(s=>s.Id==cat.Support);if(here==null)return;
+            double dx=cursor.X-cat.X,dy=cursor.Y-(cat.Y-cat.Size*.375);
+            double pad=here.Floor?0:Math.Min(cat.Size*.22,(here.Right-here.Left)/3);
+            bool edge=dx<0?cat.X<=here.Left+pad+12*dpi:cat.X>=here.Right-pad-12*dpi;
+            if(Math.Abs(dy)<=35*dpi&&!edge)return;
+            double current=Math.Sqrt(dx*dx+dy*dy);
+            var targets=cat.Surfaces.Where(s=>s.Id!=cat.Support).Select(s=>{
+                double p=s.Floor?0:Math.Min(cat.Size*.22,(s.Right-s.Left)/3);
+                double x=Motion.Clamp(cursor.X,s.Left+p,s.Right-p),y=s.Y-cat.Size*.375-cursor.Y;
+                return new{X=x,Y=s.Y,Distance=Math.Sqrt((x-cursor.X)*(x-cursor.X)+y*y)};
+            }).Where(t=>t.Distance<current-16*dpi).OrderBy(t=>t.Distance);
+            foreach(var target in targets)if(cat.JumpToward(target.X,target.Y)){nextToyJump=now.AddMilliseconds(1400);return;}
+            if(dy<-35*dpi&&cat.JumpToward(Motion.Clamp(cursor.X,here.Left+pad,here.Right-pad),cat.Y))nextToyJump=now.AddMilliseconds(1400);
         }
         void EndToy(){
-            if(!toyMode)return;toyMode=false;if(toy!=null)toy.HideToy();
-            foreach(var pet in pets())if(!pet.IsDisposed&&pet.Cat.GoalX.HasValue&&!pet.Cat.GoalSleep)pet.Cat.GoalX=null;
+            toyMode=false;if(toy!=null)toy.HideToy();
+            if(toyPet!=null&&!toyPet.IsDisposed)toyPet.Cat.StopToy();toyPet=null;
         }
         // Today's numbers for the diary.
         internal void Stats(PetHost pet,out int steps,out int meets,out bool slept,out int levelUp){

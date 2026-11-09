@@ -78,7 +78,7 @@ namespace PetCalendarDesktop {
             if(next!=toyPet){
                 EndToy();if(next==null)return;
                 EndMeeting();toyPet=next;toyPet.FormClosed+=ToyPetClosed;toyMode=true;nextToyJump=DateTime.MinValue;if(toy==null)toy=new ToyWindow();
-                Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
+                if(random.Next(10)==0)Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
                 var day=DayOf(next);if(day.Toys<3){day.Toys++;if(Award!=null)Award(next,2);}
             }
             if(toyPet==null)return;

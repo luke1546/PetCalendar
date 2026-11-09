@@ -15,8 +15,10 @@ $calendarArgs=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepa
 # Native calendar window (replaces desktop/ui + WebView2).
 foreach($nativeFile in @('PerfProbe.cs','NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','Dialogs.cs','Settings.cs')){$calendarArgs+=(Join-Path $PSScriptRoot ('native\'+$nativeFile))}
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'emoji.zip')+',petcalendar.emoji.zip')
+$calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'fonts.zip')+',petcalendar.fonts.zip')
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'ui\holidays.json')+',petcalendar.holidays.json')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'EMOJI-LICENSE.md') -Destination $OutputDirectory
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'FONT-LICENSE.md') -Destination $OutputDirectory
 $petEngine=Join-Path $calendarRoot 'desktop\pet-engine'
 foreach($petFile in @('Species.cs','Motion.cs','Native.cs','World.cs','SimulationLoop.cs','Palettes.cs','Sprites.cs','PetMenu.cs','PetHost.cs')){$calendarArgs+=(Join-Path $petEngine $petFile)}
 $calendarArgs+=(Join-Path $PSScriptRoot 'CalendarPets.cs')

@@ -10,11 +10,16 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 
 namespace PetCalendarDesktop {
-    public sealed class Hotkey { public bool enabled=true; public int modifiers=2; public int key=9; }
+    // Default Alt + ` (backtick): Ctrl + Tab is taken by tab switching in browsers and editors.
+    public sealed class Hotkey { public bool enabled=true; public int modifiers=1; public int key=192; }
+    // User-made schedule category (in addition to the four built-in ones).
+    public sealed class CategoryDef { public string id,name,color; }
     public sealed class Settings {
         public bool hideCompleted=true,notifications=false,desktopPopups=true,notificationSound=true;
         public int? defaultReminder=10;
         public int textScale=0;
+        public string fontFamily="default";
+        public CategoryDef[] categories=new CategoryDef[0];
         public Hotkey hotkey=new Hotkey();
     }
     public sealed class CalendarEvent {
@@ -64,6 +69,17 @@ namespace PetCalendarDesktop {
         static bool Time(object value){var s=value as string;return s!=null && (s=="" || Regex.IsMatch(s,"^([01][0-9]|2[0-3]):[0-5][0-9]$"));}
         static bool Reminder(object value){return value==null || (Integer(value) && new[]{0d,10d,30d,60d}.Contains(Convert.ToDouble(value)));}
         static void Text(Dictionary<string,object> o,string key,int max,string label,bool required=false){var s=Value(o,key) as string;Check(s!=null&&s.Length<=max&&(!required||s.Trim().Length>0),label+"을(를) 확인해 주세요.");}
+        // Calendar window fonts: the system default plus fonts bundled in fonts.zip.
+        // Custom categories: at most 20, ids "c-…", names up to 12 characters, colours #rrggbb.
+        static HashSet<string> CustomCategoryIds(Dictionary<string,object> s){
+            var ids=new HashSet<string>(StringComparer.Ordinal);if(s==null||!Has(s,"categories"))return ids;
+            var list=s["categories"] as object[];if(list==null){var al=s["categories"] as System.Collections.ArrayList;if(al!=null)list=al.ToArray();}
+            Check(list!=null&&list.Length<=20,"분류 설정을 확인해 주세요.");
+            foreach(var item in list){var c=item as Dictionary<string,object>;Check(c!=null&&Regex.IsMatch(Value(c,"id") as string??"","^c-[a-z0-9]{1,16}$")&&!Categories.Contains((string)c["id"])&&ids.Add((string)c["id"]),"분류 설정을 확인해 주세요.");
+                var name=Value(c,"name") as string;Check(name!=null&&name.Trim().Length>0&&name.Length<=12,"분류 이름은 1~12자로 적어 주세요.");Check(Regex.IsMatch(Value(c,"color") as string??"","^#[0-9a-f]{6}$"),"분류 색상을 확인해 주세요.");}
+            return ids;
+        }
+        public static readonly string[] FontKeys={"default","jua","childfund"};
         public static void ValidateHotkey(Hotkey key) {
             Check(key!=null&&key.modifiers>=0&&key.modifiers<=7&&ValidKey(key.key),"단축키 형식을 확인해 주세요.");
             Check(!key.enabled||(key.modifiers&3)!=0||(key.key>=112&&key.key<=122)||(key.modifiers==4&&key.key==192),"Ctrl 또는 Alt를 조합하거나 F1~F11, Shift + `를 선택해 주세요.");
@@ -81,12 +97,13 @@ namespace PetCalendarDesktop {
             Check(events.Length<=10000&&tasks.Length<=10000,"저장 가능한 항목 수를 초과했습니다.");
             var ids=new HashSet<string>(StringComparer.Ordinal);
             Action<Dictionary<string,object>> id=o=>{Text(o,"id",100,"항목 ID",true);Check(ids.Add((string)o["id"]),"중복된 항목 ID가 있습니다.");};
+            var custom=CustomCategoryIds(Value(raw,"settings") as Dictionary<string,object>);
             foreach(var item in events) {
                 var e=item as Dictionary<string,object>;
                 Check(e!=null&&IsDate(Value(e,"startDate"))&&IsDate(Value(e,"endDate"))&&String.CompareOrdinal((string)e["endDate"],(string)e["startDate"])>=0,"일정의 시작일과 종료일을 확인해 주세요.");
                 Check(Time(Value(e,"startTime"))&&Time(Value(e,"endTime"))&&((string)e["endTime"]==""||(string)e["startTime"]!=""),"일정 시간을 확인해 주세요.");
                 Check((string)e["endDate"]!=(string)e["startDate"]||(string)e["endTime"]==""||String.CompareOrdinal((string)e["endTime"],(string)e["startTime"])>=0,"종료 시간이 시작 시간보다 빠릅니다.");
-                Check(Categories.Contains(Value(e,"category") as string),"일정 분류를 확인해 주세요.");
+                Check(Categories.Contains(Value(e,"category") as string)||custom.Contains(Value(e,"category") as string??""),"일정 분류를 확인해 주세요.");
                 Check(Repeats.Contains(Value(e,"repeat") as string)||Regex.IsMatch(Value(e,"repeat") as string??"","^monthly:(?:[1-4]|-1):[0-6]$"),"반복 방식을 확인해 주세요.");
                 Check((Value(e,"repeatUntil") as string)==""||(IsDate(Value(e,"repeatUntil"))&&String.CompareOrdinal((string)e["repeatUntil"],(string)e["startDate"])>=0),"반복 종료일을 확인해 주세요.");
                 Check(Has(e,"reminder")&&Reminder(e["reminder"]),"알림 시간을 확인해 주세요.");
@@ -100,6 +117,7 @@ namespace PetCalendarDesktop {
             var s=Value(raw,"settings") as Dictionary<string,object>;
             Check(s!=null&&Value(s,"hideCompleted") is bool&&Value(s,"notifications") is bool&&Has(s,"defaultReminder")&&Reminder(s["defaultReminder"]),"설정 형식을 확인해 주세요.");
             foreach(string name in new[]{"desktopPopups","notificationSound"})Check(!Has(s,name)||s[name] is bool,"설정 형식을 확인해 주세요.");
+            Check(!Has(s,"fontFamily")||(s["fontFamily"] is string&&Array.IndexOf(FontKeys,(string)s["fontFamily"])>=0),"글꼴을 확인해 주세요.");
             Check(!Has(s,"textScale")||(Integer(s["textScale"])&&Convert.ToInt32(s["textScale"])>=0&&Convert.ToInt32(s["textScale"])<=2),"글씨 크기를 확인해 주세요.");
             if(Has(s,"hotkey")){var h=s["hotkey"] as Dictionary<string,object>;Check(h!=null&&Value(h,"enabled") is bool&&Integer(Value(h,"modifiers"))&&Integer(Value(h,"key")),"단축키 형식을 확인해 주세요.");}
             var rawRevision=Value(raw,"revision");raw["revision"]=Integer(rawRevision)&&Convert.ToDouble(rawRevision)>=0&&Convert.ToDouble(rawRevision)<=9007199254740991d?Convert.ToInt64(rawRevision):0;

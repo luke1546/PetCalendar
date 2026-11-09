@@ -10,7 +10,7 @@ using DesktopPet;
 
 namespace PetCalendarDesktop {
     public sealed class PetRecord {public string species="cat",palette="치즈",name="";public int personality;}
-    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];}
+    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];public string[] notices=new string[0];}
 
     // The engine runs on the existing calendar UI thread. No extra process, tray or browser.
     internal sealed class CalendarPets : IDisposable {
@@ -43,6 +43,10 @@ namespace PetCalendarDesktop {
             if(preferences.summaryIntervalMinutes<1||preferences.summaryIntervalMinutes>1440)preferences.summaryIntervalMinutes=3;
             if(fresh&&!File.Exists(path))Save();
             speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log,(id,minutes)=>{if(Snooze!=null)Snooze(id,minutes);});
+            // One-off notices (morning briefing, deadline eve, weekly review) are remembered here so
+            // a restart does not repeat them. Only the latest 60 keys are kept.
+            speech.NoticeSeen=key=>preferences.notices!=null&&preferences.notices.Contains(key);
+            speech.MarkNotice=key=>{var list=(preferences.notices??new string[0]).Concat(new[]{key}).ToList();if(list.Count>60)list=list.Skip(list.Count-60).ToList();preferences.notices=list.ToArray();try{Save();}catch(Exception e){log(e);}};
             preferences.pets=(preferences.pets??new PetRecord[0]).Where(p=>p!=null&&Species.Find(p.species)!=null).Take(256).ToArray();
             previousLoader=Sprites.ResourceOpen;previousSettings=PetHost.SettingsDirectory;previousPrefix=PetHost.WindowPrefix;previousClose=PetHost.CloseAllLabel;previousNoun=PetMenu.Noun;PetMenu.Noun="펫";
             Sprites.ResourceOpen=OpenImage;PetHost.SettingsDirectory=Path.Combine(dataDir,"pets");PetHost.WindowPrefix="펫 캘린더 · 데스크톱 펫";PetHost.CloseAllLabel="펫 모두 보내기";

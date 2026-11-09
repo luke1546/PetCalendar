@@ -61,6 +61,17 @@ namespace DesktopPet {
             }
             data.References++;
         }
+        readonly Dictionary<int,int> headTops=new Dictionary<int,int>();
+        // Rows of transparent space above the pet's head in its standing frame at this size.
+        internal int HeadTop(int size) {
+            int top;if(headTops.TryGetValue(size,out top))return top;top=0;
+            using(var bitmap=Render(size,0,1)) {
+                var data=bitmap.LockBits(new Rectangle(0,0,size,size),System.Drawing.Imaging.ImageLockMode.ReadOnly,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+                try {var row=new byte[size*4];for(int y=0;y<size;y++){System.Runtime.InteropServices.Marshal.Copy(data.Scan0+y*data.Stride,row,0,row.Length);bool any=false;for(int x=3;x<row.Length;x+=4)if(row[x]>40){any=true;break;}if(any){top=y;break;}}}
+                finally {bitmap.UnlockBits(data);}
+            }
+            headTops[size]=top;return top;
+        }
         internal Bitmap Render(int size,int index,int direction) {
             var bitmap=new Bitmap(size,size,PixelFormat.Format32bppPArgb);
             var frame=data.Info.frames[index];float ratio=(float)(size/data.Cell);

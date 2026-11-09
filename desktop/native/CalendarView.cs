@@ -259,7 +259,7 @@ namespace PetCalendarDesktop {
         string SectionSig(string name,SectionCache c){
             if(drag!=null)return null;
             string today=Rules.Key(DateTime.Today);
-            string common=s+"|"+DesktopTheme.TextScale+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
+            string common=s+"|"+DesktopTheme.TextScale+DesktopTheme.FontKey+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
             switch(name){
                 case "masthead":return common+todayText+"|"+clockText+"|"+maximized;
                 case "summary":return common+dataStamp+"|"+today;
@@ -369,7 +369,7 @@ namespace PetCalendarDesktop {
                 var kf=F(9,700,kicker);var tf=F(m.H3,700,title);int kh=kicker==null?0:(int)Math.Ceiling(kf.GetHeight()),th=(int)Math.Ceiling(tf.GetHeight());int blockH=kh+(kicker==null?0:P(6))+th;int ly=cy-blockH/2;
                 if(kicker!=null){Ui.Spaced(g,kicker,kf,x,ly,kh,Ui.C("#665b4c"),1.4f*s);ly+=kh+P(6);}
                 Ui.Text(g,title,tf,new Rectangle(x,ly,Math.Max(1,leftW),th),DesktopTheme.Ink,TextFormatFlags.EndEllipsis|TextFormatFlags.VerticalCenter);
-                Action click=i==0?(Action)(()=>JumpTo(Rules.Key(DateTime.Today))):i==1?(Action)FocusTasks:(Action)OpenDdayDialog;
+                Action click=i==0?(Action)(()=>{JumpTo(Rules.Key(DateTime.Today));OpenUpcoming();}):i==1?(Action)FocusTasks:(Action)OpenDdayDialog;
                 string tip=i==2?(target!=null?target.@event.title+" · "+FormatDay(target.startDate)+" · 클릭하여 D-day 일정 변경":"클릭하여 달력에서 중요한 일정 선택"):null;
                 AddHit(ids[i],r,click,tip,Rectangle.Inflate(r,P(4),P(4)));FocusRing(g,ids[i],box,15*s);
             }
@@ -407,10 +407,10 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             bx-=P(6)+P(36);var prev=new Rectangle(bx,cy-P(18),P(36),P(36));ButtonBox(g,"prev-month",prev,false);Ui.Icon(g,"left",new RectangleF(prev.X+8*s,prev.Y+8*s,20*s,20*s),DesktopTheme.Ink);AddHit("prev-month",prev,()=>MonthMove(-1),"이전 달");FocusRing(g,"prev-month",prev,9*s);
             // Filters
             var fr=filterRect;int fy=fr.Y,fh=fr.Height-P(m.FtB);int chipH=Math.Max(P(30),(int)Math.Ceiling(LH(11)+12*s+2*s));int fx=fr.X+P(m.FtX);
-            var chips=new List<KeyValuePair<string,string>>{new KeyValuePair<string,string>("all","전체")};foreach(var c in new[]{"work","meeting","deadline","personal"})chips.Add(new KeyValuePair<string,string>(c,DesktopTheme.CategoryName(c)));
+            var chips=new List<KeyValuePair<string,string>>{new KeyValuePair<string,string>("all","전체")};foreach(var c in AllCategories())chips.Add(new KeyValuePair<string,string>(c,DesktopTheme.CategoryName(c)));
             foreach(var chip in chips){
                 bool active=filter==chip.Key;var cf=F(11,active?700:400,chip.Value);int cw=Ui.Width(chip.Value,cf)+P(m.ChipPadX)*2+P(2)+(chip.Key=="all"?0:P(14));
-                var cr=new Rectangle(fx,fy+(fh-chipH)/2,cw,chipH);string id="filter-"+chip.Key;
+                var cr=new Rectangle(fx,fy+(fh-chipH)/2,cw,chipH);string id="filter-"+chip.Key;if(cr.Right>searchBoxRect.X-P(8))break; // custom categories past the search box are left out
                 if(active)Ui.Box(g,cr,6*s,Ui.C("#f2ead9"),DesktopTheme.Ink,s);else if(Hover(id))Ui.Fill(g,cr,6*s,Ui.C("#f4eddc"));
                 int cx=cr.X+P(m.ChipPadX)+P(1);if(chip.Key!="all"){using(var b=new SolidBrush(DesktopTheme.Category(chip.Key)))g.FillEllipse(b,cx,cr.Y+(cr.Height-P(8))/2f,8*s,8*s);cx+=P(14);}
                 Ui.Text(g,chip.Value,cf,new Rectangle(cx,cr.Y,cr.Right-cx,cr.Height),active?DesktopTheme.Ink:Ui.C("#716653"),TextFormatFlags.VerticalCenter);
@@ -488,7 +488,7 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
         void CachedCell(Graphics g,int slot,Rectangle cell,string key,List<Occurrence> items,string today,int perDay,Action<Graphics> paint){
             if(drag!=null||frames.Count>0||ty!=-pageScroll.Offset){paint(g);return;}
             var sb=new System.Text.StringBuilder();
-            sb.Append(key).Append('|').Append(cell).Append('|').Append(key.StartsWith(month,StringComparison.Ordinal)).Append('|').Append(key==selected).Append('|').Append(key==today).Append('|').Append(perDay).Append('|').Append(dropDate==key).Append('|').Append(s).Append('|').Append(DesktopTheme.TextScale).Append('|');
+            sb.Append(key).Append('|').Append(cell).Append('|').Append(key.StartsWith(month,StringComparison.Ordinal)).Append('|').Append(key==selected).Append('|').Append(key==today).Append('|').Append(perDay).Append('|').Append(dropDate==key).Append('|').Append(s).Append('|').Append(DesktopTheme.TextScale).Append(DesktopTheme.FontKey).Append('|');
             string cellId="cell-"+key,chipId="chip-"+key+"-";
             sb.Append(Mine(hoverId,cellId)).Append(Mine(hoverId,chipId)).Append('|').Append(Mine(pressId,cellId)).Append(Mine(pressId,chipId)).Append('|');
             if(Focused&&ShowFocusCues)sb.Append(Mine(focusId,cellId)).Append(Mine(focusId,chipId));sb.Append('|');
@@ -759,6 +759,7 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             if(e.KeyCode==Keys.N){OpenEvent(null,selected,false);e.Handled=e.SuppressKeyPress=true;return true;}
             if(e.KeyCode==Keys.OemQuestion||e.KeyCode==Keys.Divide){searchBox.Focus();e.Handled=e.SuppressKeyPress=true;return true;}
             if(e.KeyCode==Keys.T){JumpTo(Rules.Key(DateTime.Today));e.Handled=e.SuppressKeyPress=true;return true;}
+            if(e.KeyCode==Keys.W){OpenUpcoming();e.Handled=e.SuppressKeyPress=true;return true;}
             if(focusId!=null)return false;
             if(e.KeyCode==Keys.Left){MonthMove(-1);e.Handled=true;return true;}
             if(e.KeyCode==Keys.Right){MonthMove(1);e.Handled=true;return true;}

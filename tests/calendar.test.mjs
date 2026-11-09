@@ -94,7 +94,8 @@ test('검증된 백업은 지정된 필드만 보존한다',()=>{
 });
 test('기존 데이터의 단축키 기본값과 조합을 검증한다',()=>{
   const state=defaultState();delete state.settings.hotkey;
-  assert.deepEqual(validateState(state).settings.hotkey,{enabled:true,modifiers:2,key:9});
+  assert.deepEqual(validateState(state).settings.hotkey,{enabled:true,modifiers:1,key:192});
+  assert.equal(hotkeyLabel(validateHotkey()),'Alt + `');
   assert.equal(hotkeyLabel(validateHotkey({enabled:true,modifiers:7,key:75})),'Ctrl + Alt + Shift + K');
   assert.throws(()=>validateHotkey({enabled:true,modifiers:0,key:65}),/Ctrl/);
   assert.throws(()=>validateHotkey({enabled:true,modifiers:1,key:9}),/Windows/);

@@ -11,7 +11,7 @@ namespace PetCalendarDesktop {
     // Per-user UI memory that lived in WebView localStorage: quick tour
     // completion and unsaved event-editor drafts.
     public sealed class UiPrefs {
-        public sealed class Data {public bool quickTourDone;public Dictionary<string,string> drafts=new Dictionary<string,string>();}
+        public sealed class Data {public bool quickTourDone,hotkeyMoved;public Dictionary<string,string> drafts=new Dictionary<string,string>();}
         readonly string path;public Data Value;
         public UiPrefs(string dataDir,bool migrated){
             path=Path.Combine(dataDir,"ui-state.json");
@@ -28,7 +28,8 @@ namespace PetCalendarDesktop {
         CalendarState indexState;string indexToken;Dictionary<string,List<Occurrence>> indexCache;List<CalendarEvent> searchCache;CalendarState searchState;string searchToken;
         string pendingId,pendingKey;bool pending;
         static readonly IntlKoreanComparer KoreanText=IntlKoreanComparer.Instance;
-        internal static string CategoryLight(string c){return c=="meeting"?"#eaf6fe":c=="deadline"?"#ffedf2":c=="personal"?"#f0f8e9":"#fff0e3";}
+        internal static string CategoryLight(string c){if(c!="work"&&c!="meeting"&&c!="deadline"&&c!="personal"){var k=DesktopTheme.Category(c);var m=Ui.Mix(k,System.Drawing.Color.White,.8f);return String.Format("#{0:x2}{1:x2}{2:x2}",m.R,m.G,m.B);}return c=="meeting"?"#eaf6fe":c=="deadline"?"#ffedf2":c=="personal"?"#f0f8e9":"#fff0e3";}
+        internal static string[] AllCategories(){return new[]{"work","meeting","deadline","personal"}.Concat(DesktopTheme.CustomCategories.Select(c=>c.id)).ToArray();}
         internal static string FormatDay(string key){return Rules.Date(key).ToString("M월 d일 (ddd)",Rules.Korean);}
         internal static string FormatLong(string key){return Rules.Date(key).ToString("yyyy년 M월 d일 ddd",Rules.Korean);}
         internal static string RepeatLabel(string repeat){
@@ -67,7 +68,8 @@ namespace PetCalendarDesktop {
         }
         void Summary(){var e=state.events.FirstOrDefault(x=>x.pinned);deadlineTarget=e==null?null:Rules.DdayOccurrence(e,Rules.Key(DateTime.Today));}
         internal bool IsDdayOccurrence(Occurrence o){return deadlineTarget!=null&&deadlineTarget.@event.id==o.@event.id&&deadlineTarget.startDate==o.startDate;}
-        internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
+        internal void CategoryRemoved(string id){if(filter==id){filter="all";Render();}}
+        internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;DesktopTheme.SetCategories(state.settings.categories);}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
         internal void JumpTo(string key){selected=key;month=key.Substring(0,7);limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void MonthMove(int amount){var next=Rules.Date(month+"-01").AddMonths(amount);month=Rules.Key(next).Substring(0,7);selected=month+"-01";limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void CellClick(string key,bool selectOnly){bool same=selected==key;JumpTo(key);if(same&&!selectOnly)OpenEvent(null,selected,false);}
@@ -119,7 +121,7 @@ namespace PetCalendarDesktop {
         // Each saved change to events or tasks is remembered as per-item before/after copies.
         // Undo writes the "before" copies back onto the latest state (and redo the "after" ones),
         // so it merges with unrelated edits made since, e.g. from the widget or another window.
-        internal sealed class HistoryEntry {public List<ItemChange> Events=new List<ItemChange>(),Tasks=new List<ItemChange>();public string Label="";}
+        internal sealed class HistoryEntry {public List<ItemChange> Events=new List<ItemChange>(),Tasks=new List<ItemChange>();public string Label="";public string CategoriesBefore,CategoriesAfter;}
         internal sealed class ItemChange {public string Id,Before,After;public int BeforeIndex,AfterIndex;}
         readonly List<HistoryEntry> undoStack=new List<HistoryEntry>(),redoStack=new List<HistoryEntry>();
         internal HistoryEntry LastRecorded{get{return undoStack.Count>0?undoStack[undoStack.Count-1]:null;}}
@@ -136,7 +138,9 @@ namespace PetCalendarDesktop {
         void Record(CalendarState before,CalendarState after){
             if(before==null||after==null)return;
             var entry=new HistoryEntry{Events=Diff(before.events,after.events,e=>e.id),Tasks=Diff(before.tasks,after.tasks,t=>t.id)};
-            if(entry.Events.Count+entry.Tasks.Count==0)return;
+            string cb=Codec.Json(before.settings.categories??new CategoryDef[0]),ca=Codec.Json(after.settings.categories??new CategoryDef[0]);if(cb!=ca){entry.CategoriesBefore=cb;entry.CategoriesAfter=ca;}
+            if(entry.Events.Count+entry.Tasks.Count==0&&entry.CategoriesBefore==null)return;
+            if(entry.Events.Count+entry.Tasks.Count==0){entry.Label="일정 분류";undoStack.Add(entry);if(undoStack.Count>100)undoStack.RemoveAt(0);redoStack.Clear();return;}
             var first=entry.Events.Concat(entry.Tasks).First();string json=first.After??first.Before;
             try{var o=Codec.Object(json);object title;if(o!=null&&o.TryGetValue("title",out title))entry.Label=title as string??"";}catch{}
             int count=entry.Events.Count+entry.Tasks.Count;if(count>1&&entry.Label.Length>0)entry.Label+=" 외 "+(count-1)+"개";
@@ -152,6 +156,7 @@ namespace PetCalendarDesktop {
             return list.ToArray();
         }
         static void Apply(CalendarState s,HistoryEntry entry,bool undo){
+            if(entry.CategoriesBefore!=null)s.settings.categories=Codec.Read<CategoryDef[]>(undo?entry.CategoriesBefore:entry.CategoriesAfter);
             s.events=Patch(s.events,entry.Events,undo,e=>e.id);s.tasks=Patch(s.tasks,entry.Tasks,undo,t=>t.id);
             // Only one schedule can be the D-day; keep the restored one.
             var restored=new HashSet<string>(entry.Events.Select(c=>c.Id));
@@ -197,6 +202,7 @@ namespace PetCalendarDesktop {
             if(!await Commit(s=>{var item=s.events.FirstOrDefault(x=>x.id==id);if(item==null)return;item.completedDates=item.completedDates.Where(d=>d!=key).Concat(done?new[]{key}:new string[0]).ToArray();}))Render();
         }
         internal void ToggleOccurrence(string id,string key){ToggleEvent(id,key);}
+        internal void OpenUpcoming(){if(modal)return;new UpcomingDialog(this).Show(null);}
         internal void OpenDayList(string key){if(modal)return;var dialog=new DayListDialog(this,key);dialog.Show(null);}
         internal void OpenEvent(string id,string key,bool duplicate){
             if(saving||modal&&!DialogForm.Open.OfType<EventDialog>().Any()&&false)return;
@@ -320,8 +326,18 @@ namespace PetCalendarDesktop {
         }
         void ShowHelp(){if(modal)return;new HelpDialog(this).Show(null);}
         internal void ShowQuickTour(){if(modal)return;new QuickTourDialog(this,host).Show(null);}
+        // v3.1.1 changed the default window hotkey from Ctrl + Tab (which browsers and editors use
+        // for switching tabs) to Alt + `. Users still on the old default are moved once and told so.
+        async void MoveOldHotkey(){
+            if(prefs.Value.hotkeyMoved)return;
+            var h=state.settings.hotkey;if(h==null||!h.enabled||h.modifiers!=2||h.key!=9){prefs.Value.hotkeyMoved=true;prefs.Save();return;}
+            // If another program holds Alt + ` keep Ctrl + Tab quietly and try again next start.
+            if(host==null||!host.HotkeyFree(new Hotkey()))return;
+            prefs.Value.hotkeyMoved=true;prefs.Save();
+            if(await Commit(s=>{s.settings.hotkey=new Hotkey();},true))Toast("창 단축키가 Alt + `로 바뀌었어요","Ctrl + Tab은 브라우저·편집기의 탭 이동에 쓰도록 비워두었어요. 설정에서 다시 바꿀 수 있어요.","info",12000);
+        }
         internal void FinishTour(){prefs.Value.quickTourDone=true;prefs.Save();}
-        public void Ready(){ready=true;if(!prefs.Value.quickTourDone&&!modal)ShowQuickTour();}
+        public void Ready(){ready=true;MoveOldHotkey();if(!prefs.Value.quickTourDone&&!modal)ShowQuickTour();}
         // window.petCalendarOpenEvent: alarms, widget and pets open schedules here.
         public void OpenFromHost(string id,string key){
             if(DialogForm.Open.Count>0){pending=true;pendingId=id;pendingKey=key;Toast("일정을 선택했어요","입력창을 닫으면 해당 일정을 보여드릴게요.");return;}

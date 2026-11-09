@@ -93,11 +93,12 @@ namespace PetCalendarDesktop {
             var noticeBox=new BoxItem{Fill=Ui.C("#ffedc4"),Radius=7,PadTop=10,PadBottom=10,PadLeft=12,PadRight=12,Top=-8,Bottom=18};noticeBox.Add(new TextItem("반복 일정입니다. 저장하거나 삭제할 때 적용 범위를 선택할 수 있습니다.",11,400,Ui.C("#95702f"),1.8f));notice=Body.Add(noticeBox);
             notice.Visible=source!=null&&source.repeat!="none"&&!copyMode;
             Body.Add(new FieldItem("어떤 일정인가요?",TitleBox));
+            if(source==null&&!copyMode)AddRecentChips(view);
             var dates=new RowItem(15,new FieldItem("시작일",start),new FieldItem("종료일",end));Body.Add(dates);
             Body.Add(new CssCheck(allDay,11,-2,16));
             timeRow=Body.Add(new RowItem(15,new FieldItem("시작 시간",startTime),new FieldItem("종료 시간",endTime,"선택")));
             var legend=new TextItem("분류",11,700,DesktopTheme.Ink){Bottom=8};var chips=new InlineItem(8){Bottom=18};
-            foreach(var c in new[]{"work","meeting","deadline","personal"}){var chip=new ChoiceChip(c,DesktopTheme.CategoryName(c),categories);chip.Picked+=delegate{Draft();};var ci=new ControlItem(chip,false);chips.Parts.Add(ci);}
+            foreach(var c in CalendarView.AllCategories()){var chip=new ChoiceChip(c,DesktopTheme.CategoryName(c),categories);chip.Picked+=delegate{Draft();};var ci=new ControlItem(chip,false);chips.Parts.Add(ci);}
             Body.Add(legend);Body.Add(chips);
             Body.Add(new RowItem(15,new FieldItem("반복",repeat),new FieldItem("알림",reminder)));
             weekdayRow=Body.Add(new RowItem(15,new FieldItem("순번",week),new FieldItem("요일",weekday)));
@@ -131,6 +132,25 @@ namespace PetCalendarDesktop {
             draftTimer.Tick+=delegate{draftTimer.Stop();StoreDraft();};
             foreach(var input in new[]{TitleBox.Box})input.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==Keys.Enter){k.Handled=k.SuppressKeyPress=true;Submit();}};
             foreach(var field in new SegmentField[]{start,end,until,startTime,endTime})field.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==Keys.Enter){k.Handled=true;Submit();}};
+        }
+        // Most-used schedules (by title) as one-click chips for a new schedule: fills the title,
+        // category, times and reminder from the latest one with that title.
+        void AddRecentChips(CalendarView view){
+            var picks=view.state.events.Where(x=>x.title.Trim().Length>0).GroupBy(x=>x.title.Trim())
+                .Select(g=>new{Latest=g.OrderByDescending(x=>x.startDate,StringComparer.Ordinal).First(),Count=g.Count()})
+                .OrderByDescending(x=>x.Count).ThenByDescending(x=>x.Latest.startDate,StringComparer.Ordinal).Take(5).Select(x=>x.Latest).ToList();
+            if(picks.Count==0)return;
+            var buttons=new List<Control>();
+            foreach(var pick in picks){
+                var e=pick;string label=(e.title.Length>14?e.title.Substring(0,13)+"…":e.title)+(e.startTime!=""?" "+e.startTime:"");
+                var b=Css.Button(label,BtnKind.Small,10);b.Click+=delegate{
+                    TitleBox.Text=e.title;foreach(var c in categories)c.Checked=c.Key==e.category;
+                    allDay.Checked=e.startTime=="";startTime.Value=e.startTime;endTime.Value=e.endTime;reminder.Value=Css.ReminderKey(e.reminder);
+                    SyncVisibility();Draft();TitleBox.Focus();};
+                buttons.Add(b);
+            }
+            Body.Add(new TextItem("자주 쓰는 일정",10,700,Ui.C("#9c8c72")){Top=-6,Bottom=6});
+            Body.Add(new InlineItem(6,buttons.ToArray()){Bottom=16,RowGap=6});
         }
         void Hook(Control c){var s=c as SegmentField;if(s!=null)s.ValueChanged+=delegate{Draft();};var sel=c as SelectField;if(sel!=null)sel.ValueChanged+=delegate{Draft();};}
         void SyncVisibility(){timeRow.Visible=!allDay.Checked;untilField.Visible=repeat.Value!="none";weekdayRow.Visible=repeat.Value=="monthly-weekday";if(IsHandleCreated)Relayout();}
@@ -257,7 +277,7 @@ namespace PetCalendarDesktop {
             add.Click+=delegate{View.OpenEvent(null,Key,false);};
         }
         public override void StateChanged(){list.Rebuild();if(IsHandleCreated)Relayout();}
-        sealed class DayListItem : FlowItem {
+        internal sealed class DayListItem : FlowItem {
             readonly DayList list;readonly ControlItem item;public DayListItem(DayList l){list=l;item=new ControlItem(l);}
             public override void Attach(FlowPanel p){item.Attach(p);}
             public override int Measure(FlowPanel p,int width){int max=(int)Math.Round(list.ViewHeight()*0.6f);return Math.Max((int)(60*p.Sc),Math.Min(max,list.ContentHeight(width)));}
@@ -265,23 +285,39 @@ namespace PetCalendarDesktop {
             public override void Position(FlowPanel p,int scroll){item.Position(p,scroll);}
         }
     }
+    // Schedules of the next seven days, grouped by date (opened from the "오늘의 일정" card or W).
+    public sealed class UpcomingDialog : DialogForm {
+        readonly DayList list;readonly Btn add=new Btn(BtnKind.Primary,"일정 추가","plus");
+        public UpcomingDialog(CalendarView view):base(view,"다가오는 7일","한눈에 보기"){
+            WidthCss=480;string today=Rules.Key(DateTime.Today);
+            list=new DayList(view,Enumerable.Range(0,7).Select(i=>Rules.AddDays(today,i)).ToArray());Body.Add(new DayListDialog.DayListItem(list){Top=4});
+            Footer(new Control[0],new Control[]{add});add.Click+=delegate{View.OpenEvent(null,View.selected,false);};
+        }
+        public override void StateChanged(){list.Rebuild();if(IsHandleCreated)Relayout();}
+    }
     public sealed class DayList : Control {
-        readonly CalendarView view;readonly string key;List<Occurrence> rows=new List<Occurrence>();int Offset;int hover=-1;bool hoverCheck;readonly ScrollModel scroll=new ScrollModel();
-        public DayList(CalendarView owner,string date){view=owner;key=date;SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;Rebuild();}
+        readonly CalendarView view;readonly string[] keys;List<Occurrence> rows=new List<Occurrence>();List<string> days=new List<string>();int Offset;int hover=-1;bool hoverCheck;readonly ScrollModel scroll=new ScrollModel();
+        public DayList(CalendarView owner,string date):this(owner,new[]{date}){}
+        public DayList(CalendarView owner,string[] dates){view=owner;keys=dates;SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;Rebuild();}
         float Sc{get{return DeviceDpi/96f;}}
         public int ViewHeight(){return view.ViewportScreen().Height;}
-        public void Rebuild(){rows=view.RowsFor(key);Invalidate();}
+        public void Rebuild(){rows=new List<Occurrence>();days=new List<string>();foreach(var k in keys)foreach(var o in view.RowsFor(k)){rows.Add(o);days.Add(k);}Invalidate();}
+        bool Multi{get{return keys.Length>1;}}
+        // Date header shown above the first schedule of each day in the multi-day list.
+        int Header(int i){return Multi&&(i==0||days[i]!=days[i-1])?(int)(30*Sc):0;}
+        string HeaderText(string k){string today=Rules.Key(DateTime.Today);return CalendarView.FormatDay(k)+(k==today?" · 오늘":k==Rules.AddDays(today,1)?" · 내일":"");}
         int Inner(int width){return scroll.Visible?width-(int)(12*Sc):width;}
         int TextWidth(int width){float s=Sc;return width-(int)Math.Round((8+4+12+16+12+14)*s);}
         int RowHeight(Occurrence o,int width){float s=Sc;var e=o.@event;int lines=Ui.Wrap(e.title,Ui.Font(s,13,700,null,e.title),TextWidth(width)).Count;float h=12*s+Css.Px(11)*1.5f*s+4*s+lines*Css.Px(13)*1.55f*s+12*s;if(e.note!="")h+=Math.Min(2,Ui.Wrap(e.note,Ui.Font(s,11,400,null,e.note),TextWidth(width)).Count)*Css.Px(11)*1.6f*s;return (int)Math.Ceiling(Math.Max(h,56*s));}
-        public int ContentHeight(int width){float s=Sc;if(rows.Count==0)return (int)Math.Ceiling(Css.Px(11)*1.8f*s+36*s);int h=(int)(4*s);foreach(var o in rows)h+=RowHeight(o,width)+(int)(7*s);return h;}
+        public int ContentHeight(int width){float s=Sc;if(rows.Count==0)return (int)Math.Ceiling(Css.Px(11)*1.8f*s+36*s);int h=(int)(4*s);for(int i=0;i<rows.Count;i++)h+=Header(i)+RowHeight(rows[i],width)+(int)(7*s);return h;}
         RectangleF CheckBox(RectangleF r){float s=Sc;return new RectangleF(r.X+4*s+12*s,r.Y+(r.Height-16*s)/2,16*s,16*s);}
         protected override void OnPaint(PaintEventArgs e){
             var g=e.Graphics;float s=Sc;g.Clear(DesktopTheme.Card);Ui.Prepare(g);
             int width=Width;scroll.Content=ContentHeight(width);scroll.Viewport=Height;scroll.Bounds=ClientRectangle;if(scroll.Visible){width=Inner(Width);scroll.Content=ContentHeight(width);}scroll.Offset=Offset;scroll.Clamp();Offset=scroll.Offset;
-            if(rows.Count==0){string text="이 날짜에는 일정이 없어요.";Ui.Paragraph(g,text,Ui.Font(s,11,400,null,text),(int)(4*s),(int)(18*s)-Offset,width-(int)(8*s),Css.Px(11)*1.8f*s,Ui.C("#a29276"),false,TextFormatFlags.HorizontalCenter);}
+            if(rows.Count==0){string text=Multi?"앞으로 7일 동안 일정이 없어요.":"이 날짜에는 일정이 없어요.";Ui.Paragraph(g,text,Ui.Font(s,11,400,null,text),(int)(4*s),(int)(18*s)-Offset,width-(int)(8*s),Css.Px(11)*1.8f*s,Ui.C("#a29276"),false,TextFormatFlags.HorizontalCenter);}
             int y=(int)(4*s)-Offset;int i=0;
             foreach(var o in rows){
+                int head=Header(i);if(head>0){var hf=Ui.Font(s,12,700);Ui.Text(g,HeaderText(days[i]),hf,new Rectangle((int)(4*s),y,width,head-(int)(4*s)),Ui.C("#8c7450"),TextFormatFlags.VerticalCenter);y+=head;}
                 var ev=o.@event;int h=RowHeight(o,width);var r=new RectangleF(2*s,y,width-4*s,h);bool done=Rules.Done(ev,o.startDate);bool hot=i==hover;
                 Color light=Ui.C(CalendarView.CategoryLight(ev.category));Color fill=done?Ui.C(hot?"#e3eadc":"#edf1e8"):hot?light:Ui.C("#fffdf8");
                 Ui.LeftEdgeCard(g,r,8*s,fill,Ui.C("#e5dac7"),4*s,DesktopTheme.Category(ev.category),s);
@@ -296,7 +332,7 @@ namespace PetCalendarDesktop {
             }
             Ui.ScrollBar(g,scroll,s);
         }
-        int At(Point p,out bool check){float s=Sc;check=false;int width=Inner(Width);int y=(int)(4*s)-Offset;int i=0;foreach(var o in rows){int h=RowHeight(o,width);if(p.Y>=y&&p.Y<y+h&&p.X<width){var box=CheckBox(new RectangleF(2*s,y,width-4*s,h));box.Inflate(5*s,5*s);check=box.Contains(p);return i;}y+=h+(int)(7*s);i++;}return -1;}
+        int At(Point p,out bool check){float s=Sc;check=false;int width=Inner(Width);int y=(int)(4*s)-Offset;int i=0;foreach(var o in rows){y+=Header(i);int h=RowHeight(o,width);if(p.Y>=y&&p.Y<y+h&&p.X<width){var box=CheckBox(new RectangleF(2*s,y,width-4*s,h));box.Inflate(5*s,5*s);check=box.Contains(p);return i;}y+=h+(int)(7*s);i++;}return -1;}
         protected override void OnMouseMove(MouseEventArgs e){bool check;int i=At(e.Location,out check);if(i!=hover||check!=hoverCheck){hover=i;hoverCheck=check;Invalidate();}Cursor=i>=0?Cursors.Hand:Cursors.Default;}
         protected override void OnMouseLeave(EventArgs e){hover=-1;hoverCheck=false;Invalidate();}
         protected override void OnMouseUp(MouseEventArgs e){if(e.Button!=MouseButtons.Left)return;bool check;int i=At(e.Location,out check);if(i<0)return;var o=rows[i];if(check)view.ToggleOccurrence(o.@event.id,o.startDate);else view.OpenEvent(o.@event.id,o.startDate,false);}
@@ -327,13 +363,17 @@ namespace PetCalendarDesktop {
     }
     // ---------------- Help ----------------
     public sealed class HelpDialog : DialogForm {
-        public HelpDialog(CalendarView view):base(view,"가볍게 시작하세요"){
-            Color body=Ui.C("#8a7654");Func<TextItem> para=()=>{var t=new TextItem("",12,400,body,2f);t.Top=t.Bottom=Css.Px(12);return t;};
-            var p1=para();p1.Runs=new List<Run>{new Run("날짜 숫자를 누르면 오른쪽에 일정이 표시됩니다. 빈 공간을 누르면 해당 날짜가 선택되고, 이미 선택한 날짜의 빈 공간을 다시 누르면 새 일정 입력창이 열립니다. ",-1),new Run("+ 일정 추가",700,DesktopTheme.Ink),new Run("로도 추가할 수 있어요.",-1)};Body.Add(p1);
-            Body.Add(para().Set("일정을 누르면 수정·복제·삭제할 수 있습니다. 반복 일정은 이번 회차만 또는 전체를 수정·삭제할 수 있습니다. 상단 ‘중요한 일정 · D-DAY’를 누르면 기존 일정 중 하나를 직접 고를 수 있습니다. 오른쪽 일정의 깃발이나 일정 입력창의 ‘D-day로 표시’로도 선택할 수 있습니다. 반복 일정은 선택한 회차의 시작일을 기준으로 표시합니다. 카드에서 선택을 바꾸거나 해제할 수 있습니다."));
-            Body.Add(para().Set("일정은 끌어서 다른 날짜로 옮기거나, 할 일 칸에 놓아 할 일로 바꿀 수 있습니다. 할 일도 달력 날짜로 끌어 일정으로 만들 수 있어요. 일정이 많은 날은 ‘+N개 더 보기’를 눌러 한 번에 확인하세요."));
-            Body.Add(para().Set("검색은 모든 기간의 제목과 메모를 찾습니다. 분류 버튼은 한 번 더 누르면 전체로 돌아갑니다."));
-            var keys=new[]{new[]{"N","선택한 날짜에 새 일정"},new[]{"/","일정 검색"},new[]{"T","오늘로 이동"},new[]{"←|→","이전 달 · 다음 달"},new[]{"Ctrl|Z","실행 취소 · Ctrl+Y 다시 실행"},new[]{"Esc","입력창 닫기"}};
+        public HelpDialog(CalendarView view):base(view,"사용법 · 단축키"){
+            Color body=Ui.C("#7d6a4c");
+            // Short grouped lists rather than paragraphs: one action per line.
+            Action<string,string[]> group=(title,lines)=>{var h=Css.H3(title);h.Top=Css.Px(10);h.Bottom=4;Body.Add(h);var t=new TextItem(String.Join("\n",lines.Select(l=>"·  "+l)),12,400,body,1.9f);t.Bottom=Css.Px(8);Body.Add(t);};
+            group("일정",new[]{"선택한 날짜를 한 번 더 누르거나 + 일정 추가","새 일정 창의 ‘자주 쓰는 일정’을 누르면 한 번에 입력","‘오늘의 일정’ 카드나 W로 다가오는 7일 보기","일정을 누르면 수정 · 복제 · 삭제","끌어서 다른 날짜로 옮기기","‘+N개 더 보기’로 그날 일정 모두 보기"});
+            group("할 일",new[]{"일정을 할 일 칸에 놓으면 할 일로","할 일을 달력 날짜에 놓으면 일정으로"});
+            group("D-day · 검색 · 분류",new[]{"깃발을 누르거나 상단 D-DAY 카드에서 선택","검색은 모든 기간의 제목과 메모에서","분류 버튼을 한 번 더 누르면 전체 보기","나만의 분류는 설정 → 일정 분류에서 만들기"});
+            group("펫이 챙겨줘요",new[]{"아침 첫 안내: 오늘 일정과 마감 개수","마감 전날: ‘내일 마감이에요’","일요일 저녁: 이번 주 정리와 연속 달성"});
+            var keys=new[]{new[]{"N","선택한 날짜에 새 일정"},new[]{"/","일정 검색"},new[]{"T","오늘로 이동"},new[]{"W","다가오는 7일 보기"},new[]{"←|→","이전 달 · 다음 달"},new[]{"Ctrl|Z","실행 취소 · Ctrl+Y 다시 실행"},new[]{"Esc","입력창 닫기"}};
+            var hk=View.state.settings.hotkey;if(hk!=null&&hk.enabled)keys=new[]{new[]{Rules.HotkeyLabel(hk).Replace(" + ","|"),"어디서나 창 숨기기 · 열기"}}.Concat(keys).ToArray();
+            var keyTitle=Css.H3("단축키");keyTitle.Top=Css.Px(10);keyTitle.Bottom=0;Body.Add(keyTitle);
             var dl=new PaintItem{Top=Css.Px(12),Bottom=Css.Px(12)};
             dl.OnMeasure=(p,w)=>{float s=p.Sc;float row=Math.Max(Css.Px(12)*1.33f,Css.Px(10)+6)*s;return (int)Math.Ceiling(36*s+keys.Length*row+(keys.Length-1)*12*s+2*s);};
             dl.OnPaint=(p,g,r)=>{float s=p.Sc;using(var b=new SolidBrush(DesktopTheme.Line)){g.FillRectangle(b,r.X,r.Y,r.Width,s);g.FillRectangle(b,r.X,r.Bottom-s,r.Width,s);}
@@ -341,13 +381,13 @@ namespace PetCalendarDesktop {
                 foreach(var k in keys){float x=r.X;foreach(var key in k[0].Split('|')){int kw=Math.Max((int)(19*s),Ui.Width(key,kf)+(int)(10*s));int kh=(int)Math.Max(19*s,kf.GetHeight()+4*s);var kr=new RectangleF(x,y+(row-kh)/2,kw,kh);Ui.Box(g,kr,4*s,Ui.Mix(DesktopTheme.Card,Color.White,.31f),Ui.C("#d6c9b0"),s);Ui.Text(g,key,kf,Rectangle.Round(kr),Ui.C("#6e604d"),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);x+=kw+4*s;}
                     Ui.Text(g,k[1],Ui.Font(s,12,400,null,k[1]),new Rectangle((int)(r.X+87*s),(int)y,(int)(r.Width-87*s),(int)Math.Ceiling(row)),Ui.C("#887354"),TextFormatFlags.VerticalCenter);y+=row+12*s;}};
             Body.Add(dl);
-            Body.Add(Css.Hint("창의 X는 트레이로 숨기기입니다. 숨겨두어도 알림은 작동하고, 알림을 누르면 해당 일정이 열립니다. 완전 종료와 재시작은 시계 옆 캘린더 아이콘을 우클릭하세요."));
+            Body.Add(Css.Hint("창의 X는 트레이로 숨기기예요. 숨겨도 알림은 울려요. 완전히 끄려면 시계 옆 아이콘을 우클릭하세요."));
         }
     }
     // ---------------- Quick tour ----------------
     public sealed class QuickTourDialog : DialogForm {
         readonly DesktopHost host;int step;readonly TextItem status=Css.Hint(""),progress,title,text;readonly PaintItem demo;readonly Btn back=new Btn(BtnKind.Normal,"이전"){MinW=78},next=new Btn(BtnKind.Primary,"다음"){MinW=78},addPet=new Btn(BtnKind.Primary,"한 마리 추가");
-        static readonly string[][] Steps={new[]{"일정을 추가해 보세요","날짜를 선택하고 ‘+ 일정 추가’를 눌러 제목과 시간을 입력한 뒤 저장하세요."},new[]{"Ctrl + Tab으로 빠르게","다른 프로그램을 사용 중에도 캘린더를 숨기거나 다시 열 수 있어요.\n단축키는 설정에서 변경할 수 있어요."},new[]{"함께할 펫을 골라보세요","버튼을 누르면 고양이가 추가돼요. 설정 및 백업에서는 다른 펫도 고를 수 있어요."}};
+        static readonly string[][] Steps={new[]{"일정을 추가해 보세요","날짜를 선택하고 ‘+ 일정 추가’를 눌러 제목과 시간을 입력한 뒤 저장하세요."},new[]{"Alt + `로 빠르게","다른 프로그램을 사용 중에도 캘린더를 숨기거나 다시 열 수 있어요.\n단축키는 설정에서 변경할 수 있어요."},new[]{"함께할 펫을 골라보세요","버튼을 누르면 고양이가 추가돼요. 설정 및 백업에서는 다른 펫도 고를 수 있어요."}};
         Bitmap cat;
         public QuickTourDialog(CalendarView view,DesktopHost owner):base(view,null,"QUICK TOUR",false){
             host=owner;WidthCss=460;
@@ -372,9 +412,9 @@ namespace PetCalendarDesktop {
         void PaintDemo(FlowPanel p,Graphics g,Rectangle r){
             float s=p.Sc;Ui.Box(g,r,14*s,DesktopTheme.Paper,DesktopTheme.Line,s);int cy=r.Y+r.Height/2;
             if(step==0){string t="+ 일정 추가";var f=Ui.Font(s,14,700,null,t);int w=Ui.Width(t,f)+(int)(36*s+2*s),h=(int)Math.Ceiling(f.GetHeight()+24*s+2*s);var b=new RectangleF(r.X+(r.Width-w)/2f,cy-h/2f,w,h);var sh=b;sh.Offset(2*s,2*s);Ui.Fill(g,sh,8*s,DesktopTheme.Ink);Ui.Box(g,b,8*s,DesktopTheme.Orange,DesktopTheme.Ink,s);Ui.Text(g,t,f,Rectangle.Round(b),DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);}
-            else if(step==1){var kf=Ui.Font(s,24,400,"mono");var plus=Ui.Font(s,16,400);Func<string,SizeF> size=k=>new SizeF(Ui.Width(k,kf)+36*s+2*s,kf.GetHeight()+20*s+2*s);var a=size("Ctrl");var c=size("Tab");float pw=Ui.Width("+",plus);float total=a.Width+c.Width+pw+24*s;float x=r.X+(r.Width-total)/2;
+            else if(step==1){var kf=Ui.Font(s,24,400,"mono");var plus=Ui.Font(s,16,400);Func<string,SizeF> size=k=>new SizeF(Ui.Width(k,kf)+36*s+2*s,kf.GetHeight()+20*s+2*s);var a=size("Alt");var c=size("`");float pw=Ui.Width("+",plus);float total=a.Width+c.Width+pw+24*s;float x=r.X+(r.Width-total)/2;
                 Action<string,SizeF> key=(k,sz)=>{var kr=new RectangleF(x,cy-sz.Height/2-1.5f*s,sz.Width,sz.Height);var sh=kr;sh.Offset(0,3*s);Ui.Fill(g,sh,8*s,DesktopTheme.Ink);Ui.Box(g,kr,8*s,DesktopTheme.Card,DesktopTheme.Ink,s);Ui.Text(g,k,kf,Rectangle.Round(kr),Ui.C("#6e604d"),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);x+=sz.Width+12*s;};
-                key("Ctrl",a);Ui.Text(g,"+",plus,new Rectangle((int)x,r.Y,(int)pw+2,r.Height),DesktopTheme.Ink,TextFormatFlags.VerticalCenter);x+=pw+12*s;key("Tab",c);}
+                key("Alt",a);Ui.Text(g,"+",plus,new Rectangle((int)x,r.Y,(int)pw+2,r.Height),DesktopTheme.Ink,TextFormatFlags.VerticalCenter);x+=pw+12*s;key("`",c);}
             else{var o=addPet.Outer();float total=100*s+12*s+o.Width;float x=r.X+(r.Width-total)/2;var img=Cat();if(img!=null){var mode=g.InterpolationMode;g.InterpolationMode=InterpolationMode.HighQualityBicubic;int frame=img.Width/8;g.DrawImage(img,new RectangleF(x,cy-50*s,100*s,100*s),new RectangleF(0,0,frame,frame),GraphicsUnit.Pixel);g.InterpolationMode=mode;}
                 int bx=(int)(x+112*s),by=cy-o.Height/2-Body.Scroll.Offset;if(addPet.Left!=bx||addPet.Top!=by)BeginInvoke(new Action(()=>addPet.SetBounds(bx,by,o.Width,o.Height)));}
         }

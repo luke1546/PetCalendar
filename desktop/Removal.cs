@@ -43,8 +43,12 @@ static class CalendarRemoval {
         foreach(var folder in new[]{Environment.SpecialFolder.DesktopDirectory,Environment.SpecialFolder.Startup})Delete(Path.Combine(Environment.GetFolderPath(folder),link));
         string start=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs),Path.GetFileNameWithoutExtension(link));
         Delete(Path.Combine(start,link));Empty(start);
-        foreach(string file in new[]{"public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg","public/holidays.json","public/tour-cat.png","EMOJI-LICENSE.md","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","webview2/LICENSE.txt","webview2/source.json","PetCalendar.exe","PetCalendar.exe.config","calendar.ico","notification.wav","RemovePetCalendar.exe"})Delete(Path.Combine(root,file));
+        foreach(string file in new[]{"public/index.html","public/app.mjs","public/model.mjs","public/styles.css","public/icon.svg","public/holidays.json","public/tour-cat.png","EMOJI-LICENSE.md","FONT-LICENSE.md","webview2/Microsoft.Web.WebView2.Core.dll","webview2/Microsoft.Web.WebView2.WinForms.dll","webview2/WebView2Loader.dll","webview2/LICENSE.txt","webview2/source.json","PetCalendar.exe","PetCalendar.exe.config","calendar.ico","notification.wav","RemovePetCalendar.exe"})Delete(Path.Combine(root,file));
         Empty(Path.Combine(root,"public"));Empty(Path.Combine(root,"webview2"));
+        // Fonts unpacked on first use (settings → 화면 → 글꼴); data and backups are kept.
+        string fonts=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PetCalendar","fonts");
+        foreach(string font in new[]{"Jua-Regular.ttf","SDChildfundkorea.ttf"}){try{Delete(Path.Combine(fonts,font));}catch(IOException){}catch(UnauthorizedAccessException){}}
+        try{Empty(fonts);}catch(IOException){}
         Registry.CurrentUser.DeleteSubKeyTree(Key(qa),false);Empty(root);
     }
     [STAThread] static int Main(string[] args) {

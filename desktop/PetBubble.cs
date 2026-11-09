@@ -164,7 +164,8 @@ namespace PetCalendarDesktop {
             int width=bubbleWidth,height=bubbleHeight;
             bool below=anchor.Top-height>=area.Top;
             int x=Math.Max(area.Left+6,Math.Min(centerX-width/2,area.Right-width-6));
-            int y=below?anchor.Top-height:anchor.Bottom;
+            int speechTop=pet.SpeechTop;below=speechTop-height>=area.Top;
+            int y=below?speechTop-height:anchor.Bottom;
             y=Math.Max(area.Top+6,Math.Min(y,area.Bottom-height-6));
             int newTailX=Math.Max(DesktopTheme.Px(this,24),Math.Min(centerX-x,width-DesktopTheme.Px(this,24)));
             bool resize=Size!=new Size(width,height),flip=tailBelow!=below;

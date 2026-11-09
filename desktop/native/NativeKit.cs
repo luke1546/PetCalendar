@@ -32,6 +32,51 @@ public sealed class IntlKoreanComparer : IComparer<string> {
         return Culture.Compare(x,y);
     }
 }
+// Optional calendar fonts bundled in fonts.zip, loaded on first use. Each is registered twice:
+// with GDI (TextRenderer looks fonts up by name) and with GDI+ (Graphics.DrawString needs the family).
+public static class AppFonts {
+    sealed class Choice {public string Key,Label,Family;public string[] Files;public float Scale=1;public bool HasBold;}
+    static readonly Choice[] choices={
+        new Choice{Key="default",Label="기본 (맑은 고딕)"},
+        new Choice{Key="jua",Label="주아 · 동글동글",Family="Jua",Files=new[]{"Jua-Regular.ttf"}},
+        new Choice{Key="childfund",Label="초록우산어린이 · 아이 손글씨",Family="Sandoll Childfundkorea TTF",Files=new[]{"SDChildfundkorea.ttf"},Scale=1.12f}};
+    public static IEnumerable<KeyValuePair<string,string>> Options{get{return choices.Select(c=>new KeyValuePair<string,string>(c.Key,c.Label));}}
+    [DllImport("gdi32.dll",CharSet=CharSet.Unicode)]static extern int AddFontResourceEx(string path,uint flags,IntPtr reserved);
+    static readonly PrivateFontCollection collection=new PrivateFontCollection();
+    static readonly Dictionary<string,FontFamily> loaded=new Dictionary<string,FontFamily>();
+    static Choice Find(string key){return choices.FirstOrDefault(c=>c.Key==key);}
+    // Fonts are unpacked once to %LOCALAPPDATA%\PetCalendar\fonts and registered from the file.
+    // Windows then maps the file instead of each font engine keeping its own private copy
+    // (loading from memory cost 14~45MB per font; from a file it is a few MB).
+    static string Unpack(System.IO.Compression.ZipArchive zip,string file){
+        string dir=System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"PetCalendar","fonts");
+        System.IO.Directory.CreateDirectory(dir);string path=System.IO.Path.Combine(dir,file);var entry=zip.GetEntry(file);
+        if(!System.IO.File.Exists(path)||new System.IO.FileInfo(path).Length!=entry.Length){
+            string temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+            using(var input=entry.Open())using(var output=System.IO.File.Create(temp))input.CopyTo(output);
+            try{if(System.IO.File.Exists(path))System.IO.File.Delete(path);System.IO.File.Move(temp,path);}catch{System.IO.File.Delete(temp);if(!System.IO.File.Exists(path))throw;}
+        }
+        return path;
+    }
+    // null for the system default (or if the font could not be loaded).
+    public static FontFamily Family(string key){
+        var c=Find(key);if(c==null||c.Family==null)return null;FontFamily family;
+        if(loaded.TryGetValue(key,out family))return family;
+        try{
+            using(var stream=System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("petcalendar.fonts.zip"))
+            using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Read)){
+                foreach(var file in c.Files){var path=Unpack(zip,file);AddFontResourceEx(path,0x10,IntPtr.Zero);collection.AddFontFile(path);} // 0x10 = FR_PRIVATE
+            }
+            // Family.Name is localized (names can be Korean on Korean Windows), so match the English name.
+            family=collection.Families.FirstOrDefault(f=>f.GetName(1033)==c.Family||f.Name==c.Family);
+        }catch{family=null;}
+        loaded[key]=family;return family;
+    }
+    public static float Scale(string key){var c=Find(key);return c==null?1:c.Scale;}
+    // Fonts without a bold face stay regular rather than being smeared by synthetic bold,
+    // except where the weight carries meaning (titles at 700+) on lighter faces.
+    public static bool Bold(string key,int weight){var c=Find(key);if(c==null)return weight>=700;if(c.HasBold)return weight>=700;return false;}
+}
 public static class Ui {
         static readonly Dictionary<string,Color> colors=new Dictionary<string,Color>();
         static readonly Dictionary<string,Font> fonts=new Dictionary<string,Font>();
@@ -56,6 +101,15 @@ public static class Ui {
         // falls back to Malgun Gothic Bold for Hangul; GDI links the same way.
         public static Font Font(float scale,float css,int weight=400,string family=null,string text=null,FontStyle extra=FontStyle.Regular){
             float px=(css+(1+DesktopTheme.TextScale)*4f/3f)*scale;
+            if(family==null&&DesktopTheme.FontKey!="default"){
+                var custom=AppFonts.Family(DesktopTheme.FontKey);
+                if(custom!=null){
+                    px*=AppFonts.Scale(DesktopTheme.FontKey);var cs=(AppFonts.Bold(DesktopTheme.FontKey,weight)?FontStyle.Bold:FontStyle.Regular)|extra;
+                    string ck=custom.Name+"|"+(int)cs+"|"+Math.Round(px*4);Font cf;if(fonts.TryGetValue(ck,out cf))return cf;
+                    try{cf=new Font(custom,px,cs,GraphicsUnit.Pixel);}catch{cf=new Font(custom,px,FontStyle.Regular,GraphicsUnit.Pixel);}
+                    fonts[ck]=cf;return cf;
+                }
+            }
             string face;FontStyle style=FontStyle.Regular;
             if(family=="mono"||family=="consolas"){face=family=="mono"?MonoFamily:"Consolas";if(weight>=600)style=FontStyle.Bold;}
             else if(weight>=800){if(text!=null&&!HasHangul(text)){face="Segoe UI Black";}else{face="Segoe UI";style=FontStyle.Bold;}}

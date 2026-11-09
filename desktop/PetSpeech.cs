@@ -27,6 +27,9 @@ namespace PetCalendarDesktop {
         int minutes=3,speakerIndex,pendingCelebration;
         string celebrationDay;
         readonly HashSet<string> celebrationKeys=new HashSet<string>();
+        // Remembers which one-off notices were shown (persisted by the owner).
+        internal Func<string,bool> NoticeSeen=key=>false;internal Action<string> MarkNotice=key=>{};
+        DateTime noticeCheck;
         internal PetSpeech(Func<PetHost[]> hosts,Func<CalendarState> snapshot,Func<DateTime> utc,Action<Alarm> open,Action<string> ack,Action<string,string> schedule,Action<Exception> error,Action<string,int> snoozeAlarm=null) {
             pets=hosts;state=snapshot;now=utc;openAlarm=open;acknowledge=ack;openSchedule=schedule;log=error;snooze=snoozeAlarm;
             timer.Tick+=delegate{try{Tick();}catch(Exception e){log(e);ClearBubble();}};
@@ -59,7 +62,7 @@ namespace PetCalendarDesktop {
             if(!valid){pendingCelebration=0;celebrationKeys.Clear();if(summary!=null&&summary.Kind=="celebration")ClearBubble();return;}
             bool allDone=occurrences.All(o=>Rules.Done(o.@event,o.startDate));
             if(pendingCelebration>0)pendingCelebration=allDone?2:1;
-            if(summary!=null&&summary.Kind=="celebration"&&speaker!=null)summary.Text=PetVoice.Celebration(speaker.Kind.Id,allDone);
+            if(summary!=null&&summary.Kind=="celebration"&&speaker!=null)summary.Text=CelebrationText(allDone);
         }
         internal void Preview() {
             if(!running)throw new AppError(409,"데스크톱 펫을 먼저 켜 주세요.");
@@ -119,9 +122,14 @@ namespace PetCalendarDesktop {
                 if(current!=null){current=null;ClearBubble();clock.Reset(utc,minutes);}
                 if(pendingCelebration>0&&SelectSpeaker()){
                     bool allDone=pendingCelebration==2;pendingCelebration=0;manual=false;
-                    summary=new PetSummary{Kind="celebration",Text=PetVoice.Celebration(speaker.Kind.Id,allDone)};expires=utc.AddSeconds(8);
+                    summary=new PetSummary{Kind="celebration",Text=CelebrationText(allDone)};expires=utc.AddSeconds(8);
                     EnsureBubble();
                     if(!speaker.Cat.Paused&&!speaker.Cat.Held&&!speaker.Cat.Sleeping)speaker.Cat.Jump();
+                }
+                if(summaryEnabled&&summary==null&&!manual&&utc>=noticeCheck){
+                    noticeCheck=utc.AddSeconds(20);
+                    var notice=PetNotices.Next(state(),utc.ToLocalTime(),NoticeSeen);
+                    if(notice!=null&&SelectSpeaker()){MarkNotice(notice.Key);summary=notice;expires=utc.AddSeconds(15);EnsureBubble();bubble.Present(notice.Text,false,0,false);bubble.Follow(speaker);clock.Reset(utc,minutes);}
                 }
                 bool due=summaryEnabled&&clock.Due(utc,minutes);
                 if(manual && utc>manualUntil)manual=false;
@@ -142,6 +150,7 @@ namespace PetCalendarDesktop {
             if(chatterEnabled)chatter.Tick(pets(),utc,alerts.Count>0||summary!=null||manual);
             timer.Interval=alerts.Count>0||summary!=null||manual||chatter.ActiveCount>0?100:1000;
         }
+        string CelebrationText(bool allDone){string text=PetVoice.Celebration(speaker==null?"":speaker.Kind.Id,allDone);if(allDone){int streak=PetNotices.Streak(state(),Rules.Key(now().ToLocalTime()));if(streak>=2)text+="\n"+streak+"일 연속 모두 해냈어요 🔥";}return text;}
         void ReleaseSpeaker(){if(speaker!=null&&!speaker.IsDisposed)speaker.SpeechHold=false;speaker=null;}
         void ClearBubble(){ReleaseSpeaker();summary=null;if(bubble!=null)bubble.Hide();}
         internal object Inspect() {return new{running,summaryEnabled,chatterEnabled,intervalMinutes=minutes,nextUtc=running?clock.NextUtc.ToString("o"):null,alarmId=current==null?null:current.id,pending=alerts.Count,chatter=chatter.Inspect(),speakerWindow=speaker==null?0:speaker.Handle.ToInt64(),bubble=bubble==null?null:bubble.Inspect()};}

@@ -56,7 +56,7 @@ namespace PetCalendarDesktop {
             root=appRoot;profile=profileDir;automation=test;
             Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(ApplicationId));
             bool freshProfile=!File.Exists(Path.Combine(dataDir,"calendar.json"))&&!File.Exists(Path.Combine(dataDir,"pets.json"));
-            store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;
+            store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;DesktopTheme.FontKey=store.Snapshot.settings.fontFamily??"default";DesktopTheme.SetCategories(store.Snapshot.settings.categories);
             pets=new CalendarPets(dataDir,()=>store.Snapshot,Log,freshProfile);
             // The WebView build kept the tour flag in its browser profile; an
             // existing profile means this user has already been through it.
@@ -92,9 +92,10 @@ namespace PetCalendarDesktop {
             pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)view.OpenFromHost(id,date);};
             var previousCalendar=store.Snapshot;
             store.Changed+=()=>{
-                var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;
-                if(DesktopTheme.TextScale!=next.settings.textScale){
-                    DesktopTheme.TextScale=next.settings.textScale;widget.ApplyTextScale();popup.ApplyTextScale();
+                var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;DesktopTheme.SetCategories(next.settings.categories);
+                string nextFont=next.settings.fontFamily??"default";
+                if(DesktopTheme.TextScale!=next.settings.textScale||DesktopTheme.FontKey!=nextFont){
+                    DesktopTheme.TextScale=next.settings.textScale;DesktopTheme.FontKey=nextFont;widget.ApplyTextScale();popup.ApplyTextScale();
                     foreach(var bubble in Application.OpenForms.OfType<PetBubble>().ToArray())bubble.ApplyTextScale();
                     view.TextScaleChanged();
                 }
@@ -131,6 +132,8 @@ namespace PetCalendarDesktop {
             }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"펫 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
         }
         public object HotkeyStatus(){return new{available=true,active=registered.enabled,error=hotkeyError,label=Rules.HotkeyLabel(store.Snapshot.settings.hotkey),pid=Process.GetCurrentProcess().Id,tray=tray.Visible,windowReady=ready};}
+        // Whether a key combination can be registered right now (nothing else holds it).
+        internal bool HotkeyFree(Hotkey h){if(!RegisterHotKey(Handle,HotkeyId+1,(uint)h.modifiers|0x4000,(uint)h.key))return false;UnregisterHotKey(Handle,HotkeyId+1);return true;}
         Task ApplyHotkey(Hotkey next) {
             Rules.ValidateHotkey(next);
             if(Codec.Json(next)==Codec.Json(registered)&&hotkeyError=="")return Task.FromResult(0);

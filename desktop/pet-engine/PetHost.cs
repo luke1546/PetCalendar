@@ -30,7 +30,8 @@ namespace DesktopPet {
         internal static readonly string[] PersonalityLabels={"수다쟁이 · 30초~1분","말이 많은 편 · 1~2분","보통 · 2~3분","조용한 편 · 3~5분","과묵함 · 5~10분"};
         string petName="";
         ToolStripMenuItem identity;
-        internal string PetName {get{return petName;}set{petName=value??"";Text=WindowPrefix+" · "+(petName==""?Kind.Name:petName)+" · "+paletteName;if(identity!=null)identity.Text=petName==""?paletteName+" "+Kind.Name:petName.Replace("&","&&")+" · "+paletteName+" "+Kind.Name;}}
+        NameTag tag;
+        internal string PetName {get{return petName;}set{petName=value??"";UpdateTag();Text=WindowPrefix+" · "+(petName==""?Kind.Name:petName)+" · "+paletteName;if(identity!=null)identity.Text=petName==""?paletteName+" "+Kind.Name:petName.Replace("&","&&")+" · "+paletteName+" "+Kind.Name;}}
 
         readonly string paletteName;
         readonly double spawnFraction;
@@ -159,8 +160,25 @@ namespace DesktopPet {
             while(accumulator>=1.0/120) {Cat.Step(1.0/120,!press&&!speechHold);accumulator-=1.0/120;}
             DrawCat(false);
         }
+        // Small name floating above a named pet. Speech bubbles sit above it (SpeechTop).
+        void UpdateTag(){
+            if(petName==""){if(tag!=null){tag.Dispose();tag=null;}return;}
+            if(tag==null)tag=new NameTag();tag.SetText(petName,DpiScale());if(initialized)PlaceTag();
+        }
+        double DpiScale(){if(world==null)world=World.Get(false);return world.DpiAt(new Point((int)Cat.X,(int)Cat.Y-1));}
+        int HeadY{get{int size=(int)Math.Round(Cat.Size);return (int)Math.Round(Cat.Y-size*.875)+Art.HeadTop(size);}}
+        // Top edge for a speech bubble drawn above this pet.
+        internal int SpeechTop{get{int box=(int)Math.Round(Cat.Y-Cat.Size*.875);if(tag==null||!tag.Shown)return box;return Math.Min(box,tag.TagTop-2);}}
+        void PlaceTag(){
+            if(tag==null)return;bool show=Visible&&!systemHidden;
+            if(!show){tag.HideTag();return;}
+            if(Math.Abs(tag.Scale-DpiScale())>.01)tag.SetText(petName,DpiScale());
+            tag.MoveTo((int)Math.Round(Cat.X)-tag.Width2/2,HeadY-tag.Height2-(int)Math.Round(2*tag.Scale));
+        }
+        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(initialized)PlaceTag();}
         internal void DrawCat(bool force) {
             int x=(int)Math.Round(Cat.X),y=(int)Math.Round(Cat.Y),size=(int)Math.Round(Cat.Size);
+            if(tag!=null&&(force||x!=lastX||y!=lastY||size!=lastSize))PlaceTag();
             bool pixelsChanged=force || Cat.Frame!=lastFrame || Cat.Direction!=lastDirection || size!=lastSize;
             if(pixelsChanged)Art.Paint(Handle,Cat);
             else if(x!=lastX || y!=lastY) {
@@ -211,10 +229,45 @@ namespace DesktopPet {
         }
         protected override void Dispose(bool disposing) {
             if(disposing && !disposed) {
-                disposed=true;SimulationLoop.Remove(this);
+                disposed=true;SimulationLoop.Remove(this);if(tag!=null){tag.Dispose();tag=null;}
                 if(tray!=null) {tray.Visible=false;tray.Dispose();}menu.Dispose();Art.Dispose();if(Icon!=null)Icon.Dispose();
             }
             base.Dispose(disposing);
         }
+    }
+    // Click-through, per-pixel transparent label: a soft pill with the pet's name.
+    internal sealed class NameTag : Form {
+        IntPtr bitmap=IntPtr.Zero;internal int Width2,Height2;internal double Scale=1;internal bool Shown;int x=int.MinValue,y=int.MinValue;
+        internal NameTag(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);}
+        protected override bool ShowWithoutActivation{get{return true;}}
+        protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000|0x80|0x08000000|0x20;return p;}}
+        internal void SetText(string text,double scale){
+            Scale=scale;float s=(float)scale;
+            using(var font=new Font("Malgun Gothic",10.5f*s,FontStyle.Bold,GraphicsUnit.Pixel)){
+                SizeF measured;using(var probe=new Bitmap(1,1))using(var g=Graphics.FromImage(probe))measured=g.MeasureString(text,font,PointF.Empty,StringFormat.GenericTypographic);
+                int w=(int)Math.Ceiling(measured.Width+16*s),h=(int)Math.Ceiling(font.GetHeight()+7*s);w=Math.Max(w,h);
+                using(var image=new Bitmap(w,h,System.Drawing.Imaging.PixelFormat.Format32bppPArgb))using(var g=Graphics.FromImage(image)){
+                    g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;g.Clear(Color.Transparent);
+                    float r=(h-1)/2f;using(var path=new System.Drawing.Drawing2D.GraphicsPath()){path.AddArc(.5f,.5f,r*2,r*2,90,180);path.AddArc(w-1.5f-r*2,.5f,r*2,r*2,270,180);path.CloseFigure();
+                        using(var fill=new SolidBrush(Color.FromArgb(215,255,253,247)))g.FillPath(fill,path);using(var pen=new Pen(Color.FromArgb(200,140,116,80),Math.Max(1f,s)))g.DrawPath(pen,path);}
+                    using(var ink=new SolidBrush(Color.FromArgb(255,74,58,38)))g.DrawString(text,font,ink,(w-measured.Width)/2f,(h-font.GetHeight())/2f,StringFormat.GenericTypographic);
+                    if(bitmap!=IntPtr.Zero)Native.DeleteObject(bitmap);bitmap=image.GetHbitmap(Color.FromArgb(0));
+                }
+                Width2=w;Height2=h;x=int.MinValue;
+            }
+        }
+        internal void HideTag(){if(Shown&&IsHandleCreated){Native.SetWindowPos(Handle,IntPtr.Zero,0,0,0,0,0x93);}Shown=false;}
+        internal void MoveTo(int left,int top){
+            if(!IsHandleCreated)CreateHandle();
+            if(left!=x||top!=y){
+                x=left;y=top;
+                IntPtr screen=Native.GetDC(IntPtr.Zero),dc=Native.CreateCompatibleDC(screen),old=Native.SelectObject(dc,bitmap);
+                try{var pos=new Native.POINT(x,y);var size=new Native.SIZE(Width2,Height2);var origin=new Native.POINT(0,0);var blend=new Native.BLEND{Op=0,Flags=0,Alpha=255,Format=1};Native.UpdateLayeredWindow(Handle,screen,ref pos,ref size,dc,ref origin,0,ref blend,2);}
+                finally{Native.SelectObject(dc,old);Native.DeleteDC(dc);Native.ReleaseDC(IntPtr.Zero,screen);}
+            }
+            if(!Shown){Native.SetWindowPos(Handle,new IntPtr(-1),0,0,0,0,0x53);Shown=true;}
+        }
+        internal int TagTop{get{return y;}}
+        protected override void Dispose(bool disposing){if(bitmap!=IntPtr.Zero){Native.DeleteObject(bitmap);bitmap=IntPtr.Zero;}base.Dispose(disposing);}
     }
 }

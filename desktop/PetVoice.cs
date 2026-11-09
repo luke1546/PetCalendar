@@ -47,7 +47,7 @@ namespace PetCalendarDesktop {
         internal static string Chatter(string species,int index){return chatter[species][index];}
         static string[] Lines(string species){string[] lines;return voices.TryGetValue(species,out lines)?lines:null;}
         internal static string Summary(PetSummary summary,string species) {
-            if(summary.Kind=="celebration")return summary.Text;
+            if(summary.Kind=="celebration"||summary.Kind=="notice")return summary.Text;
             var lines=Lines(species);if(lines==null)return summary.Text;
             if(summary.Kind=="empty")return lines[0];
             if(summary.Kind=="done")return lines[1];

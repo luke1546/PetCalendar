@@ -6,7 +6,8 @@ export const CATEGORIES = {
 };
 export const DAY = 86400000;
 export const HOTKEY_KEYS = [[9,'Tab'],[32,'Space'],[192,'`'],...Array.from({length:26},(_,i)=>[65+i,String.fromCharCode(65+i)]),...Array.from({length:10},(_,i)=>[48+i,String(i)]),...Array.from({length:11},(_,i)=>[112+i,`F${i+1}`])];
-export function defaultHotkey() {return {enabled:true,modifiers:2,key:9};}
+export const FONT_KEYS = ['default','jua','childfund'];
+export function defaultHotkey() {return {enabled:true,modifiers:1,key:192};}
 export function validateHotkey(value = defaultHotkey()) {
   check(value && typeof value.enabled==='boolean' && Number.isInteger(value.modifiers) && value.modifiers>=0 && value.modifiers<=7
     && HOTKEY_KEYS.some(([key])=>key===value.key),'단축키 형식을 확인해 주세요.');
@@ -28,7 +29,7 @@ export function isDate(value) {
 }
 export function defaultState() {
   return { version: 1, revision: 0, updatedAt: null, events: [], tasks: [],
-    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true, textScale:0 } };
+    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true, textScale:0, fontFamily:'default', categories:[] } };
 }
 function check(condition, message) { if (!condition) throw new Error(message); }
 function str(value, max, label, required = false) {
@@ -44,11 +45,21 @@ export function validateState(input) {
   function id(value) {
     str(value, 100, '항목 ID', true); check(!ids.has(value), '중복된 항목 ID가 있습니다.'); ids.add(value); return value;
   }
+  const rawCategories = input.settings && input.settings.categories;
+  check(rawCategories===undefined || (Array.isArray(rawCategories) && rawCategories.length<=20), '분류 설정을 확인해 주세요.');
+  const customIds = new Set();
+  const categories = (rawCategories||[]).map(c => {
+    check(c && typeof c.id==='string' && /^c-[a-z0-9]{1,16}$/.test(c.id) && !Object.hasOwn(CATEGORIES,c.id) && !customIds.has(c.id), '분류 설정을 확인해 주세요.');
+    customIds.add(c.id);
+    check(typeof c.name==='string' && c.name.trim().length>0 && c.name.length<=12, '분류 이름은 1~12자로 적어 주세요.');
+    check(typeof c.color==='string' && /^#[0-9a-f]{6}$/.test(c.color), '분류 색상을 확인해 주세요.');
+    return {id:c.id,name:c.name,color:c.color};
+  });
   const events = input.events.map(e => {
     check(e && isDate(e.startDate) && isDate(e.endDate) && e.endDate >= e.startDate, '일정의 시작일과 종료일을 확인해 주세요.');
     check(time(e.startTime) && time(e.endTime) && (!e.endTime || e.startTime), '일정 시간을 확인해 주세요.');
     check(e.endDate !== e.startDate || !e.endTime || e.endTime >= e.startTime, '종료 시간이 시작 시간보다 빠릅니다.');
-    check(Object.hasOwn(CATEGORIES, e.category), '일정 분류를 확인해 주세요.');
+    check(Object.hasOwn(CATEGORIES, e.category) || customIds.has(e.category), '일정 분류를 확인해 주세요.');
     check(['none','daily','weekly','monthly'].includes(e.repeat) || /^monthly:(?:[1-4]|-1):[0-6]$/.test(e.repeat), '반복 방식을 확인해 주세요.');
     check(e.repeatUntil === '' || (isDate(e.repeatUntil) && e.repeatUntil >= e.startDate), '반복 종료일을 확인해 주세요.');
     check([null,0,10,30,60].includes(e.reminder), '알림 시간을 확인해 주세요.');
@@ -71,9 +82,10 @@ export function validateState(input) {
     && [null,0,10,30,60].includes(s.defaultReminder), '설정 형식을 확인해 주세요.');
   check((s.desktopPopups===undefined||typeof s.desktopPopups==='boolean')&&(s.notificationSound===undefined||typeof s.notificationSound==='boolean'),'설정 형식을 확인해 주세요.');
   check(s.textScale===undefined||[0,1,2].includes(s.textScale),'글씨 크기를 확인해 주세요.');
+  check(s.fontFamily===undefined||FONT_KEYS.includes(s.fontFamily),'글꼴을 확인해 주세요.');
   return { version:1, revision:Number.isSafeInteger(input.revision) && input.revision >= 0 ? input.revision : 0,
     updatedAt:typeof input.updatedAt === 'string' ? input.updatedAt : null, events,tasks,
-    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true,textScale:s.textScale??0 } };
+    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true,textScale:s.textScale??0,fontFamily:s.fontFamily??'default',categories } };
 }
 export function occursOn(event, key) {
   if(event.excludedDates?.includes(key))return false;

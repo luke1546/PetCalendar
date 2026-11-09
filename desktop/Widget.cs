@@ -11,11 +11,15 @@ using System.Windows.Forms;
 namespace PetCalendarDesktop {
     // Native surfaces use the same palette as desktop/ui/styles.css and model.mjs.
     public static class DesktopTheme {
-        public static int TextScale;
+        public static int TextScale;public static string FontKey="default";
         public static readonly Color Paper=ColorTranslator.FromHtml("#fff4dd"),Card=ColorTranslator.FromHtml("#fffdf7"),Ink=ColorTranslator.FromHtml("#29241e"),Muted=ColorTranslator.FromHtml("#837866"),Line=ColorTranslator.FromHtml("#e8ddc8"),Orange=ColorTranslator.FromHtml("#ff7146"),Rose=ColorTranslator.FromHtml("#ffc6d4");
         public static int Px(Control control,float value){return (int)Math.Round(value*control.DeviceDpi/96f);}
-        public static Color Category(string category){return ColorTranslator.FromHtml(category=="meeting"?"#a5d9f6":category=="deadline"?"#f6acc1":category=="personal"?"#b9dfa7":"#ffb078");}
-        public static string CategoryName(string category){return category=="meeting"?"회의":category=="deadline"?"마감":category=="personal"?"개인":"업무";}
+        // Custom categories from settings; built-in keys always win.
+        static Dictionary<string,CategoryDef> custom=new Dictionary<string,CategoryDef>();
+        public static void SetCategories(CategoryDef[] list){var next=new Dictionary<string,CategoryDef>();if(list!=null)foreach(var c in list)if(c!=null&&c.id!=null)next[c.id]=c;custom=next;}
+        public static CategoryDef[] CustomCategories{get{return custom.Values.ToArray();}}
+        public static Color Category(string category){CategoryDef c;if(category!=null&&custom.TryGetValue(category,out c))return ColorTranslator.FromHtml(c.color);return ColorTranslator.FromHtml(category=="meeting"?"#a5d9f6":category=="deadline"?"#f6acc1":category=="personal"?"#b9dfa7":"#ffb078");}
+        public static string CategoryName(string category){CategoryDef c;if(category!=null&&custom.TryGetValue(category,out c))return c.name;return category=="meeting"?"회의":category=="deadline"?"마감":category=="personal"?"개인":"업무";}
         public static GraphicsPath Round(RectangleF r,float radius){float d=Math.Max(1,Math.Min(radius*2,Math.Min(r.Width,r.Height)));var path=new GraphicsPath();path.AddArc(r.X,r.Y,d,d,180,90);path.AddArc(r.Right-d,r.Y,d,d,270,90);path.AddArc(r.Right-d,r.Bottom-d,d,d,0,90);path.AddArc(r.X,r.Bottom-d,d,d,90,90);path.CloseFigure();return path;}
         public static readonly Color Frame=ColorTranslator.FromHtml("#c6b79c");
         public static GraphicsPath WindowOutline(Form form,float inset,float radius){return Round(new RectangleF(inset,inset,form.ClientSize.Width-2*inset,form.ClientSize.Height-2*inset),Math.Max(1,radius*form.DeviceDpi/96f-inset));}

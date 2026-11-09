@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace PetCalendarDesktop {
     internal sealed class PetSummary {
-        internal string Text,EventId,StartDate,Kind,Title,Time;
+        internal string Text,EventId,StartDate,Kind,Title,Time,Key;
         internal int Count;
     }
     internal static class PetSchedule {
@@ -42,6 +42,54 @@ namespace PetCalendarDesktop {
             string lead="오늘 할 일이 "+remaining.Length+"개 남았어요!\n";
             string detail=isCurrent?"지금 ‘"+Title(selected.@event.title)+"’ 진행 중이에요. 잘하고 있죠?":isNext?"다음은 "+selected.@event.startTime+" ‘"+Title(selected.@event.title)+"’예요. 잊지 말아요!":isDay?"종일 일정 ‘"+Title(selected.@event.title)+"’도 잊지 말아요!":"시간이 지난 ‘"+Title(selected.@event.title)+"’도 한 번 살펴봐요!";
             return new PetSummary{Kind=isCurrent?"current":isNext?"next":isDay?"day":"past",Title=Title(selected.@event.title),Time=selected.@event.startTime,Count=remaining.Length,Text=lead+detail,EventId=selected.@event.id,StartDate=selected.startDate};
+        }
+    }
+    // One-off pet notices, each shown once (by Key): a morning briefing, a reminder the day
+    // before a deadline, and a Sunday evening review of the week with the completion streak.
+    internal static class PetNotices {
+        static string Short(string value){return value.Length>40?value.Substring(0,39)+"…":value;}
+        static System.Collections.Generic.List<Occurrence> On(CalendarState state,string day){return Rules.Occurrences(state.events,day,day).Where(o=>String.CompareOrdinal(o.startDate,day)<=0&&String.CompareOrdinal(o.endDate,day)>=0).ToList();}
+        internal static PetSummary Next(CalendarState state,DateTime local,Func<string,bool> seen){
+            string today=Rules.Key(local);
+            if(local.DayOfWeek==DayOfWeek.Sunday&&local.Hour>=18){string key="week:"+today;if(!seen(key))return new PetSummary{Kind="notice",Key=key,Text=Weekly(state,today)};}
+            if(local.Hour>=9){
+                string tomorrow=Rules.AddDays(today,1);
+                foreach(var o in Rules.Occurrences(state.events,tomorrow,tomorrow).Where(x=>x.startDate==tomorrow&&x.@event.category=="deadline"&&!Rules.Done(x.@event,x.startDate))){
+                    string key="eve:"+o.@event.id+":"+o.startDate;if(seen(key))continue;
+                    return new PetSummary{Kind="notice",Key=key,Text="내일 마감이에요! ‘"+Short(o.@event.title)+"’"+(o.@event.startTime!=""?" ("+o.@event.startTime+")":"")+" 📌\n오늘 조금 미리 챙겨둘까요?"};
+                }
+            }
+            if(local.Hour>=5&&local.Hour<12){string key="morning:"+today;if(!seen(key))return new PetSummary{Kind="notice",Key=key,Text=Morning(state,local)};}
+            return null;
+        }
+        internal static string Morning(CalendarState state,DateTime local){
+            string today=Rules.Key(local);var all=On(state,today);
+            if(all.Count==0)return "좋은 아침! 오늘은 일정이 없어요.\n여유롭게 보내요 ☕";
+            int deadlines=all.Count(o=>o.@event.category=="deadline");
+            var first=all.Where(o=>o.@event.startTime!="").OrderBy(o=>o.@event.startTime,StringComparer.Ordinal).FirstOrDefault();
+            string head="좋은 아침! 오늘은 일정 "+all.Count+"개"+(deadlines>0?", 그중 마감 "+deadlines+"개!":"!");
+            return head+"\n"+(first!=null?"첫 일정은 "+first.@event.startTime+" ‘"+Short(first.@event.title)+"’예요 ☀️":"하나씩 같이 해봐요 ☀️");
+        }
+        internal static string Weekly(CalendarState state,string today){
+            string from=Rules.AddDays(today,-6);
+            var week=Rules.Occurrences(state.events,from,today).Where(o=>String.CompareOrdinal(o.startDate,from)>=0).ToList();
+            int done=week.Count(o=>Rules.Done(o.@event,o.startDate));int streak=Streak(state,today);
+            if(week.Count==0)return "이번 주는 등록된 일정이 없었어요.\n다음 주도 함께해요! 🌱";
+            string text="이번 주 정리! 일정 "+week.Count+"개 중 "+done+"개 완료 "+(done==week.Count?"🎉":"👏");
+            if(streak>=2)text+="\n"+streak+"일 연속 모두 해냈어요 🔥";
+            else if(done<week.Count)text+="\n다음 주도 차근차근 해봐요!";
+            return text;
+        }
+        // Days in a row (ending today) whose schedules were all completed. Days without
+        // schedules are skipped, and an unfinished today does not break the run yet.
+        internal static int Streak(CalendarState state,string today){
+            int streak=0;string day=today;
+            for(int i=0;i<120;i++,day=Rules.AddDays(day,-1)){
+                var list=On(state,day);if(list.Count==0)continue;
+                if(list.All(o=>Rules.Done(o.@event,o.startDate)))streak++;
+                else if(day!=today)break;
+            }
+            return streak;
         }
     }
     // Wall-clock scheduling is explicit so sleep/resume and interval changes are testable.

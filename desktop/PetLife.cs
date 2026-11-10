@@ -32,6 +32,7 @@ namespace PetCalendarDesktop {
         readonly HashSet<PetHost> sleepers=new HashSet<PetHost>(),excused=new HashSet<PetHost>();
         Meeting meeting;DateTime nextMeet,nextSteer;string steered;string today;bool bedTime;BedWindow bed;
         internal bool BedEnabled=true,ToyEnabled=true;internal double BedFraction=.82;
+        internal const int ToyTalkPercent=4;
         ToyWindow toy;bool toyMode,trackingToy;PetHost toyPet;DateTime nextToyJump;
         internal Action<double> BedMoved;internal Action BedHidden;
         // Test switch: PETCAL_BEDTIME=1 makes it bedtime now.
@@ -78,7 +79,8 @@ namespace PetCalendarDesktop {
             if(next!=toyPet){
                 EndToy();if(next==null)return;
                 EndMeeting();toyPet=next;toyPet.FormClosed+=ToyPetClosed;toyMode=true;nextToyJump=DateTime.MinValue;if(toy==null)toy=new ToyWindow();
-                if(random.Next(10)==0)Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
+                // Only now and then (4%): a line every time the toy comes near was too chatty.
+                if(random.Next(100)<ToyTalkPercent)Speak(next,PetLines.Say(next.Kind.Id,LevelOf(next),"toy"),4);
                 var day=DayOf(next);if(day.Toys<3){day.Toys++;if(Award!=null)Award(next,2);}
             }
             if(toyPet==null)return;

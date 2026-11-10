@@ -235,6 +235,43 @@ namespace PetCalendarDesktop {
             Items.SetBounds(0,-Scrollbar.Value,ContentWidth,Math.Max(1,total));
         }finally{reflowing=false;}}
     }
+    // Themed scrollbar + mouse wheel for a multiline TextBox (memo fields, sticky notes).
+    // The native bar ignores the theme, and dialog wheel hooks used to swallow its wheel.
+    public sealed class TextScroll {
+        [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
+        const int EM_LINESCROLL=0xB6,EM_GETLINECOUNT=0xBA,EM_GETFIRSTVISIBLELINE=0xCE;
+        readonly TextBox box;public readonly ThemeScrollBar Bar=new ThemeScrollBar();bool syncing;int wheelRest;
+        // Raised when the bar appears or disappears; the owner lays out the box again.
+        public event Action VisibilityChanged;
+        public TextScroll(TextBox box){
+            this.box=box;box.ScrollBars=ScrollBars.None;Bar.Visible=false;Bar.TabStop=false;Bar.AccessibleName="메모 스크롤";
+            Bar.ValueChanged+=delegate{if(syncing)return;int line=LineHeight;Scroll((Bar.Value+line/2)/line-First);};
+            box.MouseWheel+=Wheel;
+            box.TextChanged+=delegate{Later();};box.KeyDown+=delegate{Later();};box.MouseUp+=delegate{Sync();};box.MouseMove+=(s,e)=>{if(e.Button==MouseButtons.Left)Sync();};
+            box.Resize+=delegate{Sync();};box.FontChanged+=delegate{Sync();};box.HandleCreated+=delegate{Sync();};
+        }
+        int LineHeight{get{return Math.Max(1,box.Font.Height);}}
+        int First{get{return box.IsHandleCreated?SendMessage(box.Handle,EM_GETFIRSTVISIBLELINE,IntPtr.Zero,IntPtr.Zero).ToInt32():0;}}
+        void Later(){if(box.IsHandleCreated)box.BeginInvoke((Action)Sync);}
+        void Scroll(int lines){if(lines!=0&&box.IsHandleCreated)SendMessage(box.Handle,EM_LINESCROLL,IntPtr.Zero,new IntPtr(lines));Sync();}
+        void Wheel(object sender,MouseEventArgs e){
+            var handled=e as HandledMouseEventArgs;if(handled!=null&&handled.Handled)return;
+            if(!Bar.Visible)return; // nothing to scroll: let the page/dialog scroll instead
+            int step=SystemInformation.MouseWheelScrollLines;if(step<=0)step=3;
+            wheelRest+=e.Delta;int notches=wheelRest/120;wheelRest-=notches*120; // touchpads send small deltas
+            int before=First;Scroll(-notches*step);
+            // At the top/bottom edge the wheel goes on to the page around the box.
+            if(handled!=null&&(First!=before||notches==0))handled.Handled=true;
+        }
+        public void Sync(){
+            if(!box.IsHandleCreated||box.IsDisposed)return;int line=LineHeight;
+            int count=SendMessage(box.Handle,EM_GETLINECOUNT,IntPtr.Zero,IntPtr.Zero).ToInt32(),visible=Math.Max(1,box.ClientSize.Height/line);
+            bool need=count>visible;
+            if(!need&&First>0)SendMessage(box.Handle,EM_LINESCROLL,IntPtr.Zero,new IntPtr(-First));
+            syncing=true;try{Bar.SetMetrics(count*line,visible*line);Bar.Value=First*line;}finally{syncing=false;}
+            if(need!=Bar.Visible){Bar.Visible=need;if(VisibilityChanged!=null)VisibilityChanged();}
+        }
+    }
     public sealed class ThemeScrollBar : Control {
         int value,maximum,viewport=1,total=1,dragY,startValue;
         bool dragging,hovered;

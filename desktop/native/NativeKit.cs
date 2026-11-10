@@ -499,12 +499,12 @@ public static class Ui {
         public readonly CueTextBox Box=new CueTextBox();
         public float FontCss=13,PadX=11,PadY=10;public int Weight=400;public bool Multiline;public float MinHeightCss;
         // Multiline only: grow with the text up to this height (CSS px), then show a scroll bar.
-        public float MaxHeightCss;public event Action HeightChanged;int lastPreferred;
+        public float MaxHeightCss;public event Action HeightChanged;int lastPreferred;TextScroll scroll;
         public event EventHandler ValueChanged;
         public InputBox(bool multiline=false,float fontCss=13,int weight=400){
             Multiline=multiline;FontCss=fontCss;Weight=weight;
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);
-            Box.Multiline=multiline;Box.BackColor=Ui.C("#fffaf1");Box.ForeColor=DesktopTheme.Ink;if(multiline){Box.ScrollBars=ScrollBars.None;Box.AcceptsReturn=true;Box.WordWrap=true;Box.TextChanged+=delegate{Grow();};}
+            Box.Multiline=multiline;Box.BackColor=Ui.C("#fffaf1");Box.ForeColor=DesktopTheme.Ink;if(multiline){Box.AcceptsReturn=true;Box.WordWrap=true;Box.TextChanged+=delegate{Grow();};scroll=new TextScroll(Box);scroll.Bar.BackColor=Ui.C("#fffaf1");scroll.VisibilityChanged+=delegate{PerformLayout();};Controls.Add(scroll.Bar);}
             Box.GotFocus+=delegate{Invalidate();};Box.LostFocus+=delegate{Invalidate();};Box.TextChanged+=delegate{if(ValueChanged!=null)ValueChanged(this,EventArgs.Empty);};
             Controls.Add(Box);Cursor=Cursors.IBeam;
         }
@@ -514,9 +514,10 @@ public static class Ui {
         float Sc{get{return DeviceDpi/96f;}}
         public int PreferredHeight(){float s=Sc;var font=Ui.Font(s,FontCss,Weight);int line=(int)Math.Ceiling(font.GetHeight()*1.0f);int h=(int)Math.Round(line+2*PadY*s+2*s);if(Multiline){h=Math.Max(h+line,(int)Math.Round(Math.Max(65,MinHeightCss)*s));if(MaxHeightCss>0){int content=TextHeight()+(int)Math.Round(2*PadY*s+2*s);h=Math.Min((int)Math.Round(MaxHeightCss*s),Math.Max(h,content));}}return h;}
         int TextHeight(){int width=Math.Max(40,(Width>0?Width:Box.Width)-(int)Math.Round(2*PadX*Sc)-SystemInformation.VerticalScrollBarWidth);return TextRenderer.MeasureText(Box.Text+"\n ",Box.Font,new Size(width,int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.TextBoxControl).Height;}
-        void Grow(){if(MaxHeightCss<=0)return;int h=PreferredHeight();bool overflow=TextHeight()+(int)Math.Round(2*PadY*Sc+2*Sc)>(int)Math.Round(MaxHeightCss*Sc);var bars=overflow?ScrollBars.Vertical:ScrollBars.None;if(Box.ScrollBars!=bars)Box.ScrollBars=bars;if(h!=lastPreferred){lastPreferred=h;if(HeightChanged!=null)HeightChanged();}}
+        void Grow(){if(MaxHeightCss<=0)return;int h=PreferredHeight();if(h!=lastPreferred){lastPreferred=h;if(HeightChanged!=null)HeightChanged();}}
         protected override void OnLayout(LayoutEventArgs e){base.OnLayout(e);float s=Sc;Box.Font=Ui.Font(s,FontCss,Weight);int padX=(int)Math.Round(PadX*s+s),padY=(int)Math.Round(PadY*s+s);
-            if(Multiline)Box.SetBounds(padX,padY,Math.Max(1,Width-2*padX),Math.Max(1,Height-2*padY));
+            if(Multiline){int bar=scroll!=null&&scroll.Bar.Visible?(int)Math.Round(12*s):0;Box.SetBounds(padX,padY,Math.Max(1,Width-2*padX-bar),Math.Max(1,Height-2*padY));
+                if(scroll!=null){scroll.Bar.SetBounds(Width-(int)Math.Round(4*s)-(int)Math.Round(12*s),(int)Math.Round(4*s),(int)Math.Round(12*s),Math.Max(1,Height-(int)Math.Round(8*s)));scroll.Sync();}}
             else{int h=Box.PreferredHeight;Box.SetBounds(padX,(Height-h)/2,Math.Max(1,Width-2*padX),h);}
         }
         protected override void OnFontChanged(EventArgs e){base.OnFontChanged(e);PerformLayout();}

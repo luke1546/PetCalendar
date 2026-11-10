@@ -321,23 +321,39 @@ namespace PetCalendarDesktop {
         protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);DesktopTheme.ShapeWindow(this,14,false);}
         protected override void OnPaintBackground(PaintEventArgs e){DesktopTheme.PaintWindow(this,e.Graphics,14,false);}
     }
+    // Borderless, painted like the other pet dialogs (no gray system title bar).
     internal sealed class PetNameDialog : Form {
-        readonly TextBox input=new TextBox{MaxLength=24,Dock=DockStyle.Fill};
+        readonly TextBox input=new TextBox{MaxLength=24,BorderStyle=BorderStyle.None};
+        readonly Panel field=new Panel{Height=36,Dock=DockStyle.Top};
         internal string PetName {get{return input.Text.Trim();}}
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool ReleaseCapture();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
         internal PetNameDialog(string name,string species) {
             Text="펫 이름 짓기 · "+species;AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
-            FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=MinimizeBox=false;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
-            Font=new Font("Segoe UI",11+DesktopTheme.TextScale);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(370,186);Padding=new Padding(18);
-            var layout=new TableLayoutPanel{Dock=DockStyle.Fill,ColumnCount=1,RowCount=4};
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,28));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,34));layout.RowStyles.Add(new RowStyle(SizeType.Percent,100));layout.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
-            layout.Controls.Add(new Label{Text=species+"에게 이름을 지어 주세요 (최대 24자)",Dock=DockStyle.Fill,UseMnemonic=false},0,0);
-            input.Name="pet-name";input.AccessibleName="펫 이름";input.Text=name;layout.Controls.Add(input,0,1);
-            layout.Controls.Add(new Label{Text="비워두면 종류와 색상으로 표시합니다.",Dock=DockStyle.Fill,ForeColor=DesktopTheme.Muted,UseMnemonic=false},0,2);
-            var actions=new FlowLayoutPanel{Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft};
-            var save=new Button{Text="저장",DialogResult=DialogResult.OK,AutoSize=true};var cancel=new Button{Text="취소",DialogResult=DialogResult.Cancel,AutoSize=true};
-            actions.Controls.Add(save);actions.Controls.Add(cancel);layout.Controls.Add(actions,0,3);Controls.Add(layout);AcceptButton=save;CancelButton=cancel;
+            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.CenterScreen;
+            Font=DesktopTheme.UiFont(11+DesktopTheme.TextScale);BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;ClientSize=new Size(380,222);Padding=new Padding(22,18,22,18);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            var title=new Label{Text="펫 이름 짓기",Dock=DockStyle.Top,Height=32,Font=DesktopTheme.UiFont(13+DesktopTheme.TextScale,FontStyle.Bold),UseMnemonic=false};
+            var prompt=new Label{Text=species+"에게 이름을 지어 주세요 (최대 24자)",Dock=DockStyle.Top,Height=28,UseMnemonic=false};
+            input.Name="pet-name";input.AccessibleName="펫 이름";input.Text=name;input.BackColor=ColorTranslator.FromHtml("#fffaf1");input.ForeColor=DesktopTheme.Ink;
+            field.BackColor=DesktopTheme.Paper;field.Controls.Add(input);
+            field.Resize+=delegate{int h=input.PreferredHeight;input.SetBounds(12,(field.Height-h)/2,Math.Max(1,field.Width-24),h);};
+            field.Paint+=(sender,e)=>{e.Graphics.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;bool focus=input.Focused;var r=new RectangleF(1,1,field.Width-3,field.Height-3);
+                using(var shape=DesktopTheme.Round(r,8))using(var fill=new SolidBrush(input.BackColor))using(var pen=new Pen(focus?DesktopTheme.Orange:ColorTranslator.FromHtml("#d5c7ad"),focus?2:1)){e.Graphics.FillPath(fill,shape);e.Graphics.DrawPath(pen,shape);}};
+            input.GotFocus+=delegate{field.Invalidate();};input.LostFocus+=delegate{field.Invalidate();};field.Click+=delegate{input.Focus();};
+            var hint=new Label{Text="비워두면 종류와 색상으로 표시합니다.",Dock=DockStyle.Top,Height=30,ForeColor=DesktopTheme.Muted,TextAlign=ContentAlignment.MiddleLeft,UseMnemonic=false};
+            var actions=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=36,FlowDirection=FlowDirection.RightToLeft};
+            var save=new WidgetButton{Text="저장",DialogResult=DialogResult.OK,Primary=true,Size=new Size(88,30)};var cancel=new WidgetButton{Text="취소",DialogResult=DialogResult.Cancel,Size=new Size(88,30)};
+            actions.Controls.Add(save);actions.Controls.Add(cancel);
+            Controls.Add(hint);Controls.Add(field);Controls.Add(prompt);Controls.Add(title);Controls.Add(actions);AcceptButton=save;CancelButton=cancel;
+            // Drag the dialog by any empty spot.
+            MouseEventHandler drag=(sender,e)=>{if(e.Button!=MouseButtons.Left)return;ReleaseCapture();SendMessage(Handle,0x00a1,new IntPtr(2),IntPtr.Zero);};
+            MouseDown+=drag;title.MouseDown+=drag;prompt.MouseDown+=drag;hint.MouseDown+=drag;
             Shown+=delegate{input.Focus();input.SelectAll();};
         }
+        protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnDpiChanged(DpiChangedEventArgs e){base.OnDpiChanged(e);DesktopTheme.ShapeWindow(this,14,false);}
+        protected override void OnPaintBackground(PaintEventArgs e){DesktopTheme.PaintWindow(this,e.Graphics,14,false);}
     }
 
 }

@@ -68,7 +68,7 @@ namespace PetCalendarDesktop {
             Icon=new Icon(Path.Combine(root,"calendar.ico"));
             view=new CalendarView(this,store,prefs){Dock=DockStyle.Fill};view.WindowAction+=WindowAction;Controls.Add(view);
             widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();view.OpenFromHost(id,date);},Log);widget.Icon=Icon;
-            notes=new StickyNotes(dataDir,Log);widget.NoteRequested+=()=>notes.Create(widget.Visible?widget.Bounds:(Rectangle?)null);
+            notes=new StickyNotes(dataDir,Log);widget.NoteRequested+=()=>notes.Request(widget.Visible?widget.Bounds:(Rectangle?)null);
             menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
             widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
             widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;view.WidgetChanged();};

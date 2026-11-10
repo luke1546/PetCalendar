@@ -16,7 +16,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("펫 캘린더")]
 [assembly: AssemblyDescription("일정과 할 일을 정리하는 펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
-[assembly: AssemblyVersion("3.4.1.0")]
+[assembly: AssemblyVersion("3.4.2.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8",FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace PetCalendarDesktop {

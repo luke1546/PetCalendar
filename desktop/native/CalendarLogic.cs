@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -356,6 +357,22 @@ namespace PetCalendarDesktop {
             if(modal)return;var dialog=new SettingsDialog(this,host);dialog.Show(null);if(section!=null)dialog.Reveal(section);
         }
         void ShowHelp(){if(modal)return;new HelpDialog(this).Show(null);}
+        // Header paw button: pick a species and it drops onto the desktop (turns pets on if needed).
+        static readonly string[][] PetChoices={new[]{"cat","고양이"},new[]{"dog","포메라니안"},new[]{"redPanda","레서판다"},new[]{"capybara","카피바라"},new[]{"squirrel","다람쥐"},new[]{"alpaca","알파카"},new[]{"elephant","코끼리"},new[]{"random","랜덤"}};
+        void ShowPetMenu(Rectangle button){
+            if(modal)return;var menu=new ContextMenuStrip{ShowImageMargin=false,Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale),BackColor=DesktopTheme.Card,ForeColor=DesktopTheme.Ink};
+            menu.Items.Add(new ToolStripLabel("펫 추가하기"){ForeColor=DesktopTheme.Muted});
+            foreach(var choice in PetChoices){var c=choice;menu.Items.Add(c[1],null,delegate{AddPet(c[0],c[1]);});}
+            menu.Closed+=delegate{BeginInvoke(new Action(menu.Dispose));};menu.Show(this,new Point(button.Right-menu.GetPreferredSize(Size.Empty).Width,button.Bottom+P(4)));
+        }
+        async void AddPet(string species,string label){
+            try{
+                var info=await Api("GET","/api/pets");object on;
+                if(!(info.TryGetValue("enabled",out on)&&on is bool&&(bool)on))await Api("POST","/api/pets",new Dictionary<string,object>{{"action","enable"}});
+                await Api("POST","/api/pets",new Dictionary<string,object>{{"action","spawn"},{"species",species}});
+                Toast(species=="random"?"새 친구를 데려왔어요":label+((label[label.Length-1]-0xAC00)%28!=0?"을":"를")+" 데려왔어요","바탕화면을 확인해 보세요. 펫을 우클릭하면 이름을 지어 줄 수 있어요.");PetsChanged();
+            }catch(Exception error){Toast("펫을 추가하지 못했어요",error.Message,"error");}
+        }
         internal void ShowQuickTour(){if(modal)return;new QuickTourDialog(this,host).Show(null);}
         // v3.1.1 changed the default window hotkey from Ctrl + Tab (which browsers and editors use
         // for switching tabs) to Alt + `. Users still on the old default are moved once and told so.

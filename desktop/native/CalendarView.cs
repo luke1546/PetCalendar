@@ -331,6 +331,8 @@ namespace PetCalendarDesktop {
             AddHit("settings",settings,OpenSettings,"설정 및 백업");FocusRing(g,"settings",settings,9*s);
             x-=P(16)+ib;var help=new Rectangle(x,cy-ib/2,ib,ib);ButtonBox(g,"tour-help",help,false);Ui.Text(g,"?",F(16,800,"?"),help,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
             AddHit("tour-help",help,ShowQuickTour,"퀵투어 다시 보기");FocusRing(g,"tour-help",help,9*s);
+            x-=P(16)+ib;var petButton=new Rectangle(x,cy-ib/2,ib,ib);ButtonBox(g,"add-pet",petButton,false);Ui.Paw(g,new RectangleF(petButton.X+9*s,petButton.Y+8*s,18*s,18*s));
+            var petScreen=petButton;petScreen.Offset(0,ty);AddHit("add-pet",petButton,()=>ShowPetMenu(petScreen),"펫 추가하기");FocusRing(g,"add-pet",petButton,9*s);
             x-=P(16);var dateFont=F(12,400,todayText);var clockFont=F(20,400,null,"mono");int dh=(int)Math.Ceiling(dateFont.GetHeight()),ch=(int)Math.Ceiling(clockFont.GetHeight());int sy=cy-(dh+P(4)+ch)/2;
             int dw=Ui.Width(todayText,dateFont);Ui.Text(g,todayText,dateFont,new Rectangle(x-dw-2,sy,dw+2,dh),Ui.C("#71644f"),TextFormatFlags.Right|TextFormatFlags.VerticalCenter);
             float cw=Ui.SpacedWidth(clockText,clockFont,1.5f*s)+1.5f*s;Ui.Spaced(g,clockText,clockFont,x-cw,sy+dh+P(4),ch,DesktopTheme.Ink,1.5f*s);

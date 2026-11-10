@@ -29,7 +29,11 @@ namespace PetCalendarDesktop {
         string pendingId,pendingKey;bool pending;
         static readonly IntlKoreanComparer KoreanText=IntlKoreanComparer.Instance;
         internal static string CategoryLight(string c){if(c!="work"&&c!="meeting"&&c!="deadline"&&c!="personal"){var k=DesktopTheme.Category(c);var m=Ui.Mix(k,System.Drawing.Color.White,.8f);return String.Format("#{0:x2}{1:x2}{2:x2}",m.R,m.G,m.B);}return c=="meeting"?"#eaf6fe":c=="deadline"?"#ffedf2":c=="personal"?"#f0f8e9":"#fff0e3";}
-        internal static string[] AllCategories(){return new[]{"work","meeting","deadline","personal"}.Concat(DesktopTheme.CustomCategories.Select(c=>c.id)).ToArray();}
+        static readonly string[] BuiltIns={"work","meeting","deadline","personal"};
+        internal static bool IsBuiltIn(string id){return Array.IndexOf(BuiltIns,id)>=0;}
+        // Categories offered in filters and the editor: remaining built-ins, then custom ones.
+        internal static string DefaultCategory(){return AllCategories().FirstOrDefault()??"work";}
+        internal static string[] AllCategories(){return BuiltIns.Where(b=>!DesktopTheme.Hidden(b)).Concat(DesktopTheme.CustomCategories.Select(c=>c.id)).ToArray();}
         internal static string FormatDay(string key){return Rules.Date(key).ToString("M월 d일 (ddd)",Rules.Korean);}
         internal static string FormatLong(string key){return Rules.Date(key).ToString("yyyy년 M월 d일 ddd",Rules.Korean);}
         internal static string RepeatLabel(string repeat){
@@ -69,7 +73,32 @@ namespace PetCalendarDesktop {
         void Summary(){var e=state.events.FirstOrDefault(x=>x.pinned);deadlineTarget=e==null?null:Rules.DdayOccurrence(e,Rules.Key(DateTime.Today));}
         internal bool IsDdayOccurrence(Occurrence o){return deadlineTarget!=null&&deadlineTarget.@event.id==o.@event.id&&deadlineTarget.startDate==o.startDate;}
         internal void CategoryRemoved(string id){if(filter==id){filter="all";Render();}}
-        internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;DesktopTheme.SetCategories(state.settings.categories);}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
+        // Custom categories (made from the schedule editor). Returns the new category, or null.
+        internal async Task<CategoryDef> AddCategory(string name,string color){
+            name=(name??"").Trim();if(name.Length==0)return null;
+            var builtIn=BuiltIns.FirstOrDefault(b=>DesktopTheme.Hidden(b)&&DesktopTheme.CategoryName(b)==name);
+            if(builtIn!=null)return await Commit(s=>{s.settings.hiddenCategories=(s.settings.hiddenCategories??new string[0]).Where(h=>h!=builtIn).ToArray();})?new CategoryDef{id=builtIn,name=name}:null;
+            var existing=state.settings.categories??new CategoryDef[0];
+            if(existing.Length>=20){Toast("분류는 20개까지 만들 수 있어요","쓰지 않는 분류를 지운 뒤 다시 추가해 주세요.","error");return null;}
+            if(existing.Any(c=>c.name==name)||BuiltIns.Where(b=>!DesktopTheme.Hidden(b)).Any(k=>DesktopTheme.CategoryName(k)==name)){Toast("이미 있는 분류 이름이에요",name,"error");return null;}
+            var def=new CategoryDef{id="c-"+Guid.NewGuid().ToString("N").Substring(0,8),name=name,color=color};
+            return await Commit(s=>{s.settings.categories=(s.settings.categories??new CategoryDef[0]).Concat(new[]{def}).ToArray();})?def:null;
+        }
+        // Deleting moves that category's schedules to 업무 (undo with Ctrl+Z).
+        internal async Task<bool> DeleteCategory(string id){
+            bool builtIn=IsBuiltIn(id);var def=builtIn?null:(state.settings.categories??new CategoryDef[0]).FirstOrDefault(c=>c.id==id);if(!builtIn&&def==null)return false;
+            string name=DesktopTheme.CategoryName(id);var remaining=AllCategories().Where(c=>c!=id).ToArray();
+            if(remaining.Length==0){Toast("분류는 하나 이상 있어야 해요","다른 분류를 먼저 만든 뒤 지워 주세요.","error");return false;}
+            string fallback=remaining[0],fallbackName=DesktopTheme.CategoryName(fallback);int used=state.events.Count(e=>e.category==id);
+            if(!await Confirm("‘"+name+"’ 분류를 삭제할까요?",used>0?"이 분류의 일정 "+used+"개는 ‘"+fallbackName+"’(으)로 바뀝니다.":"사용 중인 일정은 없어요."+(builtIn?" 나중에 ‘+ 분류’에서 같은 이름으로 다시 만들 수 있어요.":""),"삭제"))return false;
+            if(!await Commit(s=>{
+                if(builtIn)s.settings.hiddenCategories=(s.settings.hiddenCategories??new string[0]).Concat(new[]{id}).Distinct().ToArray();
+                else s.settings.categories=(s.settings.categories??new CategoryDef[0]).Where(c=>c.id!=id).ToArray();
+                foreach(var e in s.events)if(e.category==id)e.category=fallback;
+            }))return false;
+            CategoryRemoved(id);Toast("분류를 삭제했어요",name);return true;
+        }
+        internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;DesktopTheme.SetCategories(state.settings.categories,state.settings.hiddenCategories);}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
         internal void JumpTo(string key){selected=key;month=key.Substring(0,7);limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void MonthMove(int amount){var next=Rules.Date(month+"-01").AddMonths(amount);month=Rules.Key(next).Substring(0,7);selected=month+"-01";limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void CellClick(string key,bool selectOnly){bool same=selected==key;JumpTo(key);if(same&&!selectOnly)OpenEvent(null,selected,false);}
@@ -121,6 +150,7 @@ namespace PetCalendarDesktop {
         // Each saved change to events or tasks is remembered as per-item before/after copies.
         // Undo writes the "before" copies back onto the latest state (and redo the "after" ones),
         // so it merges with unrelated edits made since, e.g. from the widget or another window.
+        public sealed class CategoryState {public CategoryDef[] categories;public string[] hidden;}
         internal sealed class HistoryEntry {public List<ItemChange> Events=new List<ItemChange>(),Tasks=new List<ItemChange>();public string Label="";public string CategoriesBefore,CategoriesAfter;}
         internal sealed class ItemChange {public string Id,Before,After;public int BeforeIndex,AfterIndex;}
         readonly List<HistoryEntry> undoStack=new List<HistoryEntry>(),redoStack=new List<HistoryEntry>();
@@ -138,7 +168,7 @@ namespace PetCalendarDesktop {
         void Record(CalendarState before,CalendarState after){
             if(before==null||after==null)return;
             var entry=new HistoryEntry{Events=Diff(before.events,after.events,e=>e.id),Tasks=Diff(before.tasks,after.tasks,t=>t.id)};
-            string cb=Codec.Json(before.settings.categories??new CategoryDef[0]),ca=Codec.Json(after.settings.categories??new CategoryDef[0]);if(cb!=ca){entry.CategoriesBefore=cb;entry.CategoriesAfter=ca;}
+            string cb=Codec.Json(new CategoryState{categories=before.settings.categories??new CategoryDef[0],hidden=before.settings.hiddenCategories??new string[0]}),ca=Codec.Json(new CategoryState{categories=after.settings.categories??new CategoryDef[0],hidden=after.settings.hiddenCategories??new string[0]});if(cb!=ca){entry.CategoriesBefore=cb;entry.CategoriesAfter=ca;}
             if(entry.Events.Count+entry.Tasks.Count==0&&entry.CategoriesBefore==null)return;
             if(entry.Events.Count+entry.Tasks.Count==0){entry.Label="일정 분류";undoStack.Add(entry);if(undoStack.Count>100)undoStack.RemoveAt(0);redoStack.Clear();return;}
             var first=entry.Events.Concat(entry.Tasks).First();string json=first.After??first.Before;
@@ -156,7 +186,7 @@ namespace PetCalendarDesktop {
             return list.ToArray();
         }
         static void Apply(CalendarState s,HistoryEntry entry,bool undo){
-            if(entry.CategoriesBefore!=null)s.settings.categories=Codec.Read<CategoryDef[]>(undo?entry.CategoriesBefore:entry.CategoriesAfter);
+            if(entry.CategoriesBefore!=null){var cs=Codec.Read<CategoryState>(undo?entry.CategoriesBefore:entry.CategoriesAfter);s.settings.categories=cs.categories??new CategoryDef[0];s.settings.hiddenCategories=cs.hidden??new string[0];}
             s.events=Patch(s.events,entry.Events,undo,e=>e.id);s.tasks=Patch(s.tasks,entry.Tasks,undo,t=>t.id);
             // Only one schedule can be the D-day; keep the restored one.
             var restored=new HashSet<string>(entry.Events.Select(c=>c.Id));
@@ -308,7 +338,7 @@ namespace PetCalendarDesktop {
             bool ok=await Commit(s=>{
                 var index=Array.FindIndex(s.tasks,t=>t.id==id);if(index<0)throw new AppError(400,"할 일을 찾지 못했습니다.");
                 original=Codec.Read<CalendarTask>(Codec.Json(s.tasks[index]));
-                converted=new CalendarEvent{id=original.id,title=original.title,startDate=target,endDate=target,startTime="",endTime="",category="work",note="",repeat="none",repeatUntil="",reminder=s.settings.defaultReminder,pinned=false,pinnedDate="",completedDates=original.done?new[]{target}:new string[0],excludedDates=new string[0]};
+                converted=new CalendarEvent{id=original.id,title=original.title,startDate=target,endDate=target,startTime="",endTime="",category=DefaultCategory(),note="",repeat="none",repeatUntil="",reminder=s.settings.defaultReminder,pinned=false,pinnedDate="",completedDates=original.done?new[]{target}:new string[0],excludedDates=new string[0]};
                 s.tasks=s.tasks.Where(t=>t.id!=id).ToArray();s.events=s.events.Concat(new[]{converted}).ToArray();
             });
             if(!ok)return;JumpTo(target);

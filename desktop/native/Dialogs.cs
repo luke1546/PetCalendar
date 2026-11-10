@@ -82,14 +82,18 @@ namespace PetCalendarDesktop {
         readonly ThemeCheckBox allDay=Css.Check("종일 일정",11,true),pinned=Css.Check("이 일정을 D-day로 표시",12);
         readonly SelectField repeat=Css.Select("none","반복 안 함","daily","매일","weekly","매주","monthly","매월 같은 날짜","monthly-weekday","매월 순번·요일"),reminder=Css.Reminders();
         readonly SelectField week=Css.Select("1","첫째","2","둘째","3","셋째","4","넷째","-1","마지막"),weekday=Css.Select("0","일요일","1","월요일","2","화요일","3","수요일","4","목요일","5","금요일","6","토요일");
-        readonly InputBox note=new InputBox(true){MaxLength=5000,Placeholder="장소나 준비할 내용을 적어두세요"};
+        readonly InputBox note=new InputBox(true){MaxLength=5000,Placeholder="장소나 준비할 내용을 적어두세요",MaxHeightCss=200};
         readonly List<ChoiceChip> categories=new List<ChoiceChip>();
+        InlineItem chipRow;RowItem categoryForm;
+        readonly Btn newCategory=Css.Button("+ 분류",BtnKind.Small,10),addCategory=Css.Button("추가",BtnKind.Primary),cancelCategory=Css.Button("취소");
+        readonly InputBox categoryName=new InputBox(false){MaxLength=12,Placeholder="예: 운동, 공부"};
+        readonly SelectField categoryColor=Css.Select("#c9a7f0","보라","#ffd86b","노랑","#8fd8c8","민트","#9fb4ff","파랑","#ff9fb2","장미","#a8c66c","올리브","#d4b896","모래","#bdbdbd","회색");
         readonly Btn delete=new Btn(BtnKind.Danger,"삭제"),copy=new Btn(BtnKind.Normal,"복제"),cancel=new Btn(BtnKind.Normal,"취소"),save=new Btn(BtnKind.Primary,"일정 저장");
         readonly TextItem error=new TextItem("",11,400,Ui.C("#bf4c3b"),1.8f){Top=8,Bottom=8};
         FlowItem notice,timeRow,weekdayRow,untilField;string draftKey,baseline;readonly Timer draftTimer=new Timer{Interval=300};bool loading;
         public EventDialog(CalendarView view,CalendarEvent source,string key,bool copyMode):base(view,copyMode?"일정 복제":source!=null?"일정 수정":"새 일정","나의 새로운 계획"){
             original=source;occurrence=key;duplicate=copyMode;editingId=copyMode?null:(source!=null?source.id:null);WidthCss=550;
-            var e=source??new CalendarEvent{title="",startDate=key,endDate=key,startTime="",endTime="",category="work",note="",repeat="none",repeatUntil="",reminder=view.state.settings.defaultReminder,pinned=false};
+            var e=source??new CalendarEvent{title="",startDate=key,endDate=key,startTime="",endTime="",category=CalendarView.DefaultCategory(),note="",repeat="none",repeatUntil="",reminder=view.state.settings.defaultReminder,pinned=false};
             var noticeBox=new BoxItem{Fill=Ui.C("#ffedc4"),Radius=7,PadTop=10,PadBottom=10,PadLeft=12,PadRight=12,Top=-8,Bottom=18};noticeBox.Add(new TextItem("반복 일정입니다. 저장하거나 삭제할 때 적용 범위를 선택할 수 있습니다.",11,400,Ui.C("#95702f"),1.8f));notice=Body.Add(noticeBox);
             notice.Visible=source!=null&&source.repeat!="none"&&!copyMode;
             Body.Add(new FieldItem("어떤 일정인가요?",TitleBox));
@@ -97,9 +101,17 @@ namespace PetCalendarDesktop {
             var dates=new RowItem(15,new FieldItem("시작일",start),new FieldItem("종료일",end));Body.Add(dates);
             Body.Add(new CssCheck(allDay,11,-2,16));
             timeRow=Body.Add(new RowItem(15,new FieldItem("시작 시간",startTime),new FieldItem("종료 시간",endTime,"선택")));
-            var legend=new TextItem("분류",11,700,DesktopTheme.Ink){Bottom=8};var chips=new InlineItem(8){Bottom=18};
-            foreach(var c in CalendarView.AllCategories()){var chip=new ChoiceChip(c,DesktopTheme.CategoryName(c),categories);chip.Picked+=delegate{Draft();};var ci=new ControlItem(chip,false);chips.Parts.Add(ci);}
-            Body.Add(legend);Body.Add(chips);
+            var legend=new TextItem("분류",11,700,DesktopTheme.Ink){Bottom=8};chipRow=new InlineItem(8){Bottom=18,RowGap=8};
+            foreach(var c in CalendarView.AllCategories())AddChip(c,false);
+            chipRow.Parts.Add(new ControlItem(newCategory,false));
+            Body.Add(legend);Body.Add(chipRow);
+            // Inline "new category" row, shown by the + 분류 button.
+            categoryForm=new RowItem(8,new FieldItem("새 분류 이름",categoryName){Top=0,Bottom=0},new FieldItem("색",categoryColor){Top=0,Bottom=0},new ControlItem(addCategory,false),new ControlItem(cancelCategory,false)){Columns=new[]{-1f,92f,0f,0f},AlignEnd=true,Top=-6,Bottom=18};
+            Body.Add(categoryForm);categoryForm.Visible=false;
+            newCategory.Click+=delegate{categoryForm.Visible=true;SyncVisibility();categoryName.Focus();};
+            cancelCategory.Click+=delegate{categoryForm.Visible=false;categoryName.Text="";SyncVisibility();};
+            addCategory.Click+=delegate{CreateCategory();};
+            categoryName.Box.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==Keys.Enter){k.Handled=k.SuppressKeyPress=true;CreateCategory();}else if(k.KeyCode==Keys.Escape){k.Handled=k.SuppressKeyPress=true;categoryForm.Visible=false;SyncVisibility();}};
             Body.Add(new RowItem(15,new FieldItem("반복",repeat),new FieldItem("알림",reminder)));
             weekdayRow=Body.Add(new RowItem(15,new FieldItem("순번",week),new FieldItem("요일",weekday)));
             untilField=Body.Add(new FieldItem("반복 종료일",until,"비워두면 계속 반복 · 시작일 이후부터 선택한 규칙 적용"));
@@ -128,7 +140,7 @@ namespace PetCalendarDesktop {
             start.ValueChanged+=delegate{if(end.Value==""||String.CompareOrdinal(end.Value,start.Value)<0)if(start.Value!="")end.Value=start.Value;Draft();};
             repeat.ValueChanged+=delegate{SyncVisibility();Draft();};
             foreach(var c in new Control[]{end,until,startTime,endTime,reminder,week,weekday})Hook(c);
-            TitleBox.ValueChanged+=delegate{Draft();};note.ValueChanged+=delegate{Draft();};pinned.CheckedChanged+=delegate{Draft();};
+            TitleBox.ValueChanged+=delegate{Draft();};note.ValueChanged+=delegate{Draft();};note.HeightChanged+=delegate{SyncVisibility();};pinned.CheckedChanged+=delegate{Draft();};
             draftTimer.Tick+=delegate{draftTimer.Stop();StoreDraft();};
             foreach(var input in new[]{TitleBox.Box})input.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==Keys.Enter){k.Handled=k.SuppressKeyPress=true;Submit();}};
             foreach(var field in new SegmentField[]{start,end,until,startTime,endTime})field.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==Keys.Enter){k.Handled=true;Submit();}};
@@ -152,9 +164,30 @@ namespace PetCalendarDesktop {
             Body.Add(new TextItem("자주 쓰는 일정",10,700,Ui.C("#9c8c72")){Top=-6,Bottom=6});
             Body.Add(new InlineItem(6,buttons.ToArray()){Bottom=16,RowGap=6});
         }
+        // One category chip; any can be deleted with a right click (the last one stays).
+        ChoiceChip AddChip(string key,bool attach){
+            var chip=new ChoiceChip(key,DesktopTheme.CategoryName(key),categories);chip.Picked+=delegate{Draft();};
+            {var menu=new ContextMenuStrip();menu.Items.Add("‘"+chip.Text+"’ 분류 삭제",null,async delegate{if(await View.DeleteCategory(key))RemoveChip(chip);});chip.ContextMenuStrip=menu;}
+            var item=new ControlItem(chip,false);
+            if(attach){chipRow.Parts.Insert(chipRow.Parts.Count-1,item);item.Attach(Body);}else chipRow.Parts.Add(item);
+            return chip;
+        }
+        void RemoveChip(ChoiceChip chip){
+            bool was=chip.Checked;categories.Remove(chip);chipRow.Parts.RemoveAll(p=>p.Control==chip);Body.Controls.Remove(chip);chip.Dispose();
+            if(was){var first=categories.FirstOrDefault();if(first!=null)first.Pick();}
+            SyncVisibility();
+        }
+        async void CreateCategory(){
+            string name=categoryName.Text.Trim();if(name.Length==0){Validation.Report(categoryName,"분류 이름을 적어 주세요.");return;}
+            addCategory.Enabled=false;
+            try{
+                var def=await View.AddCategory(name,categoryColor.Value);if(def==null||IsDisposed)return;
+                var chip=AddChip(def.id,true);chip.Pick();categoryName.Text="";categoryForm.Visible=false;SyncVisibility();
+            }finally{if(!IsDisposed)addCategory.Enabled=true;}
+        }
         void Hook(Control c){var s=c as SegmentField;if(s!=null)s.ValueChanged+=delegate{Draft();};var sel=c as SelectField;if(sel!=null)sel.ValueChanged+=delegate{Draft();};}
         void SyncVisibility(){timeRow.Visible=!allDay.Checked;untilField.Visible=repeat.Value!="none";weekdayRow.Visible=repeat.Value=="monthly-weekday";if(IsHandleCreated)Relayout();}
-        string Category{get{var c=categories.FirstOrDefault(x=>x.Checked);return c==null?"work":c.Key;}}
+        string Category{get{var c=categories.FirstOrDefault(x=>x.Checked);return c==null?CalendarView.DefaultCategory():c.Key;}}
         Dictionary<string,object> Snapshot(){return new Dictionary<string,object>{{"title",TitleBox.Text},{"startDate",start.Value},{"endDate",end.Value},{"allDay",allDay.Checked},{"startTime",startTime.Value},{"endTime",endTime.Value},{"category",Category},{"repeat",repeat.Value},{"week",week.Value},{"weekday",weekday.Value},{"repeatUntil",until.Value},{"reminder",reminder.Value},{"note",note.Text},{"pinned",pinned.Checked}};}
         void Restore(Dictionary<string,object> d){
             Func<string,string> str=k=>d.ContainsKey(k)?d[k] as string??"":"";Func<string,bool> flag=k=>d.ContainsKey(k)&&d[k] is bool&&(bool)d[k];
@@ -406,7 +439,7 @@ namespace PetCalendarDesktop {
             Action<string,string[]> group=(title,lines)=>{var h=Css.H3(title);h.Top=Css.Px(10);h.Bottom=4;Body.Add(h);var t=new TextItem(String.Join("\n",lines.Select(l=>"·  "+l)),12,400,body,1.9f);t.Bottom=Css.Px(8);Body.Add(t);};
             group("일정",new[]{"선택한 날짜를 한 번 더 누르거나 + 일정 추가","새 일정 창의 ‘자주 쓰는 일정’을 누르면 한 번에 입력","‘오늘의 일정’ 카드나 W로 다가오는 7일 보기","일정을 누르면 수정 · 복제 · 삭제","끌어서 다른 날짜로 옮기기","‘+N개 더 보기’로 그날 일정 모두 보기"});
             group("할 일",new[]{"일정을 할 일 칸에 놓으면 할 일로","할 일을 달력 날짜에 놓으면 일정으로"});
-            group("D-day · 검색 · 분류",new[]{"깃발을 누르거나 상단 D-DAY 카드에서 선택","검색은 모든 기간의 제목과 메모에서","분류 버튼을 한 번 더 누르면 전체 보기","나만의 분류는 설정 → 일정 분류에서 만들기"});
+            group("D-day · 검색 · 분류",new[]{"깃발을 누르거나 상단 D-DAY 카드에서 선택","검색은 모든 기간의 제목과 메모에서","분류 버튼을 한 번 더 누르면 전체 보기","나만의 분류는 새 일정 창의 ‘+ 분류’로 만들기 (우클릭으로 삭제)"});
             group("펫이 챙겨줘요",new[]{"아침 첫 안내: 오늘 일정과 마감 개수","마감 전날: ‘내일 마감이에요’","일요일 저녁: 이번 주 정리와 연속 달성","퇴근 무렵(기본 오후 5:50): 그날의 펫 일기 (D로 보기)","펫끼리 마주치면 인사하고, 밤엔 침대에서 자요","펫 근처로 마우스를 가져가면 털실 공을 쫓아와요"});
             group("호감도 · 간식",new[]{"할 일·일정을 끝내면 간식 1개 (펫 우클릭 → 간식 주기)","간식은 펫마다 10분에 한 번","이름표: 친구까지 🌟 · 단짝 💚 · 가족 💖","‘가족’이 되면 설정의 호칭으로 불러요"});
             var keys=new[]{new[]{"N","선택한 날짜에 새 일정"},new[]{"/","일정 검색"},new[]{"T","오늘로 이동"},new[]{"W","다가오는 7일 보기"},new[]{"D","펫 일기 보기"},new[]{"←|→","이전 달 · 다음 달"},new[]{"Ctrl|Z","실행 취소 · Ctrl+Y 다시 실행"},new[]{"Esc","입력창 닫기"}};

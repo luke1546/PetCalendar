@@ -19,7 +19,10 @@ namespace PetCalendarDesktop {
         public int? defaultReminder=10;
         public int textScale=0;
         public string fontFamily="default";
+        public bool boldText;
         public CategoryDef[] categories=new CategoryDef[0];
+        // Built-in categories the user deleted ("work", "meeting", ...). At least one category stays.
+        public string[] hiddenCategories=new string[0];
         public Hotkey hotkey=new Hotkey();
     }
     public sealed class CalendarEvent {
@@ -98,6 +101,10 @@ namespace PetCalendarDesktop {
             var ids=new HashSet<string>(StringComparer.Ordinal);
             Action<Dictionary<string,object>> id=o=>{Text(o,"id",100,"항목 ID",true);Check(ids.Add((string)o["id"]),"중복된 항목 ID가 있습니다.");};
             var custom=CustomCategoryIds(Value(raw,"settings") as Dictionary<string,object>);
+            var rawSettings=Value(raw,"settings") as Dictionary<string,object>;
+            if(rawSettings!=null&&Has(rawSettings,"hiddenCategories")){var hidden=rawSettings["hiddenCategories"] as object[]??(rawSettings["hiddenCategories"] is System.Collections.ArrayList?((System.Collections.ArrayList)rawSettings["hiddenCategories"]).ToArray():null);
+                Check(hidden!=null&&hidden.All(h=>h is string&&Categories.Contains((string)h))&&hidden.Distinct().Count()==hidden.Length,"분류 설정을 확인해 주세요.");
+                Check(hidden.Length<Categories.Length||custom.Count>0,"분류는 하나 이상 있어야 해요.");}
             foreach(var item in events) {
                 var e=item as Dictionary<string,object>;
                 Check(e!=null&&IsDate(Value(e,"startDate"))&&IsDate(Value(e,"endDate"))&&String.CompareOrdinal((string)e["endDate"],(string)e["startDate"])>=0,"일정의 시작일과 종료일을 확인해 주세요.");
@@ -117,6 +124,7 @@ namespace PetCalendarDesktop {
             var s=Value(raw,"settings") as Dictionary<string,object>;
             Check(s!=null&&Value(s,"hideCompleted") is bool&&Value(s,"notifications") is bool&&Has(s,"defaultReminder")&&Reminder(s["defaultReminder"]),"설정 형식을 확인해 주세요.");
             foreach(string name in new[]{"desktopPopups","notificationSound"})Check(!Has(s,name)||s[name] is bool,"설정 형식을 확인해 주세요.");
+            Check(!Has(s,"boldText")||s["boldText"] is bool,"글씨 굵게 설정을 확인해 주세요.");
             Check(!Has(s,"fontFamily")||(s["fontFamily"] is string&&Array.IndexOf(FontKeys,(string)s["fontFamily"])>=0),"글꼴을 확인해 주세요.");
             Check(!Has(s,"textScale")||(Integer(s["textScale"])&&Convert.ToInt32(s["textScale"])>=0&&Convert.ToInt32(s["textScale"])<=2),"글씨 크기를 확인해 주세요.");
             if(Has(s,"hotkey")){var h=s["hotkey"] as Dictionary<string,object>;Check(h!=null&&Value(h,"enabled") is bool&&Integer(Value(h,"modifiers"))&&Integer(Value(h,"key")),"단축키 형식을 확인해 주세요.");}

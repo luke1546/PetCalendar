@@ -62,7 +62,7 @@ namespace PetCalendarDesktop {
         readonly Button open=new Button(),dismiss=new Button(),close=new Button(),snooze=new Button();
         readonly ContextMenuStrip snoozeMenu=new ContextMenuStrip();
         // Bubbles follow the calendar font chosen in settings (Segoe UI for the default).
-        internal static Font CreateFont(){string key=DesktopTheme.FontKey;var family=key!="default"?AppFonts.Family(key):null;float size=11+DesktopTheme.TextScale;return family==null?new Font("Segoe UI",size):new Font(family,size*AppFonts.Scale(key));}
+        internal static Font CreateFont(){string key=DesktopTheme.FontKey;var family=key!="default"?AppFonts.Family(key):null;float size=11+DesktopTheme.TextScale;var style=DesktopTheme.BoldText?FontStyle.Bold:FontStyle.Regular;return family==null?new Font("Segoe UI",size,style):new Font(family,size*AppFonts.Scale(key),style);}
         Font textFont=CreateFont();
         bool alarm,tailBelow=true;
         int tailX,tailSize=10;

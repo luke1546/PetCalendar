@@ -259,7 +259,7 @@ namespace PetCalendarDesktop {
         string SectionSig(string name,SectionCache c){
             if(drag!=null)return null;
             string today=Rules.Key(DateTime.Today);
-            string common=s+"|"+DesktopTheme.TextScale+DesktopTheme.FontKey+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
+            string common=s+"|"+DesktopTheme.TextScale+DesktopTheme.FontKey+DesktopTheme.BoldText+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
             switch(name){
                 case "masthead":return common+todayText+"|"+clockText+"|"+maximized;
                 case "summary":return common+dataStamp+"|"+today;
@@ -488,7 +488,7 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
         void CachedCell(Graphics g,int slot,Rectangle cell,string key,List<Occurrence> items,string today,int perDay,Action<Graphics> paint){
             if(drag!=null||frames.Count>0||ty!=-pageScroll.Offset){paint(g);return;}
             var sb=new System.Text.StringBuilder();
-            sb.Append(key).Append('|').Append(cell).Append('|').Append(key.StartsWith(month,StringComparison.Ordinal)).Append('|').Append(key==selected).Append('|').Append(key==today).Append('|').Append(perDay).Append('|').Append(dropDate==key).Append('|').Append(s).Append('|').Append(DesktopTheme.TextScale).Append(DesktopTheme.FontKey).Append('|');
+            sb.Append(key).Append('|').Append(cell).Append('|').Append(key.StartsWith(month,StringComparison.Ordinal)).Append('|').Append(key==selected).Append('|').Append(key==today).Append('|').Append(perDay).Append('|').Append(dropDate==key).Append('|').Append(s).Append('|').Append(DesktopTheme.TextScale).Append(DesktopTheme.FontKey).Append(DesktopTheme.BoldText).Append('|');
             string cellId="cell-"+key,chipId="chip-"+key+"-";
             sb.Append(Mine(hoverId,cellId)).Append(Mine(hoverId,chipId)).Append('|').Append(Mine(pressId,cellId)).Append(Mine(pressId,chipId)).Append('|');
             if(Focused&&ShowFocusCues)sb.Append(Mine(focusId,cellId)).Append(Mine(focusId,chipId));sb.Append('|');

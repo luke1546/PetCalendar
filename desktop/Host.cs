@@ -26,6 +26,7 @@ namespace PetCalendarDesktop {
         readonly AlarmPopup popup=new AlarmPopup();
         readonly SoundPlayer sound;
         readonly CalendarWidget widget;
+        readonly StickyNotes notes;
         readonly ToolStripMenuItem widgetMenu,petToggle,petAdd;
         readonly CalendarPets pets;
         Hotkey registered=new Hotkey{enabled=false};
@@ -56,7 +57,7 @@ namespace PetCalendarDesktop {
             root=appRoot;profile=profileDir;automation=test;
             Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(ApplicationId));
             bool freshProfile=!File.Exists(Path.Combine(dataDir,"calendar.json"))&&!File.Exists(Path.Combine(dataDir,"pets.json"));
-            store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;DesktopTheme.FontKey=store.Snapshot.settings.fontFamily??"default";DesktopTheme.SetCategories(store.Snapshot.settings.categories);
+            store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;DesktopTheme.FontKey=store.Snapshot.settings.fontFamily??"default";DesktopTheme.BoldText=store.Snapshot.settings.boldText;DesktopTheme.SetCategories(store.Snapshot.settings.categories,store.Snapshot.settings.hiddenCategories);
             pets=new CalendarPets(dataDir,()=>store.Snapshot,Log,freshProfile);
             // The WebView build kept the tour flag in its browser profile; an
             // existing profile means this user has already been through it.
@@ -67,6 +68,7 @@ namespace PetCalendarDesktop {
             Icon=new Icon(Path.Combine(root,"calendar.ico"));
             view=new CalendarView(this,store,prefs){Dock=DockStyle.Fill};view.WindowAction+=WindowAction;Controls.Add(view);
             widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();view.OpenFromHost(id,date);},Log);widget.Icon=Icon;
+            notes=new StickyNotes(dataDir,Log);widget.NoteRequested+=()=>notes.Create(widget.Visible?widget.Bounds:(Rectangle?)null);
             menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
             widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
             widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;view.WidgetChanged();};
@@ -92,10 +94,10 @@ namespace PetCalendarDesktop {
             pets.OpenSchedule+=(id,date)=>{ShowCalendar();if(id!=null)view.OpenFromHost(id,date);};
             var previousCalendar=store.Snapshot;
             store.Changed+=()=>{
-                var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;DesktopTheme.SetCategories(next.settings.categories);
+                var next=store.Snapshot;var before=previousCalendar;previousCalendar=next;DesktopTheme.SetCategories(next.settings.categories,next.settings.hiddenCategories);
                 string nextFont=next.settings.fontFamily??"default";
-                if(DesktopTheme.TextScale!=next.settings.textScale||DesktopTheme.FontKey!=nextFont){
-                    DesktopTheme.TextScale=next.settings.textScale;DesktopTheme.FontKey=nextFont;widget.ApplyTextScale();popup.ApplyTextScale();
+                if(DesktopTheme.TextScale!=next.settings.textScale||DesktopTheme.FontKey!=nextFont||DesktopTheme.BoldText!=next.settings.boldText){
+                    DesktopTheme.TextScale=next.settings.textScale;DesktopTheme.FontKey=nextFont;DesktopTheme.BoldText=next.settings.boldText;widget.ApplyTextScale();popup.ApplyTextScale();notes.ApplyFont();
                     foreach(var bubble in Application.OpenForms.OfType<PetBubble>().ToArray())bubble.ApplyTextScale();
                     view.TextScaleChanged();pets.FontChanged();
                 }
@@ -126,7 +128,7 @@ namespace PetCalendarDesktop {
             base.OnShown(e);FitHostToScreen();if(initialized)return;initialized=true;
             try {
                 try{ApplyHotkey(store.Snapshot.settings.hotkey).Wait();}catch(Exception error){var inner=error is AggregateException&&error.InnerException!=null?error.InnerException:error;hotkeyError=inner.Message;Log(inner);}
-                ready=true;widget.Restore();pets.Restore();alarms.Restore();PublishWindowState();
+                ready=true;widget.Restore();notes.Restore();pets.Restore();alarms.Restore();PublishWindowState();
                 Reply(new{kind="ready",pid=Process.GetCurrentProcess().Id,elapsedMs=(DateTime.UtcNow-started).TotalMilliseconds});
                 view.Focus();BeginInvoke(new Action(view.Ready));
             }catch(Exception error){Log(error);Reply(new{kind="fatal",error=error.ToString()});MessageBox.Show(this,"펫 캘린더를 열지 못했습니다.\n"+error.Message,Text,MessageBoxButtons.OK,MessageBoxIcon.Error);}
@@ -262,7 +264,7 @@ namespace PetCalendarDesktop {
             return top?12:bottom?15:left?10:11;
         }
         protected override void OnFormClosing(FormClosingEventArgs e){if(!exiting&&e.CloseReason==CloseReason.UserClosing){e.Cancel=true;Hide();return;}base.OnFormClosing(e);}
-        protected override void Dispose(bool disposing){if(disposing){pets.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();}base.Dispose(disposing);}
+        protected override void Dispose(bool disposing){if(disposing){pets.Dispose();notes.Dispose();widget.Dispose();alarms.Dispose();popup.Dispose();tray.Visible=false;tray.Dispose();menu.Dispose();sound.Dispose();}base.Dispose(disposing);}
         public void Reply(object value){if(AutomationReply!=null)AutomationReply(value);}
         public async void Command(Dictionary<string,object> request) {
             object id=request.ContainsKey("id")?request["id"]:null;

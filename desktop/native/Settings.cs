@@ -33,10 +33,7 @@ namespace PetCalendarDesktop {
         readonly TextItem notificationDescription=Css.P(""),permissionStatus=Css.Hint("");readonly Btn enableNotifications=Css.Button("데스크톱 알림 켜기"),testNotification=Css.Button("알림 테스트");
         readonly ThemeCheckBox notificationSound=Css.Check("알림 소리");readonly SelectField defaultReminder=Css.Reminders();
         readonly Btn exportBackup=Css.Button("백업 내보내기",BtnKind.Normal,11,"download"),importBackup=Css.Button("백업 복원",BtnKind.Normal,11,"upload");
-        readonly SelectField textScale=Css.Select("0","작게","1","보통","2","크게");readonly SelectField fontFamily=FontSelect();
-        readonly InputBox categoryName=new InputBox(false){MaxLength=12,Placeholder="예: 운동, 공부"};readonly Btn addCategory=Css.Button("분류 추가",BtnKind.Primary);
-        readonly SelectField categoryColor=Css.Select("#c9a7f0","보라","#ffd86b","노랑","#8fd8c8","민트","#9fb4ff","파랑","#ff9fb2","장미","#a8c66c","올리브","#d4b896","모래","#bdbdbd","회색");
-        readonly List<KeyValuePair<Rectangle,string>> categoryDeletes=new List<KeyValuePair<Rectangle,string>>();GroupItem categoryGroup;
+        readonly SelectField textScale=Css.Select("0","작게","1","보통","2","크게");readonly ThemeCheckBox boldText=Css.Check("글씨 굵게",12);readonly SelectField fontFamily=FontSelect();
         static SelectField FontSelect(){var f=new SelectField();foreach(var o in AppFonts.Options)f.Add(o.Key,o.Value);return f;}
         Dictionary<string,object> petsPreference,widgetPreference;bool petsSaving,petsRefreshPending,petSpeechDirty,widgetSaving,syncing;
         static readonly int[] Keys={9,32,192,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,48,49,50,51,52,53,54,55,56,57,112,113,114,115,116,117,118,119,120,121,122};
@@ -73,24 +70,7 @@ namespace PetCalendarDesktop {
             data.Add(Css.H3("소중한 기록, 안전하게"),Css.P("일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다."),new InlineItem(8,exportBackup,importBackup),Css.Hint("복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다."));
             dataGroup.Add(data);Body.Add(dataGroup);
             // 화면
-            screenGroup=new GroupItem("화면",false);var screen=Section();screen.Add(Css.H3("글씨"),new FieldItem("글씨 크기",textScale){Top=17,Bottom=0},new FieldItem("글꼴",fontFamily,"캘린더 창과 입력창에 쓰는 글꼴이에요. 위젯과 펫 말풍선은 기본 글꼴을 써요."){Top=17,Bottom=0});screenGroup.Add(screen);Body.Add(screenGroup);
-            // 일정 분류
-            categoryGroup=new GroupItem("일정 분류",false);var cats=Section();
-            var list=new PaintItem{Top=12,Bottom=4};
-            list.OnMeasure=(p,w)=>{float s=p.Sc;int n=DesktopTheme.CustomCategories.Length;return (int)Math.Ceiling(n==0?Css.Px(11)*1.8f*s:n*36*s);};
-            list.OnPaint=(p,g,r)=>{float s=p.Sc;categoryDeletes.Clear();var all=DesktopTheme.CustomCategories;
-                if(all.Length==0){Ui.Text(g,"아직 만든 분류가 없어요.",Ui.Font(s,11),new Rectangle(r.X,r.Y,r.Width,r.Height),Ui.C("#a29276"),TextFormatFlags.VerticalCenter);return;}
-                int y=r.Y;foreach(var c in all){var row=new Rectangle(r.X,y,r.Width,(int)(32*s));Ui.Box(g,row,8*s,Ui.C("#fffaf1"),DesktopTheme.Line,s);
-                    using(var b=new SolidBrush(DesktopTheme.Category(c.id)))g.FillEllipse(b,row.X+12*s,row.Y+(row.Height-10*s)/2,10*s,10*s);
-                    Ui.Text(g,c.name,Ui.Font(s,12,700,null,c.name),new Rectangle(row.X+(int)(30*s),row.Y,row.Width-(int)(100*s),row.Height),DesktopTheme.Ink,TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
-                    var del=new Rectangle(row.Right-(int)(56*s),row.Y,(int)(48*s),row.Height);Ui.Text(g,"삭제",Ui.Font(s,11,400,null,"삭제"),del,Ui.C("#b34d35"),TextFormatFlags.VerticalCenter|TextFormatFlags.HorizontalCenter);
-                    categoryDeletes.Add(new KeyValuePair<Rectangle,string>(del,c.id));y+=(int)(36*s);}};
-            list.OnClick=pt=>{foreach(var d in categoryDeletes)if(d.Key.Contains(pt)){DeleteCategory(d.Value);return true;}return false;};
-            list.IsHot=pt=>categoryDeletes.Any(d=>d.Key.Contains(pt));
-            var addRowC=new RowItem(8,new FieldItem("새 분류 이름",categoryName){Top=0,Bottom=0},new FieldItem("색",categoryColor){Top=0,Bottom=0},new ControlItem(addCategory,false)){Columns=new[]{-1f,96f,0f},AlignEnd=true,Top=14};
-            cats.Add(Css.H3("나만의 분류"),Css.P("업무 · 회의 · 마감 · 개인 말고도 ‘운동’, ‘공부’처럼 원하는 분류를 색과 함께 만들 수 있어요."),list,addRowC,Css.Hint("분류를 지우면 그 분류의 일정은 ‘업무’로 바뀌어요. 최대 20개까지 만들 수 있어요."));
-            categoryGroup.Add(cats);Body.Add(categoryGroup);
-            addCategory.Click+=delegate{AddCategory();};categoryName.Box.KeyDown+=delegate(object sender,KeyEventArgs k){if(k.KeyCode==System.Windows.Forms.Keys.Enter){k.Handled=k.SuppressKeyPress=true;AddCategory();}};
+            screenGroup=new GroupItem("화면",false);var screen=Section();screen.Add(Css.H3("글씨"),new FieldItem("글씨 크기",textScale){Top=17,Bottom=0},new FieldItem("글꼴",fontFamily,"캘린더 창, 위젯, 펫 말풍선, 스티커 메모에 쓰는 글꼴이에요."){Top=17,Bottom=0},new CssCheck(boldText,12,16),Css.Hint("모든 글씨를 굵게 표시해요. 작은 글씨가 잘 안 보일 때 켜 보세요."));screenGroup.Add(screen);Body.Add(screenGroup);
             FixedHeightCss=760;
             // Behaviour
             petsEnabled.CheckedChanged+=delegate{if(!syncing)UpdatePets(petsEnabled.Checked?"enable":"disable");};
@@ -115,24 +95,11 @@ namespace PetCalendarDesktop {
             testNotification.Click+=async delegate{View.Toast("알림이 잘 도착했어요","펫 캘린더가 다가오는 일정을 알려드립니다.","",15000);try{await View.Api("POST","/api/desktop/notification-test",new Dictionary<string,object>());}catch(Exception error){View.Toast("데스크톱 알림을 표시하지 못했어요",error.Message,"error");}};
             notificationSound.CheckedChanged+=async delegate{if(syncing)return;bool value=notificationSound.Checked;if(!await View.Commit(s=>{s.settings.notificationSound=value;}))Sync();};
             defaultReminder.ValueChanged+=async delegate{if(syncing)return;string value=defaultReminder.Value;await View.Commit(s=>{s.settings.defaultReminder=value=="null"?(int?)null:int.Parse(value);});};
+            boldText.CheckedChanged+=async delegate{if(syncing)return;bool value=boldText.Checked;if(!await View.Commit(s=>{s.settings.boldText=value;}))Sync();};
             fontFamily.ValueChanged+=async delegate{if(syncing)return;string value=fontFamily.Value;if(!await View.Commit(s=>{s.settings.fontFamily=value;}))Sync();};
             textScale.ValueChanged+=async delegate{if(syncing)return;int value=int.Parse(textScale.Value);if(!await View.Commit(s=>{s.settings.textScale=value;}))Sync();};
             exportBackup.Click+=ExportBackup;importBackup.Click+=ImportBackup;
             Sync();RenderHotkey(View.state.settings.hotkey);RefreshHotkeyStatus();UpdateWidget(null);UpdatePets(null);
-        }
-        async void AddCategory(){
-            string name=categoryName.Text.Trim();if(name.Length==0){Validation.Report(categoryName,"분류 이름을 적어 주세요.");return;}
-            var existing=View.state.settings.categories??new CategoryDef[0];
-            if(existing.Length>=20){View.Toast("분류는 20개까지 만들 수 있어요","쓰지 않는 분류를 지운 뒤 다시 추가해 주세요.","error");return;}
-            if(existing.Any(c=>c.name==name)||CalendarView.AllCategories().Take(4).Any(k=>DesktopTheme.CategoryName(k)==name)){Validation.Report(categoryName,"이미 있는 분류 이름이에요.");return;}
-            var def=new CategoryDef{id="c-"+Guid.NewGuid().ToString("N").Substring(0,8),name=name,color=categoryColor.Value};
-            if(await View.Commit(s=>{s.settings.categories=(s.settings.categories??new CategoryDef[0]).Concat(new[]{def}).ToArray();})){categoryName.Text="";View.Toast("분류를 만들었어요",name);}
-        }
-        async void DeleteCategory(string id){
-            var def=(View.state.settings.categories??new CategoryDef[0]).FirstOrDefault(c=>c.id==id);if(def==null)return;
-            int used=View.state.events.Count(e=>e.category==id);
-            if(used>0&&!await View.Confirm("분류를 삭제할까요?","‘"+def.name+"’ 일정 "+used+"개는 ‘업무’로 바뀝니다.","삭제"))return;
-            if(await View.Commit(s=>{s.settings.categories=(s.settings.categories??new CategoryDef[0]).Where(c=>c.id!=id).ToArray();foreach(var e in s.events)if(e.category==id)e.category="work";}))View.CategoryRemoved(id);
         }
         void SaveTitle(){string value=userTitle.Text.Trim();if(value.Length==0){Validation.Report(userTitle,"호칭을 적어 주세요.");return;}UpdatePets("configureBed",null,new Dictionary<string,object>{{"title",value}});View.Toast("호칭을 바꿨어요","‘가족’이 된 펫이 이제 ‘"+value+"’(이)라고 불러요.");}
         // "초코 · 친구 ♥ 72%" per pet, from the pets status.
@@ -156,7 +123,7 @@ namespace PetCalendarDesktop {
                 notificationDescription.Set("창을 숨겨도 알려드립니다. 데스크톱 펫을 켜면 펫의 말풍선으로, 끄면 알림창으로 표시합니다. 알림은 확인할 때까지 유지됩니다. PC 절전 중에는 지연될 수 있으며, 종일 일정은 오전 9시 기준입니다.");
                 enableNotifications.Text=enabled?"데스크톱 알림 끄기":"데스크톱 알림 켜기";
                 permissionStatus.Set(enabled?"확인할 때까지 알림 유지 · 알림을 누르면 해당 일정을 엽니다.":"화면 안 알림만 사용합니다. 데스크톱 알림은 언제든 켤 수 있어요.");
-                notificationSound.Checked=settings.notificationSound;defaultReminder.Value=Css.ReminderKey(settings.defaultReminder);textScale.Value=settings.textScale.ToString();fontFamily.Value=settings.fontFamily??"default";
+                notificationSound.Checked=settings.notificationSound;defaultReminder.Value=Css.ReminderKey(settings.defaultReminder);textScale.Value=settings.textScale.ToString();fontFamily.Value=settings.fontFamily??"default";boldText.Checked=settings.boldText;
             }finally{syncing=false;}
             if(IsHandleCreated)Body.Reflow();
         }

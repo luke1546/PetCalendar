@@ -64,7 +64,8 @@ namespace PetCalendarDesktop {
             if(!valid){pendingCelebration=0;celebrationKeys.Clear();if(summary!=null&&summary.Kind=="celebration")ClearBubble();return;}
             bool allDone=occurrences.All(o=>Rules.Done(o.@event,o.startDate));
             if(pendingCelebration>0)pendingCelebration=allDone?2:1;
-            if(summary!=null&&summary.Kind=="celebration"&&speaker!=null)summary.Text=CelebrationText(allDone);
+            // Pick the line once; re-picking every tick made the bubble flip between lines.
+            if(summary!=null&&summary.Kind=="celebration"&&speaker!=null&&(celebrationShownAll!=allDone||PendingSnacks>0)){bool changed=celebrationShownAll!=allDone;celebrationShownAll=allDone;summary.Text=CelebrationText(allDone,changed);}
         }
         internal void Preview() {
             if(!running)throw new AppError(409,"데스크톱 펫을 먼저 켜 주세요.");
@@ -128,7 +129,9 @@ namespace PetCalendarDesktop {
                 if(current!=null){current=null;ClearBubble();clock.Reset(utc,minutes);}
                 if(pendingCelebration>0&&SelectSpeaker()){
                     bool allDone=pendingCelebration==2;pendingCelebration=0;manual=false;
-                    summary=new PetSummary{Kind="celebration",Text=CelebrationText(allDone)};expires=utc.AddSeconds(8);
+                    // A second completion while the bubble is up continues it (same line, snacks added up).
+                    bool continuing=summary!=null&&summary.Kind=="celebration";if(!continuing)celebrationSnacks=0;
+                    summary=new PetSummary{Kind="celebration",Text=CelebrationText(allDone,!continuing||celebrationShownAll!=allDone)};celebrationShownAll=allDone;expires=utc.AddSeconds(8);
                     EnsureBubble();
                     if(!speaker.Cat.Paused&&!speaker.Cat.Held&&!speaker.Cat.Sleeping)speaker.Cat.Jump();
                 }
@@ -163,8 +166,15 @@ namespace PetCalendarDesktop {
             timer.Interval=alerts.Count>0||summary!=null||manual||chatter.ActiveCount>0?100:1000;
         }
         // Snacks earned by the completion being celebrated (shown once in the bubble).
-        internal int PendingSnacks;
-        string CelebrationText(bool allDone){string text=speaker==null?PetVoice.Celebration("",allDone):PetLines.Say(speaker.Kind.Id,PetLines.Level(speaker.Affinity),allDone?"doneAll":"done1");if(PendingSnacks>0){text+="\n🍪 간식 +"+PendingSnacks+" (펫 우클릭 → 간식 주기)";PendingSnacks=0;}if(allDone){int streak=PetNotices.Streak(state(),Rules.Key(now().ToLocalTime()));if(streak>=2)text+="\n"+streak+"일 연속 모두 해냈어요 🔥";}return text;}
+        internal int PendingSnacks;bool celebrationShownAll;
+        // The line is picked once per celebration; snacks earned while it shows are added up.
+        string celebrationLine;int celebrationSnacks;
+        string CelebrationText(bool allDone,bool newLine=true){
+            if(newLine||celebrationLine==null){celebrationLine=speaker==null?PetVoice.Celebration("",allDone):PetLines.Say(speaker.Kind.Id,PetLines.Level(speaker.Affinity),allDone?"doneAll":"done1");
+                if(allDone){int streak=PetNotices.Streak(state(),Rules.Key(now().ToLocalTime()));if(streak>=2)celebrationLine+="\n"+streak+"일 연속 모두 해냈어요 🔥";}}
+            celebrationSnacks+=PendingSnacks;PendingSnacks=0;
+            return celebrationLine+(celebrationSnacks>0?"\n🍪 간식 +"+celebrationSnacks+" (펫 우클릭 → 간식 주기)":"");
+        }
         void ReleaseSpeaker(){if(speaker!=null&&!speaker.IsDisposed)speaker.SpeechHold=false;speaker=null;}
         void ClearBubble(){ReleaseSpeaker();summary=null;if(bubble!=null)bubble.Hide();}
         internal object Inspect() {return new{running,summaryEnabled,chatterEnabled,intervalMinutes=minutes,nextUtc=running?clock.NextUtc.ToString("o"):null,alarmId=current==null?null:current.id,pending=alerts.Count,chatter=chatter.Inspect(),speakerWindow=speaker==null?0:speaker.Handle.ToInt64(),bubble=bubble==null?null:bubble.Inspect()};}

@@ -10,7 +10,7 @@ using DesktopPet;
 
 namespace PetCalendarDesktop {
     public sealed class PetRecord {public string species="cat",palette="치즈",name="",fedAt="";public int personality,affinity;}
-    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];public string[] notices=new string[0];public bool bedEnabled=true,toyEnabled=true;public double bedFraction=.82;public string diaryTime="17:50";
+    public sealed class PetPreferences {public bool enabled,allowEmpty,summaryEnabled=true,chatterEnabled=true;public int summaryIntervalMinutes=3;public PetRecord[] pets=new PetRecord[0];public string[] notices=new string[0];public bool bedEnabled=true,toyEnabled,toyDefaultOff;public double bedFraction=.82;public string diaryTime="17:50";
         // Affinity: snacks earned by finishing schedules and tasks, what pets call the user,
         // the last day the pets were out, and completions already rewarded (latest 500).
         public int snacks;public string title="집사",lastSeen="";public string[] credited=new string[0];}
@@ -45,11 +45,13 @@ namespace PetCalendarDesktop {
             catch(Exception e) {log(e);preferences=new PetPreferences();}
             if(preferences==null)preferences=new PetPreferences();
             if(preferences.summaryIntervalMinutes<1||preferences.summaryIntervalMinutes>1440)preferences.summaryIntervalMinutes=3;
+            // v3.4: the yarn-ball toy is off by default; existing installs are switched off once.
+            if(!preferences.toyDefaultOff){preferences.toyEnabled=false;preferences.toyDefaultOff=true;if(File.Exists(path))try{Save();}catch(Exception e){log(e);}}
             if(fresh&&!File.Exists(path))Save();
             speech=new PetSpeech(()=>active.ToArray(),snapshot,()=>testUtc??DateTime.UtcNow,a=>{if(OpenAlarm!=null)OpenAlarm(a);},id=>{if(Acknowledge!=null)Acknowledge(id);},(id,date)=>{if(OpenSchedule!=null)OpenSchedule(id,date);},log,(id,minutes)=>{if(Snooze!=null)Snooze(id,minutes);});
             // One-off notices (morning briefing, deadline eve, weekly review) are remembered here so
             // a restart does not repeat them. Only the latest 60 keys are kept.
-            NameTag.FontFor=px=>{string key=DesktopTheme.FontKey;var family=key!="default"?AppFonts.Family(key):null;if(family==null)return new Font("Malgun Gothic",px,FontStyle.Bold,GraphicsUnit.Pixel);return new Font(family,px*AppFonts.Scale(key),AppFonts.Bold(key,700)?FontStyle.Bold:FontStyle.Regular,GraphicsUnit.Pixel);};
+            NameTag.FontFor=px=>{string key=DesktopTheme.FontKey;var family=key!="default"?AppFonts.Family(key):null;if(family==null)return new Font("Malgun Gothic",px,FontStyle.Bold,GraphicsUnit.Pixel);return new Font(family,px*AppFonts.Scale(key),DesktopTheme.BoldText||AppFonts.Bold(key,700)?FontStyle.Bold:FontStyle.Regular,GraphicsUnit.Pixel);};
             diary=new PetDiary(dataDir);
             life=new PetLife(()=>active.ToArray(),log);life.ConfigureBed(preferences.bedEnabled,preferences.bedFraction);life.ConfigureToy(preferences.toyEnabled);
             life.BedMoved=fraction=>{preferences.bedFraction=fraction;try{Save();}catch(Exception e){log(e);}};

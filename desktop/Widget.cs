@@ -11,12 +11,24 @@ using System.Windows.Forms;
 namespace PetCalendarDesktop {
     // Native surfaces use the same palette as desktop/ui/styles.css and model.mjs.
     public static class DesktopTheme {
-        public static int TextScale;public static string FontKey="default";
+        public static int TextScale;
+        // Font for WinForms surfaces (widget, sticky notes): the calendar font chosen in settings,
+        // or Segoe UI by default. Fonts without a real bold face stay regular.
+        public static Font UiFont(float points,FontStyle style=FontStyle.Regular){
+            var family=FontKey!="default"?AppFonts.Family(FontKey):null;if(BoldText)style|=FontStyle.Bold;
+            if(family==null)return new Font("Segoe UI",points,style);
+            if(!BoldText&&(style&FontStyle.Bold)!=0&&!AppFonts.Bold(FontKey,700))style&=~FontStyle.Bold;
+            try{return new Font(family,points*AppFonts.Scale(FontKey),style);}catch(ArgumentException){return new Font(family,points*AppFonts.Scale(FontKey));}
+        }public static string FontKey="default";
+        // Settings → 화면 → 글씨 굵게: draw regular text bold everywhere.
+        public static bool BoldText;
         public static readonly Color Paper=ColorTranslator.FromHtml("#fff4dd"),Card=ColorTranslator.FromHtml("#fffdf7"),Ink=ColorTranslator.FromHtml("#29241e"),Muted=ColorTranslator.FromHtml("#837866"),Line=ColorTranslator.FromHtml("#e8ddc8"),Orange=ColorTranslator.FromHtml("#ff7146"),Rose=ColorTranslator.FromHtml("#ffc6d4");
         public static int Px(Control control,float value){return (int)Math.Round(value*control.DeviceDpi/96f);}
         // Custom categories from settings; built-in keys always win.
         static Dictionary<string,CategoryDef> custom=new Dictionary<string,CategoryDef>();
-        public static void SetCategories(CategoryDef[] list){var next=new Dictionary<string,CategoryDef>();if(list!=null)foreach(var c in list)if(c!=null&&c.id!=null)next[c.id]=c;custom=next;}
+        public static void SetCategories(CategoryDef[] list,string[] hiddenBuiltIns=null){var next=new Dictionary<string,CategoryDef>();if(list!=null)foreach(var c in list)if(c!=null&&c.id!=null)next[c.id]=c;custom=next;hidden=new HashSet<string>(hiddenBuiltIns??new string[0]);}
+        static HashSet<string> hidden=new HashSet<string>();
+        public static bool Hidden(string builtIn){return hidden.Contains(builtIn);}
         public static CategoryDef[] CustomCategories{get{return custom.Values.ToArray();}}
         public static Color Category(string category){CategoryDef c;if(category!=null&&custom.TryGetValue(category,out c))return ColorTranslator.FromHtml(c.color);return ColorTranslator.FromHtml(category=="meeting"?"#a5d9f6":category=="deadline"?"#f6acc1":category=="personal"?"#b9dfa7":"#ffb078");}
         public static string CategoryName(string category){CategoryDef c;if(category!=null&&custom.TryGetValue(category,out c))return c.name;return category=="meeting"?"회의":category=="deadline"?"마감":category=="personal"?"개인":"업무";}
@@ -65,6 +77,8 @@ namespace PetCalendarDesktop {
         CalendarState renderedState,rowsState;string renderedDate,renderedMonth,renderedToday,rowsDate;
         Occurrence[] cachedRows;
         public event Action VisibilityPreferenceChanged;
+        // The memo button asks the host for a new sticky note.
+        public event Action NoteRequested;
         public bool EnabledPreference {get{return settings.enabled;}}
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
@@ -74,15 +88,15 @@ namespace PetCalendarDesktop {
             if(settings==null)settings=new WidgetSettings();
             SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             Text="펫 캘린더 · 바탕화면 위젯";ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Padding=new Padding(12);MaximizeBox=false;MinimizeBox=false;StartPosition=FormStartPosition.Manual;
-            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=new Font("Segoe UI",10+DesktopTheme.TextScale);MinimumSize=new Size(340,480);Size=new Size(380,590);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale);MinimumSize=new Size(340,480);Size=new Size(380,590);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             layout.Name="widget-layout";layout.Dock=DockStyle.Fill;layout.Margin=Padding.Empty;layout.ColumnCount=1;layout.RowCount=5;
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             foreach(float height in new float[]{40,196,54,42,0})layout.RowStyles.Add(new RowStyle(height==0?SizeType.Percent:SizeType.Absolute,height==0?100:height));
-            var header=Row("header",6);header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-            foreach(float width in new float[]{34,48,34,32,32})header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,width));
-            monthTitle.Name="month-title";monthTitle.Dock=DockStyle.Fill;monthTitle.Margin=Padding.Empty;monthTitle.Font=new Font(Font.FontFamily,15+DesktopTheme.TextScale,FontStyle.Bold);monthTitle.TextAlign=ContentAlignment.MiddleLeft;monthTitle.AutoEllipsis=true;monthTitle.UseMnemonic=false;monthTitle.MouseDown+=DragWidget;header.MouseDown+=DragWidget;
-            var prev=Button("‹","prev","이전 달");var now=Button("오늘","today","오늘로 이동");var next=Button("›","next","다음 달");var gear=Button("⚙","settings","위젯 설정");var close=Button("×","close","위젯 닫기");prev.Quiet=now.Quiet=next.Quiet=gear.Quiet=close.Quiet=true;
-            header.Controls.Add(monthTitle,0,0);header.Controls.Add(prev,1,0);header.Controls.Add(now,2,0);header.Controls.Add(next,3,0);header.Controls.Add(gear,4,0);header.Controls.Add(close,5,0);
+            var header=Row("header",7);header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+            foreach(float width in new float[]{34,48,34,32,32,32})header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,width));
+            monthTitle.Name="month-title";monthTitle.Dock=DockStyle.Fill;monthTitle.Margin=Padding.Empty;monthTitle.Font=DesktopTheme.UiFont(15+DesktopTheme.TextScale,FontStyle.Bold);monthTitle.TextAlign=ContentAlignment.MiddleLeft;monthTitle.AutoEllipsis=true;monthTitle.UseMnemonic=false;monthTitle.MouseDown+=DragWidget;header.MouseDown+=DragWidget;
+            var prev=Button("‹","prev","이전 달");var now=Button("오늘","today","오늘로 이동");var next=Button("›","next","다음 달");var memo=Button("+","memo","스티커 메모 추가");var gear=Button("⚙","settings","위젯 설정");var close=Button("×","close","위젯 닫기");prev.Quiet=now.Quiet=next.Quiet=memo.Quiet=gear.Quiet=close.Quiet=true;
+            header.Controls.Add(monthTitle,0,0);header.Controls.Add(prev,1,0);header.Controls.Add(now,2,0);header.Controls.Add(next,3,0);header.Controls.Add(memo,4,0);header.Controls.Add(gear,5,0);header.Controls.Add(close,6,0);memo.Click+=delegate{if(NoteRequested!=null)NoteRequested();};
             prev.Click+=delegate{MoveMonth(-1);};next.Click+=delegate{MoveMonth(1);};now.Click+=delegate{selected=Rules.Key(DateTime.Today);month=selected.Substring(0,7);Render();};close.Click+=delegate{HideWidget();};
             pin.Text="항상 위에";pin.Name="topmost";pin.CheckOnClick=true;pin.Checked=settings.topmost;
             positionLock.Text="위치 고정";positionLock.Name="locked";positionLock.CheckOnClick=true;positionLock.Checked=settings.locked;
@@ -96,7 +110,7 @@ namespace PetCalendarDesktop {
             grid.Name="calendar";grid.Dock=DockStyle.Fill;grid.Margin=new Padding(0,4,0,6);grid.SelectDate=SelectDate;grid.AddDate=key=>open(null,key);grid.ForeColor=ForeColor;
             dday.Name="dday";dday.Dock=DockStyle.Fill;dday.Margin=new Padding(0,3,0,3);dday.Click+=delegate{var target=ChosenDday();if(target!=null)open(target.@event.id,target.startDate);else open("@dday",selected);};
             var dayHeader=Row("day-header",2);dayHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));dayHeader.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,86));
-            dayTitle.Name="selected-day";dayTitle.Dock=DockStyle.Fill;dayTitle.Margin=Padding.Empty;dayTitle.Font=new Font(Font,FontStyle.Bold);dayTitle.TextAlign=ContentAlignment.MiddleLeft;dayTitle.AutoEllipsis=true;dayTitle.UseMnemonic=false;
+            dayTitle.Name="selected-day";dayTitle.Dock=DockStyle.Fill;dayTitle.Margin=Padding.Empty;dayTitle.Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale,FontStyle.Bold);dayTitle.TextAlign=ContentAlignment.MiddleLeft;dayTitle.AutoEllipsis=true;dayTitle.UseMnemonic=false;
             var add=Button("일정","add","선택 날짜에 일정 추가");add.Primary=true;add.Plus=true;dayHeader.Controls.Add(dayTitle,0,0);dayHeader.Controls.Add(add,1,0);add.Click+=delegate{open(null,selected);};
             agenda.Name="agenda";agenda.Dock=DockStyle.Fill;agenda.Margin=Padding.Empty;agenda.Padding=Padding.Empty;agenda.SizeChanged+=delegate{LayoutRows();};
             DoubleClick+=OpenFullCalendar;layout.DoubleClick+=OpenFullCalendar;agenda.DoubleClick+=OpenFullCalendar;
@@ -178,9 +192,9 @@ namespace PetCalendarDesktop {
         public void ApplyTextScale(){
             if(IsDisposed)return;
             var oldFont=Font;var oldMonth=monthTitle.Font;var oldDay=dayTitle.Font;
-            Font=new Font("Segoe UI",10+DesktopTheme.TextScale);
-            monthTitle.Font=new Font(Font.FontFamily,15+DesktopTheme.TextScale,FontStyle.Bold);
-            dayTitle.Font=new Font(Font,FontStyle.Bold);
+            Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale);
+            monthTitle.Font=DesktopTheme.UiFont(15+DesktopTheme.TextScale,FontStyle.Bold);
+            dayTitle.Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale,FontStyle.Bold);
             oldMonth.Dispose();oldDay.Dispose();oldFont.Dispose();renderedState=null;Render();Invalidate(true);
         }
         public void Configure(bool? topmost,bool? locked,bool? ddayVisible=null){if(ddayVisible.HasValue)showDday.Checked=ddayVisible.Value;if(topmost.HasValue)pin.Checked=topmost.Value;if(locked.HasValue)positionLock.Checked=locked.Value;}
@@ -327,9 +341,9 @@ namespace PetCalendarDesktop {
             string time=occurrence.@event.startTime==""?"종일":occurrence.@event.startTime+(occurrence.@event.endTime==""?"":" – "+occurrence.@event.endTime);
             var flags=TextFormatFlags.NoPrefix|TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis|TextFormatFlags.VerticalCenter;
             int right=DesktopTheme.Px(this,12),left=DesktopTheme.Px(this,40),category=DesktopTheme.Px(this,36);
-            using(var small=new Font(Font.FontFamily,9+DesktopTheme.TextScale))TextRenderer.DrawText(g,time,small,new Rectangle(left,DesktopTheme.Px(this,7),Math.Max(1,Width-left-right-category),DesktopTheme.Px(this,18)),DesktopTheme.Muted,flags);
-            using(var small=new Font(Font.FontFamily,9+DesktopTheme.TextScale))TextRenderer.DrawText(g,DesktopTheme.CategoryName(occurrence.@event.category),small,new Rectangle(Math.Max(left,Width-right-category),DesktopTheme.Px(this,7),category,DesktopTheme.Px(this,18)),DesktopTheme.Muted,flags|TextFormatFlags.Right);
-            using(var title=new Font(Font.FontFamily,10+DesktopTheme.TextScale,FontStyle.Bold|(done?FontStyle.Strikeout:FontStyle.Regular)))TextRenderer.DrawText(g,occurrence.@event.title,title,new Rectangle(left,DesktopTheme.Px(this,29),Math.Max(1,Width-left-right),DesktopTheme.Px(this,24)),done?DesktopTheme.Muted:DesktopTheme.Ink,flags);
+            using(var small=DesktopTheme.UiFont(9+DesktopTheme.TextScale))TextRenderer.DrawText(g,time,small,new Rectangle(left,DesktopTheme.Px(this,7),Math.Max(1,Width-left-right-category),DesktopTheme.Px(this,18)),DesktopTheme.Muted,flags);
+            using(var small=DesktopTheme.UiFont(9+DesktopTheme.TextScale))TextRenderer.DrawText(g,DesktopTheme.CategoryName(occurrence.@event.category),small,new Rectangle(Math.Max(left,Width-right-category),DesktopTheme.Px(this,7),category,DesktopTheme.Px(this,18)),DesktopTheme.Muted,flags|TextFormatFlags.Right);
+            using(var title=DesktopTheme.UiFont(10+DesktopTheme.TextScale,FontStyle.Bold|(done?FontStyle.Strikeout:FontStyle.Regular)))TextRenderer.DrawText(g,occurrence.@event.title,title,new Rectangle(left,DesktopTheme.Px(this,29),Math.Max(1,Width-left-right),DesktopTheme.Px(this,24)),done?DesktopTheme.Muted:DesktopTheme.Ink,flags);
         }
     }
     public sealed class WidgetDday : WidgetButton {

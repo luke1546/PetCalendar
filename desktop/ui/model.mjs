@@ -29,7 +29,7 @@ export function isDate(value) {
 }
 export function defaultState() {
   return { version: 1, revision: 0, updatedAt: null, events: [], tasks: [],
-    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true, textScale:0, fontFamily:'default', categories:[] } };
+    settings: { hideCompleted: true, notifications: false, defaultReminder: 10, hotkey:defaultHotkey(), desktopPopups:true, notificationSound:true, textScale:0, fontFamily:'default', boldText:false, categories:[], hiddenCategories:[] } };
 }
 function check(condition, message) { if (!condition) throw new Error(message); }
 function str(value, max, label, required = false) {
@@ -55,6 +55,10 @@ export function validateState(input) {
     check(typeof c.color==='string' && /^#[0-9a-f]{6}$/.test(c.color), '분류 색상을 확인해 주세요.');
     return {id:c.id,name:c.name,color:c.color};
   });
+  const rawHidden = input.settings && input.settings.hiddenCategories;
+  check(rawHidden===undefined || (Array.isArray(rawHidden) && rawHidden.every(h=>Object.hasOwn(CATEGORIES,h)) && new Set(rawHidden).size===rawHidden.length), '분류 설정을 확인해 주세요.');
+  const hiddenCategories = rawHidden ? [...rawHidden] : [];
+  check(hiddenCategories.length < Object.keys(CATEGORIES).length || categories.length > 0, '분류는 하나 이상 있어야 해요.');
   const events = input.events.map(e => {
     check(e && isDate(e.startDate) && isDate(e.endDate) && e.endDate >= e.startDate, '일정의 시작일과 종료일을 확인해 주세요.');
     check(time(e.startTime) && time(e.endTime) && (!e.endTime || e.startTime), '일정 시간을 확인해 주세요.');
@@ -83,9 +87,10 @@ export function validateState(input) {
   check((s.desktopPopups===undefined||typeof s.desktopPopups==='boolean')&&(s.notificationSound===undefined||typeof s.notificationSound==='boolean'),'설정 형식을 확인해 주세요.');
   check(s.textScale===undefined||[0,1,2].includes(s.textScale),'글씨 크기를 확인해 주세요.');
   check(s.fontFamily===undefined||FONT_KEYS.includes(s.fontFamily),'글꼴을 확인해 주세요.');
+  check(s.boldText===undefined||typeof s.boldText==='boolean','글씨 굵게 설정을 확인해 주세요.');
   return { version:1, revision:Number.isSafeInteger(input.revision) && input.revision >= 0 ? input.revision : 0,
     updatedAt:typeof input.updatedAt === 'string' ? input.updatedAt : null, events,tasks,
-    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true,textScale:s.textScale??0,fontFamily:s.fontFamily??'default',categories } };
+    settings:{ hideCompleted:s.hideCompleted, notifications:s.notifications, defaultReminder:s.defaultReminder, hotkey:validateHotkey(s.hotkey),desktopPopups:s.desktopPopups??true,notificationSound:s.notificationSound??true,textScale:s.textScale??0,fontFamily:s.fontFamily??'default',boldText:s.boldText??false,categories,hiddenCategories } };
 }
 export function occursOn(event, key) {
   if(event.excludedDates?.includes(key))return false;

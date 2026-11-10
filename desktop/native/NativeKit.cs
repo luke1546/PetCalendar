@@ -101,10 +101,11 @@ public static class Ui {
         // falls back to Malgun Gothic Bold for Hangul; GDI links the same way.
         public static Font Font(float scale,float css,int weight=400,string family=null,string text=null,FontStyle extra=FontStyle.Regular){
             float px=(css+(1+DesktopTheme.TextScale)*4f/3f)*scale;
+            if(DesktopTheme.BoldText&&family!="mono"&&family!="consolas")weight=Math.Max(weight,700);
             if(family==null&&DesktopTheme.FontKey!="default"){
                 var custom=AppFonts.Family(DesktopTheme.FontKey);
                 if(custom!=null){
-                    px*=AppFonts.Scale(DesktopTheme.FontKey);var cs=(AppFonts.Bold(DesktopTheme.FontKey,weight)?FontStyle.Bold:FontStyle.Regular)|extra;
+                    px*=AppFonts.Scale(DesktopTheme.FontKey);var cs=(DesktopTheme.BoldText||AppFonts.Bold(DesktopTheme.FontKey,weight)?FontStyle.Bold:FontStyle.Regular)|extra;
                     string ck=custom.Name+"|"+(int)cs+"|"+Math.Round(px*4);Font cf;if(fonts.TryGetValue(ck,out cf))return cf;
                     try{cf=new Font(custom,px,cs,GraphicsUnit.Pixel);}catch{cf=new Font(custom,px,FontStyle.Regular,GraphicsUnit.Pixel);}
                     fonts[ck]=cf;return cf;
@@ -497,11 +498,13 @@ public static class Ui {
     public class InputBox : Control {
         public readonly CueTextBox Box=new CueTextBox();
         public float FontCss=13,PadX=11,PadY=10;public int Weight=400;public bool Multiline;public float MinHeightCss;
+        // Multiline only: grow with the text up to this height (CSS px), then show a scroll bar.
+        public float MaxHeightCss;public event Action HeightChanged;int lastPreferred;
         public event EventHandler ValueChanged;
         public InputBox(bool multiline=false,float fontCss=13,int weight=400){
             Multiline=multiline;FontCss=fontCss;Weight=weight;
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw,true);
-            Box.Multiline=multiline;Box.BackColor=Ui.C("#fffaf1");Box.ForeColor=DesktopTheme.Ink;if(multiline){Box.ScrollBars=ScrollBars.None;Box.AcceptsReturn=true;Box.WordWrap=true;}
+            Box.Multiline=multiline;Box.BackColor=Ui.C("#fffaf1");Box.ForeColor=DesktopTheme.Ink;if(multiline){Box.ScrollBars=ScrollBars.None;Box.AcceptsReturn=true;Box.WordWrap=true;Box.TextChanged+=delegate{Grow();};}
             Box.GotFocus+=delegate{Invalidate();};Box.LostFocus+=delegate{Invalidate();};Box.TextChanged+=delegate{if(ValueChanged!=null)ValueChanged(this,EventArgs.Empty);};
             Controls.Add(Box);Cursor=Cursors.IBeam;
         }
@@ -509,7 +512,9 @@ public static class Ui {
         public string Placeholder{get{return Box.Placeholder;}set{Box.Placeholder=value;}}
         public int MaxLength{get{return Box.MaxLength;}set{Box.MaxLength=value;}}
         float Sc{get{return DeviceDpi/96f;}}
-        public int PreferredHeight(){float s=Sc;var font=Ui.Font(s,FontCss,Weight);int line=(int)Math.Ceiling(font.GetHeight()*1.0f);int h=(int)Math.Round(line+2*PadY*s+2*s);if(Multiline)h=Math.Max(h+line,(int)Math.Round(Math.Max(65,MinHeightCss)*s));return h;}
+        public int PreferredHeight(){float s=Sc;var font=Ui.Font(s,FontCss,Weight);int line=(int)Math.Ceiling(font.GetHeight()*1.0f);int h=(int)Math.Round(line+2*PadY*s+2*s);if(Multiline){h=Math.Max(h+line,(int)Math.Round(Math.Max(65,MinHeightCss)*s));if(MaxHeightCss>0){int content=TextHeight()+(int)Math.Round(2*PadY*s+2*s);h=Math.Min((int)Math.Round(MaxHeightCss*s),Math.Max(h,content));}}return h;}
+        int TextHeight(){int width=Math.Max(40,(Width>0?Width:Box.Width)-(int)Math.Round(2*PadX*Sc)-SystemInformation.VerticalScrollBarWidth);return TextRenderer.MeasureText(Box.Text+"\n ",Box.Font,new Size(width,int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.TextBoxControl).Height;}
+        void Grow(){if(MaxHeightCss<=0)return;int h=PreferredHeight();bool overflow=TextHeight()+(int)Math.Round(2*PadY*Sc+2*Sc)>(int)Math.Round(MaxHeightCss*Sc);var bars=overflow?ScrollBars.Vertical:ScrollBars.None;if(Box.ScrollBars!=bars)Box.ScrollBars=bars;if(h!=lastPreferred){lastPreferred=h;if(HeightChanged!=null)HeightChanged();}}
         protected override void OnLayout(LayoutEventArgs e){base.OnLayout(e);float s=Sc;Box.Font=Ui.Font(s,FontCss,Weight);int padX=(int)Math.Round(PadX*s+s),padY=(int)Math.Round(PadY*s+s);
             if(Multiline)Box.SetBounds(padX,padY,Math.Max(1,Width-2*padX),Math.Max(1,Height-2*padY));
             else{int h=Box.PreferredHeight;Box.SetBounds(padX,(Height-h)/2,Math.Max(1,Width-2*padX),h);}

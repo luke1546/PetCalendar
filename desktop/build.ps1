@@ -11,7 +11,7 @@ $calendarCompiler=Join-Path $env:SystemRoot 'Microsoft.NET\Framework64\v4.0.3031
 $calendarReferences=@('System.dll','System.Core.dll','System.Drawing.dll','System.Windows.Forms.dll','System.Web.Extensions.dll','System.IO.Compression.dll') | ForEach-Object {'/reference:'+$_}
 $calendarArgs=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepage:65001',('/out:'+(Join-Path $OutputDirectory 'PetCalendar.exe')),('/win32icon:'+(Join-Path $calendarRoot 'calendar.ico')))+$calendarReferences+@(
  ('/win32manifest:'+(Join-Path $PSScriptRoot 'app.manifest')),
- (Join-Path $PSScriptRoot 'BrandMigration.cs'),(Join-Path $PSScriptRoot 'Core.cs'),(Join-Path $PSScriptRoot 'Alarms.cs'),(Join-Path $PSScriptRoot 'Widget.cs'),(Join-Path $PSScriptRoot 'Host.cs'),(Join-Path $PSScriptRoot 'Entry.cs'))
+ (Join-Path $PSScriptRoot 'BrandMigration.cs'),(Join-Path $PSScriptRoot 'Core.cs'),(Join-Path $PSScriptRoot 'Alarms.cs'),(Join-Path $PSScriptRoot 'Widget.cs'),(Join-Path $PSScriptRoot 'StickyNotes.cs'),(Join-Path $PSScriptRoot 'Host.cs'),(Join-Path $PSScriptRoot 'Entry.cs'))
 # Native calendar window (replaces desktop/ui + WebView2).
 foreach($nativeFile in @('PerfProbe.cs','NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','Dialogs.cs','Settings.cs')){$calendarArgs+=(Join-Path $PSScriptRoot ('native\'+$nativeFile))}
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'emoji.zip')+',petcalendar.emoji.zip')

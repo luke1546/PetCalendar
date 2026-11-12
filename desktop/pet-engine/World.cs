@@ -51,9 +51,11 @@ namespace DesktopPet {
         internal static void Invalidate() {dirty=true;}
         internal static WorldSnapshot Get(bool force) {
             double now=Now;
-            if(force || dirty || snapshot==null || now-captured>=.25) {dirty=false;snapshot=new WorldSnapshot();captured=now;}
+            if(force || dirty || snapshot==null || now-captured>=(now<FastUntil?.04:.25)) {dirty=false;snapshot=new WorldSnapshot();captured=now;}
             return snapshot;
         }
         internal static void Clear() {snapshot=null;dirty=true;}
+        // While a window carrying a pet is moving, windows are re-read every 40 ms instead of 250 ms.
+        internal static double FastUntil;
     }
 }

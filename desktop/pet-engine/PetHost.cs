@@ -8,6 +8,31 @@ using System.Windows.Forms;
 
 
 namespace DesktopPet {
+    // Keeps every pet window above other always-on-top windows, in a fixed stack.
+    // Bottom to top: bed, pets, name tags/toy, chatter bubbles, schedule bubbles, alarms.
+    // Other topmost windows (widgets, popups) opened later would otherwise cover pets,
+    // so the stack is re-asserted every 1.5 s and whenever a bubble appears.
+    internal static class PetLayers {
+        internal const int Bed=0,Pet=1,Tag=2,Chatter=3,Schedule=4,Alarm=5;
+        sealed class Entry{public Form Window;public Func<int> Layer;public long Order;}
+        static readonly List<Entry> entries=new List<Entry>();static long next;
+        static System.Windows.Forms.Timer timer;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool IsWindowVisible(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int w,int h,uint flags);
+        internal static void Register(Form window,Func<int> layer){
+            entries.Add(new Entry{Window=window,Layer=layer,Order=next++});
+            window.Disposed+=delegate{entries.RemoveAll(e=>e.Window==window);};
+            if(timer==null){timer=new System.Windows.Forms.Timer{Interval=1500};timer.Tick+=delegate{Raise();};timer.Start();}
+        }
+        internal static int Count{get{return entries.Count;}}
+        internal static void Raise(){
+            // HWND_TOPMOST puts a window at the top of the topmost band, so raising bottom-up builds the stack.
+            foreach(var e in entries.ToArray().OrderBy(x=>x.Layer()).ThenBy(x=>x.Order)){
+                var w=e.Window;if(w.IsDisposed||!w.IsHandleCreated||!IsWindowVisible(w.Handle))continue;
+                SetWindowPos(w.Handle,new IntPtr(-1),0,0,0,0,0x0001|0x0002|0x0010|0x0200|0x0400);
+            }
+        }
+    }
     internal sealed class Sample { public Point Point;public double Time; }
     internal sealed class PetHost : Form {
         internal static string SettingsDirectory=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"DesktopPet");
@@ -64,7 +89,7 @@ namespace DesktopPet {
         internal PetHost(Species species,Palette palette,bool ownTray,double spawn) {
             Kind=species;Cat=new Motion(Guid.NewGuid().GetHashCode(),species);
             paletteName=palette.Name;spawnFraction=spawn;Art=new Sprites(species,palette);
-            Text=WindowPrefix+" · "+Kind.Name+" · "+paletteName;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;
+            Text=WindowPrefix+" · "+Kind.Name+" · "+paletteName;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;PetLayers.Register(this,()=>PetLayers.Pet);
             StartPosition=FormStartPosition.Manual;Size=new Size(96,96);
             try { int saved;if(int.TryParse(File.ReadAllText(settings),out saved) && new[]{64,96,128}.Contains(saved))dip=saved; }catch(IOException){}catch(UnauthorizedAccessException){}
             if(ownTray)BuildMenu();
@@ -134,7 +159,7 @@ namespace DesktopPet {
         void RefreshWorld(bool force) {
             world=World.Get(force);screens=world.Screens;
             ResizeCat();
-            Cat.SetWorld(world.Surfaces(Cat.Size),world.WorkAreas);
+            if(Cat.SetWorld(world.Surfaces(Cat.Size),world.WorkAreas))World.FastUntil=World.Now+.6;
             Point point=new Point((int)Cat.X,(int)Cat.Y-1);
             if(!Cat.Held && !screens.Any(s=>s.Bounds.Contains(point)))BringToFloor();
             systemHidden=world.Fullscreen(new Point((int)Cat.X,(int)Cat.Y-1));
@@ -157,7 +182,7 @@ namespace DesktopPet {
         internal void Pulse(double now) {
             if(disposed || !initialized)return;
             double dt=Math.Min(.25,Math.Max(0,now-lastTick));lastTick=now;
-            if(now>=nextWorld) {RefreshWorld(false);nextWorld=now+.25;}
+            if(now>=nextWorld) {RefreshWorld(false);nextWorld=now+(now<World.FastUntil?.04:.25);}
             if(systemHidden || SimulationLoop.Suspended || menuOpen) {accumulator=0;return;}
             if(dragging) {
                 Point cursor=Cursor.Position;Cat.X=cursor.X+grabX;Cat.Y=cursor.Y+grabY;
@@ -263,7 +288,7 @@ namespace DesktopPet {
             emojiImages[code]=image;return image;
         }
         IntPtr bitmap=IntPtr.Zero;internal int Width2,Height2;internal double Scale=1;internal bool Shown;int x=int.MinValue,y=int.MinValue;
-        internal NameTag(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);}
+        internal NameTag(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;PetLayers.Register(this,()=>PetLayers.Tag);StartPosition=FormStartPosition.Manual;Size=new Size(1,1);}
         protected override bool ShowWithoutActivation{get{return true;}}
         protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000|0x80|0x08000000|0x20;return p;}}
         internal void SetText(string text,double scale){

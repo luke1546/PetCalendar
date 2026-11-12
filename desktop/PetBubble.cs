@@ -102,7 +102,11 @@ namespace PetCalendarDesktop {
         // Set the native style instead so the first announcement also preserves focus.
         protected override CreateParams CreateParams {get{var p=base.CreateParams;p.ExStyle|=0x08000000|0x80|0x8;return p;}}
         protected override void WndProc(ref Message m){if(m.Msg==0x21){m.Result=new IntPtr(3);return;}base.WndProc(ref m);}
+        int layer=DesktopPet.PetLayers.Chatter;bool layered;
         internal void Present(string text,bool isAlarm,int count,bool hasEvent,bool chatter=false) {
+            layer=isAlarm?DesktopPet.PetLayers.Alarm:chatter?DesktopPet.PetLayers.Chatter:DesktopPet.PetLayers.Schedule;
+            if(!layered){layered=true;DesktopPet.PetLayers.Register(this,()=>layer);}
+            if(IsHandleCreated)BeginInvoke(new Action(DesktopPet.PetLayers.Raise));
             if(value!=text||!Visible) {value=text;revealed=0;body.Text="";if(Visible)typing.Start();}
             Text=chatter?"데스크톱 펫 · 잡담":"데스크톱 펫 · 말풍선";
             body.AccessibleName=chatter?"데스크톱 펫 잡담":"데스크톱 펫 일정 안내";
@@ -202,7 +206,7 @@ namespace PetCalendarDesktop {
                 if(alarm)using(var alert=new SolidBrush(accentColor))g.FillEllipse(alert,Width-DesktopTheme.Px(this,10),Card.Bottom-DesktopTheme.Px(this,9),DesktopTheme.Px(this,3),DesktopTheme.Px(this,3));
             }
         }
-        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(!Visible){typing.Stop();Unfollow();}}
+        protected override void OnVisibleChanged(EventArgs e){base.OnVisibleChanged(e);if(!Visible){typing.Stop();Unfollow();}else if(IsHandleCreated)BeginInvoke(new Action(DesktopPet.PetLayers.Raise));}
         protected override void Dispose(bool disposing){if(disposing){Unfollow();typing.Dispose();snoozeMenu.Dispose();}base.Dispose(disposing);if(disposing)textFont.Dispose();}
         internal object Inspect(){return new{visible=Visible,text=value,fontSize=Font.SizeInPoints,alarm,window=IsHandleCreated?Handle.ToInt64():0,dpi=DeviceDpi,species=lookSpecies,fill=ColorTranslator.ToHtml(fillColor),edge=ColorTranslator.ToHtml(edgeColor),fur=ColorTranslator.ToHtml(furColor),followMoves=FollowMoves,layoutPasses=LayoutPasses,x=Left,y=Top,width=Width,height=Height};}
         internal void ActivateOpen(){open.PerformClick();}

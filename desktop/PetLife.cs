@@ -247,7 +247,7 @@ namespace PetCalendarDesktop {
     // Yarn ball hanging off the cursor tip; click-through so it never gets in the way.
     internal sealed class ToyWindow : Form {
         IntPtr bitmap=IntPtr.Zero;int size;double scale;bool shown;int x=int.MinValue,y=int.MinValue;
-        internal ToyWindow(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);Text="펫 캘린더 · 장난감";}
+        internal ToyWindow(){FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;DesktopPet.PetLayers.Register(this,()=>DesktopPet.PetLayers.Tag);StartPosition=FormStartPosition.Manual;Size=new Size(1,1);Text="펫 캘린더 · 장난감";}
         protected override bool ShowWithoutActivation{get{return true;}}
         protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x80000|0x80|0x08000000|0x20;return p;}}
         void Render(){
@@ -285,7 +285,7 @@ namespace PetCalendarDesktop {
         internal event Action<int> Moved;internal event Action HideRequested;
         readonly ContextMenuStrip menu=new ContextMenuStrip();
         internal BedWindow(){
-            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);Text="펫 캘린더 · 펫 침대";
+            FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=true;StartPosition=FormStartPosition.Manual;Size=new Size(1,1);Text="펫 캘린더 · 펫 침대";DesktopPet.PetLayers.Register(this,()=>DesktopPet.PetLayers.Bed);
             menu.Items.Add("침대 치우기",null,delegate{if(HideRequested!=null)HideRequested();});
         }
         protected override bool ShowWithoutActivation{get{return true;}}

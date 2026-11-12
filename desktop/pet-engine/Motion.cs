@@ -33,15 +33,22 @@ namespace DesktopPet {
         public Motion(int seed) : this(seed,Species.Cat) {}
         public Motion(int seed,Species profile) { Profile=profile;Size=96*profile.Scale;random=new Random(seed); }
         public void SetPose(Pose pose) { if(State!=pose) { State=pose; Age=0; } }
-        public void SetWorld(List<Surface> surfaces, List<Rectangle> screens) {
+        // Returns true when the window the pet stands on moved (the host then samples faster).
+        public bool SetWorld(List<Surface> surfaces, List<Rectangle> screens) {
             Surface old=Surfaces.FirstOrDefault(s=>s.Id==Support);
-            Surface next=null;
+            Surface next=null;bool moved=false,slip=false;
             if(old!=null)next=surfaces.FirstOrDefault(s=>s.BodyId==old.BodyId && s.Supports(X+s.AnchorX-old.AnchorX,Size));
             if(!Held && Support!=null && old!=null && next!=null) {
-                X+=next.AnchorX-old.AnchorX;Y=next.Y;Support=next.Id;
+                double dx=next.AnchorX-old.AnchorX,dy=next.Y-old.Y;moved=dx!=0||dy!=0;
+                X+=dx;
+                // A slowly moved window carries the pet. A window yanked down drops away under it
+                // (the pet falls and lands on it again); one yanked up slides out from under its feet.
+                if(dy>8*Unit||dy<-12*Unit)slip=true;
+                else {Y=next.Y;Support=next.Id;}
             }
             Surfaces=surfaces;Screens=screens;
-            if(!Held && Support!=null && next==null) {Support=null;Sleeping=false;SetPose(Pose.Fall);}
+            if(!Held && Support!=null && (next==null||slip)) {Support=null;Sleeping=false;Vy=0;jumpDelay=0;SetPose(Pose.Fall);}
+            return moved;
         }
         public void Reset(double x, Surface floor) {
             X=Math.Max(floor.Left+Size/2,Math.Min(floor.Right-Size/2,x)); Y=floor.Y;

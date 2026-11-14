@@ -91,9 +91,11 @@ namespace PetCalendarDesktop {
         readonly Btn delete=new Btn(BtnKind.Danger,"삭제"),copy=new Btn(BtnKind.Normal,"복제"),cancel=new Btn(BtnKind.Normal,"취소"),save=new Btn(BtnKind.Primary,"일정 저장");
         readonly TextItem error=new TextItem("",11,400,Ui.C("#bf4c3b"),1.8f){Top=8,Bottom=8};
         FlowItem notice,timeRow,weekdayRow,untilField;string draftKey,baseline;readonly Timer draftTimer=new Timer{Interval=300};bool loading;
-        public EventDialog(CalendarView view,CalendarEvent source,string key,bool copyMode):base(view,copyMode?"일정 복제":source!=null?"일정 수정":"새 일정","나의 새로운 계획"){
+        // Diagnostics (automation "calendar-state"): what the editor currently holds.
+        internal object Describe(){return new{kind="event",heading=Heading,title=TitleBox.Text,start=start.Value,end=end.Value,startTime=allDay.Checked?"":startTime.Value,endTime=allDay.Checked?"":endTime.Value};}
+        public EventDialog(CalendarView view,CalendarEvent source,string key,bool copyMode,string endKey=null,string startAt=null,string endAt=null,string titleText=null):base(view,copyMode?"일정 복제":source!=null?"일정 수정":"새 일정","나의 새로운 계획"){
             original=source;occurrence=key;duplicate=copyMode;editingId=copyMode?null:(source!=null?source.id:null);WidthCss=550;
-            var e=source??new CalendarEvent{title="",startDate=key,endDate=key,startTime="",endTime="",category=CalendarView.DefaultCategory(),note="",repeat="none",repeatUntil="",reminder=view.state.settings.defaultReminder,pinned=false};
+            var e=source??new CalendarEvent{title=titleText??"",startDate=key,endDate=endKey??key,startTime=startAt??"",endTime=endAt??"",category=CalendarView.DefaultCategory(),note="",repeat="none",repeatUntil="",reminder=view.state.settings.defaultReminder,pinned=false};
             var noticeBox=new BoxItem{Fill=Ui.C("#ffedc4"),Radius=7,PadTop=10,PadBottom=10,PadLeft=12,PadRight=12,Top=-8,Bottom=18};noticeBox.Add(new TextItem("반복 일정입니다. 저장하거나 삭제할 때 적용 범위를 선택할 수 있습니다.",11,400,Ui.C("#95702f"),1.8f));notice=Body.Add(noticeBox);
             notice.Visible=source!=null&&source.repeat!="none"&&!copyMode;
             Body.Add(new FieldItem("어떤 일정인가요?",TitleBox));
@@ -437,12 +439,14 @@ namespace PetCalendarDesktop {
             Color body=Ui.C("#7d6a4c");
             // Short grouped lists rather than paragraphs: one action per line.
             Action<string,string[]> group=(title,lines)=>{var h=Css.H3(title);h.Top=Css.Px(10);h.Bottom=4;Body.Add(h);var t=new TextItem(String.Join("\n",lines.Select(l=>"·  "+l)),12,400,body,1.9f);t.Bottom=Css.Px(8);Body.Add(t);};
-            group("일정",new[]{"선택한 날짜를 한 번 더 누르거나 + 일정 추가","새 일정 창의 ‘자주 쓰는 일정’을 누르면 한 번에 입력","‘오늘의 일정’ 카드나 W로 다가오는 7일 보기","일정을 누르면 수정 · 복제 · 삭제","끌어서 다른 날짜로 옮기기","‘+N개 더 보기’로 그날 일정 모두 보기"});
+            group("일정",new[]{"선택한 날짜를 한 번 더 누르거나 + 일정 추가","새 일정 창의 ‘자주 쓰는 일정’을 누르면 한 번에 입력","‘오늘의 일정’ 카드나 W로 다가오는 7일 보기","일정을 누르면 수정 · 복제 · 삭제","끌어서 다른 날짜로 옮기기","여러 날짜를 이어서 끌면 기간 일정 만들기","‘+N개 더 보기’로 그날 일정 모두 보기","일정 위에서 Ctrl+C, 다른 날짜를 골라 Ctrl+V로 복사"});
+            group("주간 보기",new[]{"달력 위 ‘월간 · 주간’으로 바꾸기","빈 시간을 위아래로 끌거나 두 번 눌러 그 시간에 일정 추가","일정 블록을 다른 요일로 끌어 옮기기"});
+            group("스티커 메모 · 가져오기",new[]{"메모의 한 줄을 우클릭 → 일정 만들기 · 할 일로 보내기","구글·아웃룩 일정(.ics)은 설정 → 데이터 · 백업에서 가져오기"});
             group("할 일",new[]{"일정을 할 일 칸에 놓으면 할 일로","할 일을 달력 날짜에 놓으면 일정으로"});
             group("D-day · 검색 · 분류",new[]{"깃발을 누르거나 상단 D-DAY 카드에서 선택","검색은 모든 기간의 제목과 메모에서","분류 버튼을 한 번 더 누르면 전체 보기","나만의 분류는 새 일정 창의 ‘+ 분류’로 만들기 (우클릭으로 삭제)"});
             group("펫이 챙겨줘요",new[]{"아침 첫 안내: 오늘 일정과 마감 개수","마감 전날: ‘내일 마감이에요’","일요일 저녁: 이번 주 정리와 연속 달성","퇴근 무렵(기본 오후 5:50): 그날의 펫 일기 (D로 보기)","펫끼리 마주치면 인사하고, 밤엔 침대에서 자요","펫 근처로 마우스를 가져가면 털실 공을 쫓아와요"});
             group("호감도 · 간식",new[]{"할 일·일정을 끝내면 간식 1개 (펫 우클릭 → 간식 주기)","간식은 펫마다 10분에 한 번","이름표: 친구까지 🌟 · 단짝 💚 · 가족 💖","‘가족’이 되면 설정의 호칭으로 불러요"});
-            var keys=new[]{new[]{"N","선택한 날짜에 새 일정"},new[]{"/","일정 검색"},new[]{"T","오늘로 이동"},new[]{"W","다가오는 7일 보기"},new[]{"D","펫 일기 보기"},new[]{"←|→","이전 달 · 다음 달"},new[]{"Ctrl|Z","실행 취소 · Ctrl+Y 다시 실행"},new[]{"Esc","입력창 닫기"}};
+            var keys=new[]{new[]{"N","선택한 날짜에 새 일정"},new[]{"/","일정 검색"},new[]{"T","오늘로 이동"},new[]{"W","다가오는 7일 보기"},new[]{"D","펫 일기 보기"},new[]{"←|→","하루씩 이동 · ↑↓ 한 주씩"},new[]{"Enter","선택한 날짜에 새 일정"},new[]{"PgUp|PgDn","이전 · 다음 달 (주간 보기는 주)"},new[]{"Ctrl|F","일정 검색"},new[]{"Ctrl|C","일정 복사 · Ctrl+V 선택한 날짜에 붙여넣기"},new[]{"Ctrl|Z","실행 취소 · Ctrl+Y 다시 실행"},new[]{"Esc","입력창 닫기"}};
             var hk=View.state.settings.hotkey;if(hk!=null&&hk.enabled)keys=new[]{new[]{Rules.HotkeyLabel(hk).Replace(" + ","|"),"어디서나 창 숨기기 · 열기"}}.Concat(keys).ToArray();
             var keyTitle=Css.H3("단축키");keyTitle.Top=Css.Px(10);keyTitle.Bottom=0;Body.Add(keyTitle);
             var dl=new PaintItem{Top=Css.Px(12),Bottom=Css.Px(12)};

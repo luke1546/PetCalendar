@@ -68,7 +68,7 @@ namespace PetCalendarDesktop {
             Icon=new Icon(Path.Combine(root,"calendar.ico"));
             view=new CalendarView(this,store,prefs){Dock=DockStyle.Fill};view.WindowAction+=WindowAction;Controls.Add(view);
             widget=new CalendarWidget(store,ApplyHotkey,(id,date)=>{ShowCalendar();view.OpenFromHost(id,date);},Log);widget.Icon=Icon;
-            notes=new StickyNotes(dataDir,Log);widget.NoteRequested+=()=>notes.Request(widget.Visible?widget.Bounds:(Rectangle?)null);
+            notes=new StickyNotes(dataDir,Log);notes.EventFromLine+=line=>{ShowCalendar();BeginInvoke(new Action(()=>view.NewEventFromText(line)));};notes.TaskFromLine=line=>view.AddTaskText(line);widget.NoteRequested+=()=>notes.Request(widget.Visible?widget.Bounds:(Rectangle?)null);
             menu.Items.Add("캘린더 열기",null,delegate{ShowCalendar();});menu.Items.Add(new ToolStripSeparator());
             widgetMenu=new ToolStripMenuItem("바탕화면 위젯",null,delegate{if(widget.EnabledPreference)widget.HideWidget();else widget.ShowWidget();});widgetMenu.Checked=widget.EnabledPreference;menu.Items.Add(widgetMenu);
             widget.VisibilityPreferenceChanged+=delegate{widgetMenu.Checked=widget.EnabledPreference;view.WidgetChanged();};
@@ -288,6 +288,8 @@ namespace PetCalendarDesktop {
                     Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;
                 }
                 if(action=="pets-send"){pets.SendUnnamed();Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
+                if(action=="calendar-import-ics"){view.ImportIcs((string)request["path"]);Reply(new{id=id,ok=true});return;}
+                if(action=="calendar-state"){Reply(new{id=id,ok=true,calendar=view.Describe()});return;}
                 if(action=="calendar-bench"){if(request.ContainsKey("width"))Size=new Size(Convert.ToInt32(request["width"]),Convert.ToInt32(request["height"]));Reply(new{id=id,ok=true,bench=view.Bench()});return;}
                 if(action=="pets-inspect"){Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
                 if(action=="inspect"){IntPtr appId;GetCurrentProcessExplicitAppUserModelID(out appId);string identity=Marshal.PtrToStringUni(appId);Marshal.FreeCoTaskMem(appId);var processes=new[]{Process.GetCurrentProcess().Id};Reply(new{id=id,ok=true,visible=IsWindowVisible(Handle),window=Handle.ToInt64(),tray=tray.Visible,ready=ready,applicationId=identity,executable=Application.ExecutablePath,processIds=processes,pending=alarms.Pending(),popupVisible=popup.Visible,popupWindow=popup.Handle.ToInt64(),popupMonitor=popup.MonitorName,soundBatches=alarms.SoundBatches});return;}

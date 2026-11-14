@@ -23,8 +23,8 @@ Korean, for users, short. Look at `git log --oneline <last tag>..HEAD` and `git 
 
 ## 다운로드
 
-- **`PetCalendar-Setup.exe`**: 설치판입니다. 기존 설치 위에 덮어 설치하면 일정과 설정이 그대로 유지됩니다.
-- **`PetCalendar-Portable.exe`**: 설치 없이 이 파일 하나로 실행됩니다.
+- **`PetCalendar-Setup-3.3.5.exe`**: 설치판입니다. 기존 설치 위에 덮어 설치하면 일정과 설정이 그대로 유지됩니다.
+- **`PetCalendar-Portable-3.3.5.exe`**: 설치 없이 이 파일 하나로 실행됩니다.
 
 Windows x64, .NET Framework 4.8이 필요합니다. 체크섬은 `SHA256SUMS.txt`에서 확인할 수 있습니다.
 ```
@@ -36,6 +36,7 @@ Windows x64, .NET Framework 4.8이 필요합니다. 체크섬은 `SHA256SUMS.txt
 - Tracked files that changed are committed automatically. New files from this change need `-Add path1,path2` (check `git status --short`; never add unrelated untracked files).
 - `-DryRun` stops before commit/push (builds and tests only). `-SkipTests` only if the user asks for speed and tests already passed this session.
 - Run it in the background (it takes a few minutes) and wait for the result; do not poll.
+- Release assets are uploaded as `PetCalendar-Setup-<version>.exe` and `PetCalendar-Portable-<version>.exe`; use those names in the notes' 다운로드 section.
 - The script bumps every version spot (app.manifest, Entry.cs, PortableLauncher.cs, installer.nsi, README), runs the tests in a temp copy in parallel with the release build, refuses to commit if any test fails, and checks that all three exes report the new version.
 
 ## 4. Report

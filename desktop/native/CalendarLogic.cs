@@ -12,7 +12,7 @@ namespace PetCalendarDesktop {
     // Per-user UI memory that lived in WebView localStorage: quick tour
     // completion and unsaved event-editor drafts.
     public sealed class UiPrefs {
-        public sealed class Data {public bool quickTourDone,hotkeyMoved;public Dictionary<string,string> drafts=new Dictionary<string,string>();}
+        public sealed class Data {public bool quickTourDone,hotkeyMoved,weekView;public Dictionary<string,string> drafts=new Dictionary<string,string>();}
         readonly string path;public Data Value;
         public UiPrefs(string dataDir,bool migrated){
             path=Path.Combine(dataDir,"ui-state.json");
@@ -101,6 +101,8 @@ namespace PetCalendarDesktop {
         }
         internal void Render(){using(PerfProbe.T("render")){if(!ReferenceEquals(state,stampedState)){stampedState=state;dataStamp++;DesktopTheme.SetCategories(state.settings.categories,state.settings.hiddenCategories);}Summary();Relayout();Invalidate();foreach(var d in DialogForm.Open.ToArray())d.StateChanged();}}
         internal void JumpTo(string key){selected=key;month=key.Substring(0,7);limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
+        // Toolbar arrows and Page Up/Down: a month in month view, a week in week view.
+        void PageMove(int amount){if(weekView)JumpTo(Rules.AddDays(selected,7*amount));else MonthMove(amount);}
         void MonthMove(int amount){var next=Rules.Date(month+"-01").AddMonths(amount);month=Rules.Key(next).Substring(0,7);selected=month+"-01";limits["day"]=pageSizes["day"];dayScroll.Offset=0;Render();}
         void CellClick(string key,bool selectOnly){bool same=selected==key;JumpTo(key);if(same&&!selectOnly)OpenEvent(null,selected,false);}
         void ApplySearch(){string value=searchBox.Text.Trim().ToLower(Rules.Korean);if(value==search)return;search=value;limits["search"]=pageSizes["search"];limits["day"]=pageSizes["day"];searchScroll.Offset=0;Render();}
@@ -243,6 +245,14 @@ namespace PetCalendarDesktop {
             foreach(var open in DialogForm.Open.OfType<EventDialog>().ToArray())open.CloseDialog();
             var dialog=new EventDialog(this,original,key,duplicate);dialog.Show(dialog.TitleBox.Box);
         }
+        // A new schedule with its dates (and optionally times) already filled in: dragging across
+        // dates in the month grid, or across hours in the week view.
+        internal void OpenNewEvent(string from,string to,string startAt=null,string endAt=null){
+            if(saving||DialogForm.Open.OfType<EventDialog>().Any())return;
+            if(String.CompareOrdinal(to,from)<0){var t=from;from=to;to=t;}
+            selected=from;month=from.Substring(0,7);Render();
+            var dialog=new EventDialog(this,null,from,false,to,startAt,endAt);dialog.Show(dialog.TitleBox.Box);
+        }
         internal async void DeleteSchedule(string id,bool closeEditor,string occurrence,EventDialog editor=null){
             var e=state.events.FirstOrDefault(x=>x.id==id);if(e==null)return;
             if(e.repeat!="none"){
@@ -305,6 +315,77 @@ namespace PetCalendarDesktop {
                 }
             });
             if(ok){JumpTo(target);UndoToast("일정을 옮겼어요",original.title,()=>Task.FromResult(false),"이동을 되돌렸어요");}
+        }
+        // ---------- From sticky notes ----------
+        internal void NewEventFromText(string title){
+            if(DialogForm.Open.Count>0){Toast("열려 있는 창을 먼저 닫아 주세요","입력 중인 창을 닫은 뒤 다시 보내 주세요.");return;}
+            if(saving)return;var dialog=new EventDialog(this,null,selected,false,null,null,null,title);dialog.Show(dialog.TitleBox.Box);
+        }
+        internal Task<bool> AddTaskText(string title){
+            title=(title??"").Trim();if(title.Length==0)return Task.FromResult(false);
+            var task=new CalendarTask{id=Guid.NewGuid().ToString(),title=title.Length>200?title.Substring(0,200):title,dueDate="",done=false,createdAt=DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ",CultureInfo.InvariantCulture)};
+            return Commit(s=>{s.tasks=s.tasks.Concat(new[]{task}).ToArray();});
+        }
+        // ---------- .ics import ----------
+        // Adds the schedules of an iCalendar export; ones already here (same title, date and
+        // start time) are skipped so importing the same file twice adds nothing.
+        internal async void ImportIcs(string file){
+            IcsImport.Result parsed;
+            try{
+                if(new FileInfo(file).Length>20*1024*1024)throw new AppError(400,"20MB 이하의 .ics 파일만 가져올 수 있어요.");
+                parsed=IcsImport.Parse(File.ReadAllText(file,System.Text.Encoding.UTF8),DefaultCategory(),state.settings.defaultReminder);
+            }catch(Exception error){Toast("일정 파일을 읽지 못했어요",error.Message,"error");return;}
+            var existing=new HashSet<string>(state.events.Select(x=>x.title+"|"+x.startDate+"|"+x.startTime));
+            var fresh=new List<CalendarEvent>();int duplicates=0;
+            foreach(var e in parsed.Events){if(existing.Add(e.title+"|"+e.startDate+"|"+e.startTime))fresh.Add(e);else duplicates++;}
+            if(fresh.Count==0){Toast(parsed.Events.Count==0?"가져올 일정이 없어요":"이미 모두 들어 있어요",parsed.Events.Count==0?"파일에서 일정(VEVENT)을 찾지 못했어요.":"같은 일정 "+duplicates+"개를 건너뛰었어요.");return;}
+            if(state.events.Length+fresh.Count>10000){Toast("일정이 너무 많아요","일정은 모두 합쳐 10,000개까지 저장할 수 있어요.","error");return;}
+            var notes=new List<string>();
+            if(duplicates>0)notes.Add("이미 있는 일정 "+duplicates+"개는 건너뜁니다.");
+            if(parsed.Simplified>0)notes.Add("반복 규칙 "+parsed.Simplified+"개(격주·여러 요일·매년 등)는 첫 날짜만 가져옵니다.");
+            if(parsed.Skipped>0)notes.Add("반복 중 따로 바꾼 회차 등 "+parsed.Skipped+"개는 건너뜁니다.");
+            var first=fresh.Select(x=>x.startDate).OrderBy(x=>x,StringComparer.Ordinal).First();var last=fresh.Select(x=>x.startDate).OrderBy(x=>x,StringComparer.Ordinal).Last();
+            string range=first==last?FormatLong(first):FormatLong(first)+" ~ "+FormatLong(last);
+            if(!await Confirm("일정 "+fresh.Count+"개를 가져올까요?",range+"\n‘"+DesktopTheme.CategoryName(DefaultCategory())+"’ 분류로 넣어요. 가져온 뒤에도 Ctrl+Z로 되돌릴 수 있어요."+(notes.Count>0?"\n"+String.Join("\n",notes):""),"가져오기"))return;
+            var ids=new HashSet<string>(fresh.Select(x=>x.id));
+            if(!await Commit(s=>{s.events=s.events.Concat(fresh.Select(x=>Codec.Read<CalendarEvent>(Codec.Json(x)))).ToArray();}))return;
+            var upcoming=fresh.Select(x=>x.startDate).Where(k=>String.CompareOrdinal(k,Rules.Key(DateTime.Today))>=0).OrderBy(k=>k,StringComparer.Ordinal).FirstOrDefault();
+            JumpTo(upcoming??last);
+            UndoToast("일정 "+fresh.Count+"개를 가져왔어요",System.IO.Path.GetFileName(file),()=>Commit(s=>{s.events=s.events.Where(x=>!ids.Contains(x.id)).ToArray();}),"가져온 일정을 지웠어요");
+        }
+        // ---------- Copy / paste ----------
+        // Ctrl+C copies the schedule under the pointer (or the focused one, or the selected day's
+        // only one); Ctrl+V adds it once on the selected date. The copy is also put on the system
+        // clipboard as text, and pasting only works while that text is still there.
+        CalendarEvent copied;string copiedText;
+        DragInfo EventAtPointer(){
+            foreach(var id in new[]{hoverId,focusId}){
+                if(id==null)continue;string body=id.EndsWith("-check",StringComparison.Ordinal)?id.Substring(0,id.Length-6):id;
+                var h=hits.FirstOrDefault(x=>x.Id==body&&x.Drag!=null);if(h!=null){var d=h.Drag() as DragInfo;if(d!=null&&d.EventId!=null)return d;}
+                if(body.StartsWith("search-",StringComparison.Ordinal)){var e=state.events.FirstOrDefault(x=>x.id==body.Substring(7));if(e!=null)return new DragInfo{EventId=e.id,Start=e.startDate};}
+            }
+            var rows=SelectedRows();if(rows.Count==1)return new DragInfo{EventId=rows[0].@event.id,Start=rows[0].startDate};
+            return null;
+        }
+        void CopyEvent(){
+            var d=EventAtPointer();var e=d==null?null:state.events.FirstOrDefault(x=>x.id==d.EventId);
+            if(e==null){Toast("복사할 일정을 가리켜 주세요","일정 위에 마우스를 올리고 Ctrl+C를 누르세요.");return;}
+            int days=(Rules.Date(e.endDate)-Rules.Date(e.startDate)).Days;
+            copied=Codec.Read<CalendarEvent>(Codec.Json(e));copied.startDate=d.Start;copied.endDate=Rules.AddDays(d.Start,days);
+            copiedText=e.title+" · "+FormatDay(d.Start)+(e.startTime!=""?" "+e.startTime+(e.endTime!=""?"–"+e.endTime:""):"");
+            try{Clipboard.SetText(copiedText);}catch(Exception){}
+            Toast("일정을 복사했어요",e.title+"\n붙여넣을 날짜를 고르고 Ctrl+V를 누르세요.");
+        }
+        async void PasteEvent(){
+            string current=null;try{if(Clipboard.ContainsText())current=Clipboard.GetText();}catch(Exception){}
+            if(copied==null||current!=copiedText){Toast("붙여넣을 일정이 없어요","일정 위에 마우스를 올리고 Ctrl+C로 먼저 복사해 주세요.");return;}
+            string target=selected;int days=(Rules.Date(copied.endDate)-Rules.Date(copied.startDate)).Days;bool wasRepeat=copied.repeat!="none";
+            var item=Codec.Read<CalendarEvent>(Codec.Json(copied));
+            item.id=Guid.NewGuid().ToString();item.startDate=target;item.endDate=Rules.AddDays(target,days);item.repeat="none";item.repeatUntil="";
+            item.completedDates=new string[0];item.excludedDates=new string[0];item.pinned=false;item.pinnedDate="";
+            if(!await Commit(s=>{s.events=s.events.Concat(new[]{item}).ToArray();}))return;
+            string id=item.id;
+            UndoToast("일정을 붙여넣었어요",item.title+" · "+FormatDay(target)+(wasRepeat?"\n반복 없이 이 날짜에 한 번만 넣었어요.":""),()=>Commit(s=>{s.events=s.events.Where(x=>x.id!=id).ToArray();}),"붙여넣기를 되돌렸어요");
         }
         // A schedule dropped on the task panel becomes a task due on that date. For a repeating
         // schedule the user picks this occurrence only (skipped in the series) or the whole series.

@@ -17,6 +17,8 @@ namespace PetCalendarDesktop {
         readonly string path;readonly Action<Exception> log;
         readonly List<StickyNote> notes;readonly Dictionary<string,StickyNoteWindow> windows=new Dictionary<string,StickyNoteWindow>();
         readonly Timer saveTimer=new Timer{Interval=500};
+        // A line of a note sent to the calendar: a new schedule, or a task (true when it was added).
+        internal event Action<string> EventFromLine;internal Func<string,System.Threading.Tasks.Task<bool>> TaskFromLine;
         internal StickyNotes(string dataDir,Action<Exception> error){
             path=Path.Combine(dataDir,"sticky-notes.json");log=error;
             try{notes=File.Exists(path)?(Codec.Read<List<StickyNote>>(File.ReadAllText(path))??new List<StickyNote>()):new List<StickyNote>();}catch(Exception e){log(e);notes=new List<StickyNote>();}
@@ -57,6 +59,8 @@ namespace PetCalendarDesktop {
             window.NewRequested+=()=>Create(window.Bounds);
             window.DeleteRequested+=()=>Delete(note);
             window.CloseRequested+=()=>CloseNote(note);
+            window.EventRequested+=line=>{if(EventFromLine!=null)EventFromLine(line);};
+            window.TaskRequested+=async line=>{if(TaskFromLine==null)return;bool ok=await TaskFromLine(line);if(!window.IsDisposed)window.Flash(ok?"할 일에 넣었어요 ✓":"할 일에 넣지 못했어요");};
             window.Show();return window;
         }
         void Delete(StickyNote note){
@@ -83,7 +87,7 @@ namespace PetCalendarDesktop {
         static Color Fill(string c){return ColorTranslator.FromHtml(c=="pink"?"#ffd9e2":c=="green"?"#dcf2cf":c=="blue"?"#d8ecfb":"#fff2a8");}
         static Color Bar(string c){return ColorTranslator.FromHtml(c=="pink"?"#ffc4d2":c=="green"?"#c7e8b6":c=="blue"?"#c2e0f7":"#ffe680");}
         readonly StickyNote note;readonly TextBox text=new TextBox();readonly TextScroll scroll;readonly ToolTip tips=new ToolTip();
-        internal event Action Changed,NewRequested,DeleteRequested,CloseRequested;
+        internal event Action Changed,NewRequested,DeleteRequested,CloseRequested;internal event Action<string> EventRequested,TaskRequested;
         Rectangle addRect,colorRect,deleteRect,closeRect;string hover;bool loaded;
         [DllImport("user32.dll")]static extern bool ReleaseCapture();
         [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
@@ -93,10 +97,34 @@ namespace PetCalendarDesktop {
             text.Multiline=true;text.BorderStyle=BorderStyle.None;text.AcceptsReturn=true;text.AcceptsTab=true;text.WordWrap=true;text.Text=(note.text??"").Replace("\r\n","\n").Replace("\n","\r\n");scroll=new TextScroll(text);scroll.VisibilityChanged+=Layout2;Controls.Add(scroll.Bar);
             text.TextChanged+=delegate{note.text=text.Text;if(loaded&&Changed!=null)Changed();};
             Controls.Add(text);ApplyColor();ApplyFont();
+            // Right-click: the usual editing items plus sending the line (or selection) to the calendar.
+            text.MouseDown+=delegate(object sender,MouseEventArgs e){if(e.Button!=MouseButtons.Right)return;int at=text.GetCharIndexFromPosition(e.Location);
+                // Keep a selection the user made around the click; a whole-text selection (from focusing the note) is not one.
+                bool chosen=text.SelectionLength>0&&text.SelectionLength<text.TextLength&&at>=text.SelectionStart&&at<=text.SelectionStart+text.SelectionLength;if(!chosen)text.Select(at,0);};
+            var menu=new ContextMenuStrip{ShowImageMargin=false,BackColor=DesktopTheme.Card,ForeColor=DesktopTheme.Ink};
+            var toEvent=new ToolStripMenuItem("이 줄로 일정 만들기",null,delegate{var l=CurrentLine();if(l!=null&&EventRequested!=null)EventRequested(l);});
+            var toTask=new ToolStripMenuItem("이 줄을 할 일로 보내기",null,delegate{var l=CurrentLine();if(l!=null&&TaskRequested!=null)TaskRequested(l);});
+            var cut=new ToolStripMenuItem("잘라내기",null,delegate{text.Cut();}){ShortcutKeyDisplayString="Ctrl+X"};var copy=new ToolStripMenuItem("복사",null,delegate{text.Copy();}){ShortcutKeyDisplayString="Ctrl+C"};
+            var paste=new ToolStripMenuItem("붙여넣기",null,delegate{text.Paste();}){ShortcutKeyDisplayString="Ctrl+V"};var all=new ToolStripMenuItem("모두 선택",null,delegate{text.SelectAll();}){ShortcutKeyDisplayString="Ctrl+A"};
+            menu.Items.AddRange(new ToolStripItem[]{toEvent,toTask,new ToolStripSeparator(),cut,copy,paste,all});
+            menu.Opening+=delegate{menu.Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale);var l=CurrentLine();bool has=l!=null;bool sel=text.SelectionLength>0;
+                toEvent.Text=sel?"선택한 글로 일정 만들기":"이 줄로 일정 만들기";toTask.Text=sel?"선택한 글을 할 일로 보내기":"이 줄을 할 일로 보내기";toEvent.Enabled=toTask.Enabled=has;
+                cut.Enabled=copy.Enabled=sel;paste.Enabled=Clipboard.ContainsText();};
+            text.ContextMenuStrip=menu;
             Bounds=new Rectangle(note.x,note.y,Math.Max(150,note.width),Math.Max(120,note.height));
             loaded=true;
         }
         float Sc{get{return DeviceDpi/96f;}}
+        // The selection's first line, or the caret's line, without list markers ("- ", "• ", "1. ", "[ ] ").
+        string CurrentLine(){
+            string line;
+            if(text.SelectionLength>0)line=text.SelectedText.Replace("\r","").Split('\n').Select(x=>x.Trim()).FirstOrDefault(x=>x.Length>0);
+            else{int index=text.GetLineFromCharIndex(text.SelectionStart);var lines=text.Lines;line=index>=0&&index<lines.Length?lines[index]:null;}
+            if(line==null)return null;
+            line=System.Text.RegularExpressions.Regex.Replace(line.Trim(),@"^(?:[-*•·▪◦✓✔☐☑]\s*|\d+[.)]\s*|\[[ xX]?\]\s*)+","").Trim();
+            if(line.Length==0)return null;return line.Length>200?line.Substring(0,200):line;
+        }
+        internal void Flash(string message){var p=PointToClient(Cursor.Position);tips.Show(message,this,Math.Max(0,Math.Min(Width-40,p.X)),Math.Max(BarHeight,p.Y-(int)(28*Sc)),1800);}
         int BarHeight{get{return (int)Math.Round(30*Sc);}}
         internal void FocusText(){Activate();text.Focus();text.SelectionStart=text.TextLength;}
         internal void ApplyFont(){var old=text.Font;text.Font=DesktopTheme.UiFont(11+DesktopTheme.TextScale);if(old!=null&&old!=Control.DefaultFont)old.Dispose();Invalidate();}

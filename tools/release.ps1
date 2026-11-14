@@ -77,7 +77,11 @@ Step 'Building installer'
 & .\desktop\package.ps1 -AppDirectory $app -OutputFile (Join-Path $root 'dist\PetCalendar-Setup.exe') | Out-Null
 Step 'Building single-file portable exe'
 & .\desktop\build-portable.ps1 -OutputFile (Join-Path $root 'dist\PetCalendar-Portable.exe') | Out-Null
-$assets=@('dist\PetCalendar-Setup.exe','dist\PetCalendar-Portable.exe')
+# Release assets carry the version in their names (PetCalendar-Setup-3.4.6.exe), so downloads
+# stay distinguishable; the build outputs above keep their plain names for local scripts.
+Get-ChildItem dist -Filter 'PetCalendar-*-*.*.*.exe' -ErrorAction SilentlyContinue|Remove-Item -Force
+$assets=@("dist\PetCalendar-Setup-$Version.exe","dist\PetCalendar-Portable-$Version.exe")
+Copy-Item 'dist\PetCalendar-Setup.exe' $assets[0] -Force;Copy-Item 'dist\PetCalendar-Portable.exe' $assets[1] -Force
 foreach($a in @('dist\release-app\PetCalendar.exe')+$assets){$fv=(Get-Item $a).VersionInfo.FileVersion;if($fv -ne $v4){throw "$a has version $fv, expected $v4"}}
 ($assets|%{"{0}  {1}" -f (Get-FileHash $_ -Algorithm SHA256).Hash.ToLower(),(Split-Path $_ -Leaf)})|Out-File 'dist\SHA256SUMS.txt' -Encoding ascii
 

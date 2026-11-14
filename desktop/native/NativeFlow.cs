@@ -383,7 +383,10 @@ namespace PetCalendarDesktop {
             int width=active.Select(t=>t.PreferredWidth(area.Width-(int)(40*s))).DefaultIfEmpty(0).Max();
             for(int i=active.Count-1;i>=0;i--){var t=active[i];int h=t.PreferredHeight(width);bottom-=h;t.Bounds=new Rectangle(right-width,bottom,width+(int)Math.Ceiling(2*s),h+(int)Math.Ceiling(2*s));t.Invalidate();bottom-=(int)Math.Round(9*s);}
         }
-        public static void Raise(){if(view==null)return;var owner=DialogForm.Open.Count>0?(Form)DialogForm.Open[DialogForm.Open.Count-1]:view.FindForm();foreach(var t in active.ToArray()){if(t.IsDisposed)continue;Reown(t,owner);if(t.Visible)t.BringToFront();}}
+        public static void Raise(){if(view==null)return;var owner=DialogForm.Open.Count>0?(Form)DialogForm.Open[DialogForm.Open.Count-1]:view.FindForm();foreach(var t in active.ToArray()){if(t.IsDisposed)continue;Reown(t,owner);if(t.Visible&&t.IsHandleCreated)SetWindowPos(t.Handle,IntPtr.Zero,0,0,0,0,0x0013);}}
+        // Form.BringToFront also activates the toast, which took the keyboard from a dialog that
+        // had just opened (Esc and typing went nowhere); raise it without activating (SWP_NOMOVE|NOSIZE|NOACTIVATE).
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int cx,int cy,uint flags);
         // WinForms rejects moving a form to an owner that is already further up its own owner
         // chain (toast → dialog → backdrop → main window) as a "circular reference", so a toast
         // is detached first. Without this, closing a dialog while a toast was up crashed the app.

@@ -32,7 +32,7 @@ namespace PetCalendarDesktop {
         readonly Btn toggleWidget=Css.Button("위젯 열기");readonly ThemeCheckBox widgetTopmost=Css.Check("항상 위에 표시"),widgetLocked=Css.Check("위젯 위치·크기 고정");
         readonly TextItem notificationDescription=Css.P(""),permissionStatus=Css.Hint("");readonly Btn enableNotifications=Css.Button("데스크톱 알림 켜기"),testNotification=Css.Button("알림 테스트");
         readonly ThemeCheckBox notificationSound=Css.Check("알림 소리");readonly SelectField defaultReminder=Css.Reminders();
-        readonly Btn exportBackup=Css.Button("백업 내보내기",BtnKind.Normal,11,"download"),importBackup=Css.Button("백업 복원",BtnKind.Normal,11,"upload");
+        readonly Btn exportBackup=Css.Button("백업 내보내기",BtnKind.Normal,11,"download"),importBackup=Css.Button("백업 복원",BtnKind.Normal,11,"upload"),importIcs=Css.Button("일정 파일 가져오기 (.ics)",BtnKind.Normal,11,"calendar");
         readonly SelectField textScale=Css.Select("0","작게","1","보통","2","크게");readonly ThemeCheckBox boldText=Css.Check("글씨 굵게",12);readonly SelectField fontFamily=FontSelect();
         static SelectField FontSelect(){var f=new SelectField();foreach(var o in AppFonts.Options)f.Add(o.Key,o.Value);return f;}
         Dictionary<string,object> petsPreference,widgetPreference;bool petsSaving,petsRefreshPending,petSpeechDirty,widgetSaving,syncing;
@@ -67,7 +67,8 @@ namespace PetCalendarDesktop {
             notifyGroup.Add(notify);Body.Add(notifyGroup);
             // 데이터 · 백업
             dataGroup=new GroupItem("데이터 · 백업",false);var data=Section();
-            data.Add(Css.H3("소중한 기록, 안전하게"),Css.P("일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다."),new InlineItem(8,exportBackup,importBackup),Css.Hint("복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다."));
+            data.Add(Css.H3("소중한 기록, 안전하게"),Css.P("일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다."),new InlineItem(8,exportBackup,importBackup),Css.Hint("복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다."),
+                Css.H3("다른 캘린더에서 옮겨오기"),Css.P("구글 캘린더, 아웃룩, 애플 캘린더에서 내보낸 .ics 파일의 일정을 지금 일정에 더합니다."),new InlineItem(8,importIcs),Css.Hint("구글 캘린더: 설정 → 가져오기 및 내보내기 → 내보내기 (zip을 풀면 .ics). 이미 있는 같은 일정은 건너뜁니다."));
             dataGroup.Add(data);Body.Add(dataGroup);
             // 화면
             screenGroup=new GroupItem("화면",false);var screen=Section();screen.Add(Css.H3("글씨"),new FieldItem("글씨 크기",textScale){Top=17,Bottom=0},new FieldItem("글꼴",fontFamily,"캘린더 창, 위젯, 펫 말풍선, 스티커 메모에 쓰는 글꼴이에요."){Top=17,Bottom=0},new CssCheck(boldText,12,16),Css.Hint("모든 글씨를 굵게 표시해요. 작은 글씨가 잘 안 보일 때 켜 보세요."));screenGroup.Add(screen);Body.Add(screenGroup);
@@ -99,6 +100,7 @@ namespace PetCalendarDesktop {
             fontFamily.ValueChanged+=async delegate{if(syncing)return;string value=fontFamily.Value;if(!await View.Commit(s=>{s.settings.fontFamily=value;}))Sync();};
             textScale.ValueChanged+=async delegate{if(syncing)return;int value=int.Parse(textScale.Value);if(!await View.Commit(s=>{s.settings.textScale=value;}))Sync();};
             exportBackup.Click+=ExportBackup;importBackup.Click+=ImportBackup;
+            importIcs.Click+=delegate{string file;using(var dialog=new OpenFileDialog{Filter="iCalendar 파일 (*.ics)|*.ics|모든 파일 (*.*)|*.*",CheckFileExists=true}){if(dialog.ShowDialog(this)!=DialogResult.OK)return;file=dialog.FileName;}View.ImportIcs(file);};
             Sync();RenderHotkey(View.state.settings.hotkey);RefreshHotkeyStatus();UpdateWidget(null);UpdatePets(null);
         }
         void SaveTitle(){string value=userTitle.Text.Trim();if(value.Length==0){Validation.Report(userTitle,"호칭을 적어 주세요.");return;}UpdatePets("configureBed",null,new Dictionary<string,object>{{"title",value}});View.Toast("호칭을 바꿨어요","‘가족’이 된 펫이 이제 ‘"+value+"’(이)라고 불러요.");}

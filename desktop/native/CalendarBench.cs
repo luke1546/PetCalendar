@@ -9,6 +9,14 @@ namespace PetCalendarDesktop {
     // Diagnostic only (automation "calendar-bench"): times what a user does most,
     // each step including its synchronous repaint, so slow paths show up as numbers.
     public sealed partial class CalendarView {
+        // Diagnostics (automation "calendar-state"): view state and screen geometry for UI tests.
+        internal object Describe(){
+            Func<Rectangle,object> screen=r=>{var p=PointToScreen(new Point(r.X,r.Y-pageScroll.Offset));return new{x=p.X,y=p.Y,width=r.Width,height=r.Height};};
+            return new{selected=selected,month=month,weekView=weekView,searchFocused=searchBox.Focused,searchText=searchBox.Text,rows=rows,
+                grid=screen(gridRect),weekTime=screen(weekTime),weekTop=WeekTop()-weekTime.Y,hourHeight=HourHeight(),weekGutter=WeekGutter(),weekScroll=weekScroll.Offset,
+                dialogs=DialogForm.Open.Select(d=>d is EventDialog?((EventDialog)d).Describe():(object)new{kind=d.GetType().Name,heading=d.Heading}).ToArray(),
+                events=state.events.Length,tasks=state.tasks.Length};
+        }
         internal object Bench(){
             var result=new Dictionary<string,object>();
             Func<int,Action<int>,object> time=(n,step)=>{

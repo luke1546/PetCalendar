@@ -4,9 +4,9 @@
 
 캘린더 창은 웹 엔진 없이 Windows 기본 화면 기능(WinForms)으로 직접 그립니다. 가볍고 빠르게 열리며, 메모리는 40~60MB 정도만 사용합니다(이전 WebView2 버전은 260MB 이상). v2.x에서 업데이트해도 일정·할 일·설정·펫이 그대로 이어집니다.
 
-[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v3.4.5**
+[최신 설치 파일 다운로드](https://github.com/luke1546/PetCalendar/releases/latest) · **v3.5.0**
 
-설치 없이 쓰고 싶다면 릴리스의 `PetCalendar-Portable.exe` 하나만 받아 실행하세요. 처음 실행할 때 앱 파일을 `%LOCALAPPDATA%\PetCalendar\portable`에 풀어서 실행하며, 일정은 설치판과 같은 위치에 저장됩니다.
+설치 없이 쓰고 싶다면 릴리스의 `PetCalendar-Portable-<버전>.exe` 하나만 받아 실행하세요. 처음 실행할 때 앱 파일을 `%LOCALAPPDATA%\PetCalendar\portable`에 풀어서 실행하며, 일정은 설치판과 같은 위치에 저장됩니다.
 
 이 문서는 `main` 브랜치 기준입니다. 설치 파일의 기능은 해당 [릴리스 안내](https://github.com/luke1546/PetCalendar/releases)와 함께 확인하세요.
 

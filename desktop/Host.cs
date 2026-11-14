@@ -288,6 +288,7 @@ namespace PetCalendarDesktop {
                     Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;
                 }
                 if(action=="pets-send"){pets.SendUnnamed();Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
+                if(action=="calendar-bench"){if(request.ContainsKey("width"))Size=new Size(Convert.ToInt32(request["width"]),Convert.ToInt32(request["height"]));Reply(new{id=id,ok=true,bench=view.Bench()});return;}
                 if(action=="pets-inspect"){Reply(new{id=id,ok=true,pets=pets.Diagnostic()});return;}
                 if(action=="inspect"){IntPtr appId;GetCurrentProcessExplicitAppUserModelID(out appId);string identity=Marshal.PtrToStringUni(appId);Marshal.FreeCoTaskMem(appId);var processes=new[]{Process.GetCurrentProcess().Id};Reply(new{id=id,ok=true,visible=IsWindowVisible(Handle),window=Handle.ToInt64(),tray=tray.Visible,ready=ready,applicationId=identity,executable=Application.ExecutablePath,processIds=processes,pending=alarms.Pending(),popupVisible=popup.Visible,popupWindow=popup.Handle.ToInt64(),popupMonitor=popup.MonitorName,soundBatches=alarms.SoundBatches});return;}
                 if(action=="show")ShowCalendar();else if(action=="hide")Hide();else if(action=="close-window")Close();

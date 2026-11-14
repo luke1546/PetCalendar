@@ -319,7 +319,54 @@ public static class Ui {
             return new RectangleF(t.X+3*s,y,t.Width-6*s,h);
         }
         public bool Wheel(int delta,float s){if(!Visible)return false;int before=Offset;Offset-=(int)(delta/120f*100*s);Clamp();return before!=Offset;}
+        // Wheel scrolling glides to its target (~200 ms, fast at first) instead of jumping a
+        // whole notch; `moved` repaints after each step. Quick notches add up on the target.
+        // Returns false only when already at the edge, so the wheel can pass to an outer area.
+        internal double GlideTarget,GlidePos;internal int GlideWritten=-1;internal Action GlideMoved;
+        public bool Wheel(int delta,float s,Action moved){return GlideBy(-delta/120.0*100*s,moved);}
+        public bool GlideBy(double amount,Action moved){
+            if(!Visible)return false;
+            bool gliding=Glide.Running(this);
+            double from=gliding?GlideTarget:Offset,to=Math.Max(0,Math.Min(Max,from+amount));
+            if(Math.Abs(to-from)<.5)return gliding;
+            if(!gliding)GlidePos=Offset;
+            GlideTarget=to;GlideMoved=moved;Glide.Start(this);return true;
+        }
         public void DragTo(int y,float s){var t=Track(s);float travel=Math.Max(1,t.Height-12*s-Thumb(s).Height);Offset=DragOffset+(int)((y-DragStart)*Max/travel);Clamp();}
+    }
+    // Drives every gliding ScrollModel from one timer. Steps are time based (exponential
+    // ease-out), so the motion keeps its speed even when a frame is late. Setting Offset from
+    // anywhere else (dragging the thumb, jumping to a date) simply ends that glide.
+    static class Glide {
+        [DllImport("winmm.dll")] static extern uint timeBeginPeriod(uint period);
+        [DllImport("winmm.dll")] static extern uint timeEndPeriod(uint period);
+        static readonly List<ScrollModel> active=new List<ScrollModel>();
+        static readonly System.Diagnostics.Stopwatch clock=System.Diagnostics.Stopwatch.StartNew();
+        static Timer timer;static double last;
+        const double Tau=38; // ms; ~1-exp(-16/38)=34% of the way each 60 Hz frame
+        public static bool Running(ScrollModel m){return active.Contains(m)&&m.Offset==m.GlideWritten;}
+        public static void Start(ScrollModel m){
+            if(!active.Contains(m))active.Add(m);
+            if(timer==null){timer=new Timer{Interval=10};timer.Tick+=delegate{Step();};}
+            if(!timer.Enabled){timeBeginPeriod(1);last=clock.Elapsed.TotalMilliseconds-16;timer.Start();}
+            if(m.GlideWritten!=m.Offset){m.GlideWritten=m.Offset;}
+            Step(); // first movement right away, not one tick later
+        }
+        static void Step(){
+            double now=clock.Elapsed.TotalMilliseconds,dt=Math.Min(50,Math.Max(1,now-last));last=now;
+            double k=1-Math.Exp(-dt/Tau);
+            foreach(var m in active.ToArray()){
+                if(m.Offset!=m.GlideWritten){active.Remove(m);continue;} // moved by something else
+                double target=Math.Max(0,Math.Min(m.Max,m.GlideTarget));m.GlideTarget=target;
+                m.GlidePos+=(target-m.GlidePos)*k;
+                if(Math.Abs(target-m.GlidePos)<1)m.GlidePos=target;
+                int next=(int)Math.Round(m.GlidePos);bool done=m.GlidePos==target;
+                if(done)active.Remove(m);
+                if(next!=m.Offset){m.Offset=next;m.Clamp();m.GlideWritten=m.Offset;try{if(m.GlideMoved!=null)m.GlideMoved();}catch(ObjectDisposedException){active.Remove(m);}}
+                else m.GlideWritten=m.Offset;
+            }
+            if(active.Count==0&&timer.Enabled){timer.Stop();timeEndPeriod(1);}
+        }
     }
     // Minimal SVG path parser for the icon set: M L H V C S Q A Z (abs/rel).
     public static class SvgPath {

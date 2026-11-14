@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
@@ -24,10 +25,10 @@ namespace PetCalendarDesktop {
         static string Name(int msg){switch(msg){case 0xF:return "paint";case 0x113:return "timer";case 0x200:return "move";case 0x201:return "down";case 0x202:return "up";case 0x100:return "key";case 0x102:return "char";case 0x14:return "erase";default:return msg>=0xC000?"posted":"0x"+msg.ToString("x");}}
         public bool PreFilterMessage(ref Message m){
             long now=clock.ElapsedTicks;Account(now);
-            if(m.Msg==0x201||m.Msg==0x202||m.Msg==0x100||m.Msg==0x203||(m.Msg==0x200&&Moves)){
+            if(m.Msg==0x201||m.Msg==0x202||m.Msg==0x100||m.Msg==0x203||m.Msg==0x20A||(m.Msg==0x200&&Moves)){
                 if(start>=0)Flush("(merged)");
                 start=clock.ElapsedTicks;var c=Control.FromHandle(m.HWnd);
-                label=(m.Msg==0x201?"down":m.Msg==0x202?"up":m.Msg==0x203?"dbl":"key"+m.WParam)+" "+(c==null?"?":c.GetType().Name)+" @"+((int)m.LParam&0xffff)+","+(((int)m.LParam>>16)&0xffff);
+                label=(m.Msg==0x201?"down":m.Msg==0x202?"up":m.Msg==0x203?"dbl":m.Msg==0x20A?"wheel":m.Msg==0x200?"move":"key"+m.WParam)+" "+(c==null?"?":c.GetType().Name)+" @"+((int)m.LParam&0xffff)+","+(((int)m.LParam>>16)&0xffff);
             }
             if(start>=0){var ctl=Control.FromHandle(m.HWnd);lastKey=Name(m.Msg)+":"+(ctl==null?"?":ctl.GetType().Name);lastAt=clock.ElapsedTicks;}
             return false;
@@ -40,7 +41,11 @@ namespace PetCalendarDesktop {
             spent.Clear();counts.Clear();
             try{System.IO.File.AppendAllText(path,sb+Environment.NewLine);}catch{}
         }
-        public static Span T(string name){return On?new Span(name):null;}
+        // Bench mode: collect named section times without a log file.
+        static bool bench;
+        public static void BenchBegin(){bench=true;start=0;spent.Clear();counts.Clear();}
+        public static Dictionary<string,string> BenchEnd(){bench=false;start=-1;var r=spent.OrderByDescending(p=>p.Value).ToDictionary(p=>p.Key,p=>p.Value.ToString("0.0")+"ms x"+counts[p.Key]);spent.Clear();counts.Clear();return r;}
+        public static Span T(string name){return On||bench?new Span(name):null;}
         public sealed class Span : IDisposable {
             readonly string name;readonly long at=clock.ElapsedTicks;
             public Span(string n){name=n;}

@@ -13,7 +13,7 @@ $calendarArgs=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepa
  ('/win32manifest:'+(Join-Path $PSScriptRoot 'app.manifest')),
  (Join-Path $PSScriptRoot 'BrandMigration.cs'),(Join-Path $PSScriptRoot 'Core.cs'),(Join-Path $PSScriptRoot 'Alarms.cs'),(Join-Path $PSScriptRoot 'Widget.cs'),(Join-Path $PSScriptRoot 'StickyNotes.cs'),(Join-Path $PSScriptRoot 'Host.cs'),(Join-Path $PSScriptRoot 'Entry.cs'))
 # Native calendar window (replaces desktop/ui + WebView2).
-foreach($nativeFile in @('PerfProbe.cs','NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','Dialogs.cs','Settings.cs')){$calendarArgs+=(Join-Path $PSScriptRoot ('native\'+$nativeFile))}
+foreach($nativeFile in @('PerfProbe.cs','NativeKit.cs','NativeFields.cs','NativeFlow.cs','CalendarView.cs','CalendarLogic.cs','CalendarBench.cs','Dialogs.cs','Settings.cs')){$calendarArgs+=(Join-Path $PSScriptRoot ('native\'+$nativeFile))}
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'emoji.zip')+',petcalendar.emoji.zip')
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'fonts.zip')+',petcalendar.fonts.zip')
 $calendarArgs+=('/resource:'+(Join-Path $PSScriptRoot 'ui\holidays.json')+',petcalendar.holidays.json')

@@ -253,7 +253,7 @@ namespace PetCalendarDesktop {
             Ui.ScrollBar(g,Scroll,Sc);
         }
         Point Content(Point p){return new Point(p.X,p.Y+Scroll.Offset);}
-        protected override void OnMouseWheel(MouseEventArgs e){base.OnMouseWheel(e);if(Scroll.Wheel(e.Delta,Sc))Moved();}
+        protected override void OnMouseWheel(MouseEventArgs e){base.OnMouseWheel(e);Scroll.Wheel(e.Delta,Sc,Moved);}
         protected override void OnMouseDown(MouseEventArgs e){
             base.OnMouseDown(e);if(e.Button!=MouseButtons.Left)return;
             if(Scroll.Visible&&Scroll.Track(Sc).Contains(e.Location)){var thumb=Scroll.Thumb(Sc);if(thumb.Contains(e.Location)){Scroll.Dragging=true;Scroll.DragStart=e.Y;Scroll.DragOffset=Scroll.Offset;Capture=true;}else{Scroll.Offset+=e.Y<thumb.Top?-Height:Height;Scroll.Clamp();Moved();}return;}
@@ -267,7 +267,7 @@ namespace PetCalendarDesktop {
         protected override void OnMouseUp(MouseEventArgs e){base.OnMouseUp(e);if(Scroll.Dragging){Scroll.Dragging=false;Capture=false;Invalidate();}}
         protected override void OnMouseLeave(EventArgs e){base.OnMouseLeave(e);if(Scroll.Hover){Scroll.Hover=false;Invalidate();}}
         protected override void OnControlAdded(ControlEventArgs e){base.OnControlAdded(e);Hook(e.Control);}
-        void Hook(Control c){c.MouseWheel+=delegate(object sender,MouseEventArgs e){var h=e as HandledMouseEventArgs;if(sender is SelectField||(h!=null&&h.Handled))return;if(Scroll.Wheel(e.Delta,Sc))Moved();if(h!=null)h.Handled=true;};foreach(Control child in c.Controls)Hook(child);}
+        void Hook(Control c){c.MouseWheel+=delegate(object sender,MouseEventArgs e){var h=e as HandledMouseEventArgs;if(sender is SelectField||(h!=null&&h.Handled))return;Scroll.Wheel(e.Delta,Sc,Moved);if(h!=null)h.Handled=true;};foreach(Control child in c.Controls)Hook(child);}
     }
     // Dim layer over the calendar while a dialog is open (a translucent layered window,
     // so opening a dialog costs nothing extra).
@@ -302,6 +302,9 @@ namespace PetCalendarDesktop {
         protected void Footer(Control[] left,Control[] right){HasFooter=true;FooterLeft.AddRange(left);FooterRight.AddRange(right);foreach(var c in left.Concat(right)){var b=c as Btn;if(b!=null)b.Surface=DesktopTheme.Card;Controls.Add(c);}}
         int HeaderHeight{get{float s=Sc;int text=0;if(Eyebrow!=null)text+=(int)Math.Round(Ui.Font(s,8,700).GetHeight()+5*s);if(Heading!=null)text+=(int)Math.Round(Ui.Font(s,23,700).GetHeight());return Math.Max((int)Math.Round(74*s),text+(int)Math.Round(32*s)+(int)s);}}
         int FooterHeight{get{if(!HasFooter)return 0;float s=Sc;int h=FooterLeft.Concat(FooterRight).Where(c=>!hiddenFooter.Contains(c)).Select(c=>c is Btn?((Btn)c).CssSize().Height:c.Height).DefaultIfEmpty(0).Max();return h+(int)Math.Round(28*s)+(int)s;}}
+        // Lays out and paints a never-shown dialog once, off screen, so the code behind the
+        // first real open is already compiled (the first open was ~20 ms slower than later ones).
+        internal void Prewarm(){Relayout();Action<Control> create=null;create=c=>{var h=c.Handle;foreach(Control child in c.Controls)create(child);};create(this);var b=new Backdrop();b.Dispose();using(var image=new Bitmap(Math.Max(1,Width),Math.Max(1,Height)))DrawToBitmap(image,new Rectangle(0,0,image.Width,image.Height));}
         public virtual void Relayout(){
             if(View==null||View.IsDisposed)return;float s=Sc;var area=View.ViewportScreen();int shadow=(int)Math.Ceiling(3*s);
             int width=(int)Math.Round(Math.Min(WidthCss*s,area.Width-32*s));
@@ -341,8 +344,9 @@ namespace PetCalendarDesktop {
         public virtual void StateChanged(){}
         public virtual void SavingChanged(){}
         public void Show(Control focus){
-            Open.Add(this);var owner=View.FindForm();backdrop=new Backdrop();backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);
-            Relayout();base.Show(backdrop);View.SetModal(true);Activate();if(focus!=null)focus.Focus();else if(CloseButton!=null)Body.Focus();
+            Open.Add(this);var owner=View.FindForm();
+            using(PerfProbe.T("dlg:backdrop")){backdrop=new Backdrop();backdrop.Bounds=View.ViewportScreen();backdrop.Show(Open.Count>1?(IWin32Window)Open[Open.Count-2]:owner);}
+            using(PerfProbe.T("dlg:relayout"))Relayout();using(PerfProbe.T("dlg:show"))base.Show(backdrop);using(PerfProbe.T("dlg:modal"))View.SetModal(true);using(PerfProbe.T("dlg:activate")){Activate();if(focus!=null)focus.Focus();else if(CloseButton!=null)Body.Focus();}
             Toasts.Raise();
         }
         protected override bool ProcessDialogKey(Keys keyData){if(keyData==Keys.Escape){Cancel();return true;}return base.ProcessDialogKey(keyData);}

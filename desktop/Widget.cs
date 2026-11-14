@@ -226,7 +226,7 @@ namespace PetCalendarDesktop {
             Controls.Add(Items);Controls.Add(Scrollbar);Scrollbar.BringToFront();
         }
         void BindWheel(Control control){control.MouseWheel+=Wheel;foreach(Control child in control.Controls)BindWheel(child);control.ControlAdded+=delegate(object sender,ControlEventArgs e){BindWheel(e.Control);};}
-        void Wheel(object sender,MouseEventArgs e){if(e is HandledMouseEventArgs&&((HandledMouseEventArgs)e).Handled)return;Scrollbar.ScrollBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
+        void Wheel(object sender,MouseEventArgs e){if(e is HandledMouseEventArgs&&((HandledMouseEventArgs)e).Handled)return;Scrollbar.GlideBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
         protected override void OnMouseWheel(MouseEventArgs e){Wheel(this,e);}
         protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);Reflow();}
         public void Reflow(){if(reflowing||Items==null||Scrollbar==null)return;reflowing=true;try{
@@ -277,7 +277,10 @@ namespace PetCalendarDesktop {
         bool dragging,hovered;
         public event Action ValueChanged;
         public int Maximum {get{return maximum;}}
-        public int Value {get{return value;}set{int next=Math.Max(0,Math.Min(maximum,value));if(this.value==next)return;this.value=next;Invalidate();if(ValueChanged!=null)ValueChanged();}}
+        public int Value {get{return value;}set{int next=Math.Max(0,Math.Min(maximum,value));glide.Offset=next;if(this.value==next)return;this.value=next;Invalidate();if(ValueChanged!=null)ValueChanged();}}
+        // Wheel scrolling glides like the calendar's lists; setting Value directly ends a glide.
+        readonly ScrollModel glide=new ScrollModel();
+        public void GlideBy(int amount){glide.Content=maximum+viewport;glide.Viewport=viewport;glide.Offset=value;glide.GlideBy(amount,()=>Value=glide.Offset);}
         public ThemeScrollBar(){DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;Cursor=Cursors.Hand;AccessibleRole=AccessibleRole.ScrollBar;BackColor=DesktopTheme.Paper;}
         public void SetMetrics(int content,int visible){total=Math.Max(1,content);viewport=Math.Max(1,visible);maximum=Math.Max(0,content-visible);Value=value;Invalidate();}
         public void ScrollBy(int amount){Value+=amount;}
@@ -293,7 +296,7 @@ namespace PetCalendarDesktop {
         protected override void OnMouseCaptureChanged(EventArgs e){base.OnMouseCaptureChanged(e);if(!Capture){dragging=false;Invalidate();}}
         protected override void OnMouseEnter(EventArgs e){hovered=true;Invalidate();base.OnMouseEnter(e);}
         protected override void OnMouseLeave(EventArgs e){hovered=false;Invalidate();base.OnMouseLeave(e);}
-        protected override void OnMouseWheel(MouseEventArgs e){ScrollBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
+        protected override void OnMouseWheel(MouseEventArgs e){GlideBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
         protected override bool IsInputKey(Keys keys){return keys==Keys.Up||keys==Keys.Down||keys==Keys.PageUp||keys==Keys.PageDown||keys==Keys.Home||keys==Keys.End||base.IsInputKey(keys);}
         protected override void OnKeyDown(KeyEventArgs e){base.OnKeyDown(e);int step=DesktopTheme.Px(this,32);switch(e.KeyCode){case Keys.Up:ScrollBy(-step);break;case Keys.Down:ScrollBy(step);break;case Keys.PageUp:ScrollBy(-viewport);break;case Keys.PageDown:ScrollBy(viewport);break;case Keys.Home:Value=0;break;case Keys.End:Value=maximum;break;default:return;}e.Handled=true;e.SuppressKeyPress=true;}
         protected override void OnGotFocus(EventArgs e){base.OnGotFocus(e);Invalidate();}

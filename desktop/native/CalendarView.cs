@@ -241,7 +241,16 @@ namespace PetCalendarDesktop {
         bool Hover(string id){return hoverId==id&&!modal;}
         bool Pressed(string id){return pressId==id&&hoverId==id;}
         void FocusRing(Graphics g,string id,RectangleF r,float radius){if(focusId!=id||!Focused||!ShowFocusCues)return;var ring=r;ring.Inflate(4.5f*s,4.5f*s);using(var pen=new Pen(DesktopTheme.Orange,3*s))using(var p=Ui.Round(ring,radius+4*s))g.DrawPath(pen,p);}
+        bool warmed;
+        // Shortly after the calendar first appears, build one event dialog off screen.
+        void ScheduleWarmUp(){
+            warmed=true;var t=new Timer{Interval=1500};
+            t.Tick+=delegate{t.Stop();t.Dispose();if(IsDisposed||modal||!FindForm().Visible)return;
+                try{using(var dialog=new EventDialog(this,null,"1900-01-01",false))dialog.Prewarm();}catch(Exception){}};
+            t.Start();
+        }
         protected override void OnPaint(PaintEventArgs e){
+            if(!warmed)ScheduleWarmUp();
             if(m==null)Relayout();if(m==null)return;using(PerfProbe.T("calpaint"))PaintAll(e.Graphics,e.ClipRectangle);}
         // ---------- Section cache ----------
         // Text is the expensive part of a paint (GDI DrawText, ~0.1 ms per Korean run), so
@@ -731,8 +740,8 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
         protected override void OnMouseDoubleClick(MouseEventArgs e){base.OnMouseDoubleClick(e);}
         protected override void OnMouseWheel(MouseEventArgs e){
             base.OnMouseWheel(e);if(m==null||modal)return;var p=PointToClient(Cursor.Position);var sm=ScrollAt(p);
-            if(sm!=null&&sm!=pageScroll){int before=sm.Offset;sm.Wheel(e.Delta,s);if(sm.Offset!=before){ScrolledBy(sm);return;}}
-            if(!m.Fit&&pageScroll.Wheel(e.Delta,s))ScrolledBy(pageScroll);
+            if(sm!=null&&sm!=pageScroll){var list=sm;if(sm.Wheel(e.Delta,s,()=>ScrolledBy(list)))return;}
+            if(!m.Fit)pageScroll.Wheel(e.Delta,s,()=>ScrolledBy(pageScroll));
         }
         void ScrolledBy(ScrollModel sm){if(sm==pageScroll)PlaceChildren();Invalidate();}
         // Pseudo drop date for the task panel: schedules dropped there become tasks.

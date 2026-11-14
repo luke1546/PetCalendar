@@ -190,7 +190,8 @@ namespace DesktopPet {
                 ResizeCat();
             }
             accumulator+=dt;
-            while(accumulator>=1.0/120) {Cat.Step(1.0/120,!press&&!speechHold);accumulator-=1.0/120;}
+            // Step by the real frame time (in <=1/120 s slices) so motion is even at 60, 120 or 144 Hz.
+            while(accumulator>1e-6) {double step=Math.Min(accumulator,1.0/120);Cat.Step(step,!press&&!speechHold);accumulator-=step;}
             DrawCat(false);
         }
         // Small name floating above a named pet. Speech bubbles sit above it (SpeechTop).

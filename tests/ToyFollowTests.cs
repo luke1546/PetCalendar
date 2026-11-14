@@ -46,7 +46,7 @@ public static class ToyFollowTests {
             var errors=new List<Exception>();var managerType=app.GetType("PetCalendarDesktop.CalendarPets",true);
             manager=Activator.CreateInstance(managerType,Flags,null,new object[]{data,snapshot,(Action<Exception>)(e=>errors.Add(e)),false},null);
             Call(manager,"Restore");Application.DoEvents();var life=Get(manager,"life");
-            ((Timer)Get(life,"timer")).Stop();var loop=app.GetType("DesktopPet.SimulationLoop",true);((Timer)Get(loop,"timer")).Stop();Call(life,"ConfigureToy",true);
+            ((Timer)Get(life,"timer")).Stop();var loop=app.GetType("DesktopPet.SimulationLoop",true);Call(loop,"Stop");Call(life,"ConfigureToy",true);
             var active=(IList)Get(manager,"active");Check(active.Count==3,"Fixture pets must restore.");
             var hosts=Array.CreateInstance(app.GetType("DesktopPet.PetHost",true),active.Count);
             for(int i=0;i<active.Count;i++){

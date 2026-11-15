@@ -155,7 +155,7 @@ namespace PetCalendarDesktop {
                         if(n!=null&&int.TryParse(n,out week)&&(week==-1||(week>=1&&week<=4))&&day==(int)start.DayOfWeek)repeat="monthly:"+week+":"+day;}
                 }
             }
-            else if(freq=="YEARLY"&&every==1&&byDay==null&&bySetPos==null&&(byMonth==null||byMonth==monthNumber)&&(byMonthDay==null||byMonthDay==dayNumber))repeat="yearly";
+            else if(freq=="YEARLY"&&every==1&&byDay==null&&bySetPos==null&&((byMonth==null||byMonth==monthNumber)&&(byMonthDay==null||byMonthDay==dayNumber)||LeapDayYearly(e,start,byMonth,byMonthDay)))repeat="yearly";
             if(repeat==null){result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}
             e.repeat=repeat;
             string until,count;
@@ -179,6 +179,13 @@ namespace PetCalendarDesktop {
                 if(dates.Count>=c)e.repeatUntil=dates[c-1];
                 else{e.repeat="none";e.repeatUntil="";e.excludedDates=new string[0];result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}}}
             if(e.repeatUntil!=""&&String.CompareOrdinal(e.repeatUntil,e.startDate)<0)e.repeatUntil=e.startDate;
+        }
+        // The shifted rules IcsExport writes for a Feb 29 start (see LeapDayRule). Each one is only the app's yearly repeat
+        // for the UTC shift of this start, so a rule for another shift (e.g. an all-day start with BYMONTHDAY=-2) is simplified.
+        static bool LeapDayYearly(CalendarEvent e,DateTime start,string byMonth,string byMonthDay){
+            if(start.Month!=2||start.Day!=29)return false;
+            int shift=e.startTime==""?0:(start.ToUniversalTime().Date-start.Date).Days;
+            return shift>0?byMonth=="3"&&byMonthDay=="1":byMonth=="2"&&byMonthDay==(shift-1).ToString(CultureInfo.InvariantCulture);
         }
         static int DayIndex(string code){return Array.IndexOf(new[]{"SU","MO","TU","WE","TH","FR","SA"},(code??"").Trim().ToUpperInvariant());}
     }
@@ -218,13 +225,22 @@ namespace PetCalendarDesktop {
                 case "weekly":r="FREQ=WEEKLY";break;
                 case "biweekly":r="FREQ=WEEKLY;INTERVAL=2";break;
                 case "monthly":r="FREQ=MONTHLY;BYMONTHDAY="+Rules.Date(e.startDate).Day;break;
-                case "yearly":r="FREQ=YEARLY";break;
+                case "yearly":r="FREQ=YEARLY";if(LeapDay(e.startDate))r+=";"+LeapDayRule(e);break;
                 default:
                     if(!e.repeat.StartsWith("monthly:"))return null;
                     var p=e.repeat.Split(':');r="FREQ=MONTHLY;BYDAY="+p[1]+new[]{"SU","MO","TU","WE","TH","FR","SA"}[int.Parse(p[2],CultureInfo.InvariantCulture)];break;
             }
             if(!String.IsNullOrEmpty(e.repeatUntil))r+=";UNTIL="+(e.startTime==""?D(e.repeatUntil):Utc(Local(e.repeatUntil,"23:59")));
             return r;
+        }
+        // The app's yearly repeat keeps Feb 29 starts on Feb 28 in common years. A plain FREQ=YEARLY skips those
+        // years (RFC 5545 ignores dates that do not exist), so the last day of February is named instead.
+        static bool LeapDay(string key){var d=Rules.Date(key);return d.Month==2&&d.Day==29;}
+        // A timed start is written in UTC, so the rule follows the UTC day: the same day as the local date, the day
+        // before (east of UTC, e.g. 00:30 in Korea) or 1 March (west of UTC, e.g. 23:30 in New York).
+        static string LeapDayRule(CalendarEvent e){
+            int shift=e.startTime==""?0:(Local(e.startDate,e.startTime).ToUniversalTime().Date-Rules.Date(e.startDate)).Days;
+            return shift>0?"BYMONTH=3;BYMONTHDAY=1":"BYMONTH=2;BYMONTHDAY="+(shift-1).ToString(CultureInfo.InvariantCulture);
         }
         static DateTime Local(string date,string time){return DateTime.SpecifyKind(Rules.Date(date).Add(TimeSpan.Parse(time,CultureInfo.InvariantCulture)),DateTimeKind.Local);}
         static string Utc(DateTime local){return local.ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture);}

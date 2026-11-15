@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();LeapDayIcs();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -220,6 +220,33 @@ namespace PetCalendarDesktop {
             // An all-day series keeps its date-only UNTIL behaviour even when UNTIL carries a time.
             r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nRRULE:FREQ=DAILY;UNTIL=20260105T170000\r\nSUMMARY:종일 UNTIL\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
             Check(r.Events.Single().repeatUntil=="2026-01-05","an all-day series keeps the UNTIL date");
+        }
+
+        static void LeapDayIcs(){
+            // A yearly series from Feb 29 exports so that common years keep Feb 28 and leap years keep Feb 29, once each,
+            // and it comes back as a yearly series with the same dates. Timed starts are checked too: 00:30 falls on another UTC day in some zones.
+            foreach(var e in new[]{Event("leap-all","2024-02-29","yearly"),Event("leap-timed","2024-02-29","yearly",time:"00:30")}){
+                var text=IcsExport.Write(new[]{e},c=>"");
+                Check(text.Contains("RRULE:FREQ=YEARLY;BYMONTH=")&&!text.Contains("RRULE:FREQ=YEARLY\r\n"),"a Feb 29 yearly series exports a rule that keeps common years, not a plain FREQ=YEARLY ("+e.id+")");
+                if(e.startTime=="")Check(text.Contains("RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1\r\n"),"an all-day Feb 29 yearly series exports to the last day of February");
+                var back=IcsImport.Parse(text,"work",null);
+                var imported=back.Events.Single();
+                var expected=Rules.Occurrences(new[]{e},"2024-01-01","2030-12-31",false).Select(o=>o.startDate).ToList();
+                var actual=Rules.Occurrences(new[]{imported},"2024-01-01","2030-12-31",false).Select(o=>o.startDate).ToList();
+                Check(expected.Contains("2025-02-28")&&expected.Contains("2028-02-29")&&expected.Count==7,"the app's Feb 29 yearly series has Feb 28 in common years and Feb 29 in leap years");
+                Check(imported.repeat=="yearly"&&back.Simplified==0,"an exported Feb 29 yearly series is imported as a repeat, not simplified ("+e.id+")");
+                Check(actual.SequenceEqual(expected),"the exported Feb 29 yearly series keeps the app's dates after re-import ("+e.id+")");
+                Check(imported.startDate==e.startDate&&imported.startTime==e.startTime,"the exported Feb 29 yearly series keeps its start date and time ("+e.id+")");
+            }
+            // A shifted leap-day rule only matches the start whose UTC shift it was written for: other rules are simplified, not widened.
+            foreach(var rule in new[]{"FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-2","FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=1"}){
+                var r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20240229\r\nRRULE:"+rule+"\r\nSUMMARY:외부 윤년 규칙\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+                Check(r.Events.Single().repeat=="none"&&r.Simplified==1,"an all-day Feb 29 start with "+rule+" is simplified, not a yearly repeat");
+            }
+            var local=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20240229T120000\r\nRRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-2\r\nSUMMARY:외부 윤년 시각 규칙\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(local.Events.Single().repeat=="none"&&local.Simplified==1,"a noon Feb 29 start with BYMONTHDAY=-2 (another UTC shift) is simplified");
+            local=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20240229T120000\r\nRRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1\r\nSUMMARY:외부 윤년 시각 규칙2\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(local.Events.Single().repeat=="yearly"&&local.Simplified==0,"a noon Feb 29 start with BYMONTHDAY=-1 keeps its yearly repeat");
         }
 
         static async Task Saves(){

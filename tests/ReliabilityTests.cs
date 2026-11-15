@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -226,6 +226,33 @@ namespace PetCalendarDesktop {
                 }
             }finally{Directory.Delete(dir,true);}
             Console.WriteLine("PASS R8 task due-date field keeps Ctrl+C/V while focused, Ctrl+Z/Y still undo and redo, and schedule shortcuts work elsewhere");
+        }
+
+        // The task list is sorted once per state: repeated paints reuse the same rows, and a save, a completion or the
+        // hide-completed setting refreshes them. With 10,000 tasks the order stays done-last, then due date, then creation time.
+        static void TaskRowsReuse(){
+            string dir=Temp();var store=new StateStore(dir);var flags=BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public;
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    var rowsMethod=typeof(CalendarView).GetMethod("TaskRows",flags);
+                    Func<List<CalendarTask>> rows=()=>(List<CalendarTask>)rowsMethod.Invoke(view,null);
+                    var tasks=Enumerable.Range(0,10000).Select(i=>new CalendarTask{id="task"+i,title="할 일 "+i,dueDate=i%3==0?"":Rules.AddDays("2026-11-01",i%40),createdAt=i.ToString("D8"),done=i%4==0}).ToArray();
+                    var next=CalendarView.Clone(view.state);next.tasks=tasks;next.settings.hideCompleted=true;view.state=next;
+                    var first=rows();
+                    Check(ReferenceEquals(first,rows()),"repeated task-list reads reuse the sorted rows while the state is unchanged");
+                    Check(first.Count==tasks.Count(t=>!t.done),"hiding completed tasks keeps only the open ones");
+                    Func<CalendarTask,string> key=t=>(t.done?"1":"0")+"|"+(t.dueDate==""?"9999":t.dueDate)+"|"+t.createdAt;
+                    Check(first.Zip(first.Skip(1),(a,b)=>string.CompareOrdinal(key(a),key(b))<=0).All(ok=>ok),"the sorted task rows keep the done, due date and creation order");
+                    var added=CalendarView.Clone(view.state);added.tasks=added.tasks.Concat(new[]{new CalendarTask{id="new",title="새 할 일",dueDate="",createdAt="99999999",done=false}}).ToArray();view.state=added;
+                    Check(rows().Any(t=>t.id=="new")&&!ReferenceEquals(rows(),first),"adding a task refreshes the sorted rows");
+                    var completed=CalendarView.Clone(view.state);completed.tasks.First(t=>t.id=="new").done=true;view.state=completed;
+                    Check(!rows().Any(t=>t.id=="new"),"completing a task while completed tasks are hidden removes it from the sorted rows");
+                    var shown=CalendarView.Clone(view.state);shown.settings.hideCompleted=false;view.state=shown;
+                    Check(rows().Count==10001&&rows().Any(t=>t.id=="new"),"showing completed tasks refreshes the sorted rows");
+                }
+            }finally{Directory.Delete(dir,true);}
+            Console.WriteLine("PASS task rows are sorted once per state and refreshed by add, complete and the hide-completed setting");
         }
 
         // Two "지금 백업" runs in the same minute keep both files, and the newest-10 rule counts the files that exist.

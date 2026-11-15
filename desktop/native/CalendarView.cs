@@ -726,7 +726,16 @@ namespace PetCalendarDesktop {
             taskScroll.Bounds=Page(list);taskScroll.Clamp();
             Push(-taskScroll.Offset,list);Apply(g);PaintTasks(g,new Rectangle(list.X+P(16),list.Y+P(5),width,content));Pop(g);Ui.ScrollBar(g,Shifted(taskScroll),s);
         }
-        List<CalendarTask> TaskRows(){return state.tasks.Where(t=>!state.settings.hideCompleted||!t.done).OrderBy(t=>t.done).ThenBy(t=>t.dueDate==""?"9999":t.dueDate,StringComparer.Ordinal).ThenBy(t=>t.createdAt,StringComparer.Ordinal).ToList();}
+        // Every save replaces `state` with a new object, so the sorted rows are reused until the state or the hide-completed setting changes.
+        CalendarState taskRowsState;bool taskRowsHideCompleted;List<CalendarTask> taskRows;
+        List<CalendarTask> TaskRows(){
+            bool hide=state.settings.hideCompleted;
+            if(taskRows==null||!ReferenceEquals(taskRowsState,state)||taskRowsHideCompleted!=hide){
+                taskRowsState=state;taskRowsHideCompleted=hide;
+                taskRows=state.tasks.Where(t=>!hide||!t.done).OrderBy(t=>t.done).ThenBy(t=>t.dueDate==""?"9999":t.dueDate,StringComparer.Ordinal).ThenBy(t=>t.createdAt,StringComparer.Ordinal).ToList();
+            }
+            return taskRows;
+        }
         int TaskItemHeight(CalendarTask t,int width){int textW=width-P(16)-P(8)-P(8)-P(16);float h=24*s+Ui.Wrap(t.title,F(11,400,t.title),textW).Count*Css(11)*1.7f*s;if(t.dueDate!="")h+=3*s+Css(11)*1.7f*s;return (int)Math.Ceiling(h+s);}
         int TasksContentHeight(int width){var list=TaskRows();if(list.Count==0)return (int)Math.Ceiling(28*s+Css(11)*1.8f*s);int h=list.Take(limits["tasks"]).Sum(t=>TaskItemHeight(t,width));if(list.Count>limits["tasks"])h+=MoreHeight()+P(12);return h;}
         void PaintTasks(Graphics g,Rectangle area){

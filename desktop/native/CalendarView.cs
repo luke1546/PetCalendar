@@ -82,6 +82,7 @@ namespace PetCalendarDesktop {
         internal Func<string,string,string,string,bool,System.Threading.Tasks.Task<ApiResponse>> ApiCall;
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
+        [DllImport("user32.dll")] static extern void NotifyWinEvent(uint winEvent,IntPtr window,int objectId,int childId);
         public CalendarView(DesktopHost owner,StateStore calendar,UiPrefs ui){
             host=owner;store=calendar;prefs=ui;weekView=ui.Value.weekView;state=store.Snapshot;selected=Rules.Key(DateTime.Today);month=selected.Substring(0,7);dayAtRender=selected;
             SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);
@@ -126,6 +127,7 @@ namespace PetCalendarDesktop {
         bool paintAll=true;int paintedOffset=-1;List<KeyValuePair<string,List<Hit>>> sectionHits=new List<KeyValuePair<string,List<Hit>>>();
         void Relayout(){using(PerfProbe.T("layout"))RelayoutCore();}
         void RelayoutCore(){
+            dayCellItems=null;
             if(!IsHandleCreated||Width<=0||Height<=0)return;paintAll=true;
             s=DeviceDpi/96f;m=new Metrics(Width/s,Height/s);
             int x0=0,width=Width;if(!m.Fit){pageScroll.Bounds=ClientRectangle;}
@@ -180,7 +182,7 @@ namespace PetCalendarDesktop {
             workspace=new Rectangle(shell.X,y,shell.Width,wsH);
             pageScroll.Content=m.Fit?Height:pageHeight;pageScroll.Viewport=Height;pageScroll.Bounds=ClientRectangle;pageScroll.Clamp();
             LayoutSidebar();
-            PlaceChildren();Invalidate();
+            PlaceChildren();Invalidate();NotifyDayCells();
         }
         void LayoutCalendarPanel(int toolbarH,int filterH,int weekH,int gridH,int searchH,int bottomH){
             var p=calendarPanel;int y=p.Y+P(1);
@@ -854,7 +856,7 @@ namespace PetCalendarDesktop {
             if(keyData==Keys.Tab||keyData==(Keys.Tab|Keys.Shift)){if(Focused){MoveFocus(keyData==Keys.Tab?1:-1);return true;}}
             return base.ProcessCmdKey(ref msg,keyData);
         }
-        void MoveFocus(int dir){var list=hits.Where(h=>h.Focusable&&h.Click!=null).Select(h=>h.Id).Distinct().ToList();if(list.Count==0)return;int i=focusId==null?(dir>0?-1:list.Count):list.IndexOf(focusId);i+=dir;if(i<0||i>=list.Count){focusId=null;Invalidate();if(dir>0)searchBox.Focus();else SelectNextControl(this,false,true,true,true);return;}focusId=list[i];Invalidate();}
+        void MoveFocus(int dir){var list=hits.Where(h=>h.Focusable&&h.Click!=null).Select(h=>h.Id).Distinct().ToList();if(list.Count==0)return;int i=focusId==null?(dir>0?-1:list.Count):list.IndexOf(focusId);i+=dir;if(i<0||i>=list.Count){focusId=null;Invalidate();if(dir>0)searchBox.Focus();else SelectNextControl(this,false,true,true,true);return;}focusId=list[i];Invalidate();NotifyFocusedDay();}
         protected override void OnKeyDown(KeyEventArgs e){
             base.OnKeyDown(e);if(modal||e.Control||e.Alt)return;
             if((e.KeyCode==Keys.Enter||e.KeyCode==Keys.Space)&&focusId!=null){var h=hits.FirstOrDefault(x=>x.Id==focusId);if(h!=null&&h.Click!=null){if(focusId.StartsWith("cell-")&&!focusId.Contains("-check")){JumpTo(focusId.Substring(5));OpenEvent(null,selected,false);}else h.Click();}e.Handled=true;return;}
@@ -875,6 +877,102 @@ namespace PetCalendarDesktop {
             if(step!=0){JumpTo(Rules.AddDays(selected,step));e.Handled=true;return true;}
             if(e.KeyCode==Keys.Enter){OpenEvent(null,selected,false);e.Handled=e.SuppressKeyPress=true;return true;}
             return false;
+        }
+        // ---------- Accessibility ----------
+        // The month grid and the week view are custom-drawn, so each shown date is exposed as its own element. The
+        // elements use the same geometry and index as the painting (PaintGrid or PaintWeekHeader), so the tree matches what is drawn.
+        List<DayCellAccessible> dayCellItems;string announcedGrid,announcedSelected;
+        List<DayCellAccessible> DayCellItems(){
+            if(dayCellItems!=null)return dayCellItems;
+            var list=new List<DayCellAccessible>();
+            if(weekView&&m!=null){
+                var index=WeekIndex();string week=WeekStart(),today=Rules.Key(DateTime.Today);
+                for(int d=0;d<7;d++){
+                    string key=Rules.AddDays(week,d);string holiday;holidays.TryGetValue(key,out holiday);
+                    list.Add(new DayCellAccessible(this,d,key,WeekColumn(weekdaysRect,d),DayCellName(key,index[key].Count,holiday,today)));
+                }
+            }else if(m!=null&&rows>0){
+                var range=RangeForMonth();var index=MonthIndex();string today=Rules.Key(DateTime.Today);var heights=RowHeights();int y=gridRect.Y;
+                for(int r=0;r<rows;r++){
+                    for(int c=0;c<7;c++){
+                        int x0=gridRect.X+gridRect.Width*c/7,x1=gridRect.X+gridRect.Width*(c+1)/7;string key=Rules.AddDays(range.Key,r*7+c);
+                        List<Occurrence> items;int count=index.TryGetValue(key,out items)?items.Count:0;string holiday;holidays.TryGetValue(key,out holiday);
+                        list.Add(new DayCellAccessible(this,list.Count,key,new Rectangle(x0,y,x1-x0,heights[r]),DayCellName(key,count,holiday,today)));
+                    }
+                    y+=heights[r];
+                }
+            }
+            dayCellItems=list;return list;
+        }
+        // The week view has no other-month dates: every shown day is part of the visible week.
+        string DayCellName(string key,int count,string holiday,string today){
+            string name=Rules.Date(key).ToString("yyyy년 M월 d일 dddd",Rules.Korean);
+            if(holiday!=null)name+=", "+holiday;
+            if(count>0)name+=", 일정 "+count+"개";
+            if(key==today)name+=", 오늘";
+            if(!weekView&&!key.StartsWith(month,StringComparison.Ordinal))name+=", 다른 달";
+            return name;
+        }
+        // Screen readers hear about a new month or week (the dates are read again) or a new selected date.
+        void NotifyDayCells(){
+            if(!IsHandleCreated)return;
+            string grid=weekView?"week "+WeekStart():"month "+month;
+            if(grid!=announcedGrid){announcedGrid=grid;announcedSelected=selected;RaiseDayEvent(AccessibleEvents.Reorder,0);return;}
+            if(selected!=announcedSelected){announcedSelected=selected;int i=DayCellItems().FindIndex(c=>c.Key==selected);if(i>=0)RaiseDayEvent(AccessibleEvents.Selection,DayCellChildId(i));}
+        }
+        // Tabbing onto a date tells screen readers which date has focus.
+        void NotifyFocusedDay(){
+            int i=focusId!=null&&focusId.StartsWith("cell-",StringComparison.Ordinal)?DayCellItems().FindIndex(c=>"cell-"+c.Key==focusId):-1;
+            if(i>=0)RaiseDayEvent(AccessibleEvents.Focus,DayCellChildId(i));
+        }
+        // The input controls come first in the tree, then the dates, so a date's child id is offset by the controls.
+        int DayCellChildId(int cellIndex){return Controls.Count+cellIndex+1;}
+        // childId 0 is the calendar itself; a child id is 1-based, as MSAA child ids are.
+        void RaiseDayEvent(AccessibleEvents accEvent,int childId){if(IsHandleCreated)NotifyWinEvent((uint)accEvent,Handle,-4,childId);}
+        protected override AccessibleObject CreateAccessibilityInstance(){return new CalendarAccessible(this);}
+        sealed class CalendarAccessible : ControlAccessibleObject {
+            readonly CalendarView owner;
+            public CalendarAccessible(CalendarView view):base(view){owner=view;}
+            // The search box and the new-task inputs keep their own elements; the shown dates follow them.
+            public override int GetChildCount(){return owner.Controls.Count+owner.DayCellItems().Count;}
+            public override AccessibleObject GetChild(int index){
+                if(index<0)return null;
+                if(index<owner.Controls.Count)return owner.Controls[index].AccessibilityObject;
+                var items=owner.DayCellItems();int i=index-owner.Controls.Count;
+                return i<items.Count?items[i]:null;
+            }
+            public override AccessibleObject HitTest(int x,int y){
+                var p=owner.PointToClient(new Point(x,y));p.Y+=owner.pageScroll.Offset;
+                var cell=owner.DayCellItems().FirstOrDefault(c=>c.Rect.Contains(p));
+                return cell??base.HitTest(x,y);
+            }
+        }
+        // One shown date. Its default action only selects the date, the same as a single click on the cell.
+        sealed class DayCellAccessible : AccessibleObject {
+            readonly CalendarView owner;readonly int index;readonly string name,key;readonly Rectangle rect;
+            internal string Key{get{return key;}}
+            internal Rectangle Rect{get{return rect;}}
+            public DayCellAccessible(CalendarView view,int position,string dateKey,Rectangle bounds,string label){owner=view;index=position;key=dateKey;rect=bounds;name=label;}
+            public override string Name{get{return name;}}
+            public override AccessibleRole Role{get{return AccessibleRole.Cell;}}
+            public override AccessibleStates State{get{
+                var state=AccessibleStates.Selectable|AccessibleStates.Focusable;
+                if(Key==owner.selected)state|=AccessibleStates.Selected;
+                if(owner.focusId=="cell-"+Key&&owner.Focused)state|=AccessibleStates.Focused;
+                return state;
+            }}
+            public override string DefaultAction{get{return "선택";}}
+            public override Rectangle Bounds{get{return owner.RectangleToScreen(owner.Page(Rect));}}
+            public override AccessibleObject Parent{get{return owner.AccessibilityObject;}}
+            public override void DoDefaultAction(){
+                if(owner.InvokeRequired){owner.Invoke(new Action(DoDefaultAction));return;}
+                if(!owner.modal)owner.CellClick(Key,true);
+            }
+            public override AccessibleObject Navigate(AccessibleNavigation direction){
+                if(direction!=AccessibleNavigation.Next&&direction!=AccessibleNavigation.Previous)return null;
+                var items=owner.DayCellItems();int i=index+(direction==AccessibleNavigation.Next?1:-1);
+                return i>=0&&i<items.Count?items[i]:null;
+            }
         }
         // Points in the window's sizing band fall through to the host window, which resizes.
         protected override void WndProc(ref Message msg){

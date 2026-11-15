@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -186,6 +186,49 @@ namespace PetCalendarDesktop {
                 }
             }finally{Directory.Delete(dir,true);}
             Console.WriteLine("PASS R7 week view titles and counts show the year");
+        }
+
+        // Screen readers get one element per shown date: a full-date name, the selected state, a select action,
+        // and a tree that follows the month. Checked through the AccessibleObject API only, with no mouse input.
+        static void DayCellAccessibility(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;
+                    // Set before the first layout so the month index is built with this event.
+                    view.state.events=new[]{Event("cell","2026-11-20")};
+                    form.Controls.Add(view);form.Show();
+                    var flags=BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public;
+                    view.JumpTo("2026-11-16");
+                    var root=view.AccessibilityObject;
+                    int inputs=view.Controls.Count;
+                    Func<int,AccessibleObject> cell=i=>root.GetChild(inputs+i);
+                    var inputNames=Enumerable.Range(0,inputs).Select(i=>root.GetChild(i).Name).ToList();
+                    Check(inputNames.Contains("일정 제목과 메모 검색")&&inputNames.Contains("새 할 일")&&inputNames.Contains("할 일 마감일"),"the search box and new-task inputs stay in the accessibility tree");
+                    Check(root.GetChildCount()==inputs+35,"the November 2026 grid exposes its 35 shown dates after the inputs");
+                    Check(cell(0).Name.StartsWith("2026년 11월 1일 일요일",StringComparison.Ordinal),"the first shown date is named with its full date");
+                    Check(cell(15).Name.StartsWith("2026년 11월 16일 월요일",StringComparison.Ordinal)&&cell(19).Name.Contains("일정 1개"),"each date names its weekday and schedule count");
+                    Check(cell(15).State.HasFlag(AccessibleStates.Selected)&&!cell(19).State.HasFlag(AccessibleStates.Selected),"only the selected date has the selected state");
+                    var todayNames=Enumerable.Range(0,35).Select(i=>cell(i).Name).Where(n=>n.Contains("오늘")).ToList();
+                    Check(todayNames.Count<=1&&todayNames.All(n=>n.StartsWith(DateTime.Today.ToString("yyyy년 M월 d일",Rules.Korean),StringComparison.Ordinal)),"today is the only date named as today");
+                    cell(19).DoDefaultAction();
+                    Check(view.selected=="2026-11-20"&&cell(19).State.HasFlag(AccessibleStates.Selected)&&!cell(15).State.HasFlag(AccessibleStates.Selected),"the default action selects that date");
+                    Check(ReferenceEquals(cell(0).Navigate(AccessibleNavigation.Next),cell(1)),"reading order moves from one date to the next");
+                    typeof(CalendarView).GetMethod("MonthMove",flags).Invoke(view,new object[]{1});
+                    Check(root.GetChildCount()==inputs+35&&cell(0).Name.StartsWith("2026년 11월 29일 일요일",StringComparison.Ordinal),"after a month move the tree shows the new grid");
+                    Check(cell(0).Name.Contains("다른 달")&&!cell(2).Name.Contains("다른 달")&&cell(2).State.HasFlag(AccessibleStates.Selected),"dates from other months are marked and the first of the month is selected");
+                    view.SetWeekView(true);
+                    Check(root.GetChildCount()==inputs+7&&cell(0).Name.StartsWith("2026년 11월 29일 일요일",StringComparison.Ordinal)&&cell(2).Name.StartsWith("2026년 12월 1일 화요일",StringComparison.Ordinal),"the week view exposes its seven shown dates after the inputs");
+                    Check(cell(2).State.HasFlag(AccessibleStates.Selected)&&!cell(3).State.HasFlag(AccessibleStates.Selected)&&Enumerable.Range(0,7).All(i=>!cell(i).Name.Contains("다른 달")),"the week view marks the selected day and does not mark other months");
+                    cell(3).DoDefaultAction();
+                    Check(view.selected=="2026-12-02"&&cell(3).State.HasFlag(AccessibleStates.Selected)&&!cell(2).State.HasFlag(AccessibleStates.Selected),"the week view default action selects that day");
+                    typeof(CalendarView).GetMethod("PageMove",flags).Invoke(view,new object[]{1});
+                    Check(root.GetChildCount()==inputs+7&&cell(0).Name.StartsWith("2026년 12월 6일 일요일",StringComparison.Ordinal)&&cell(6).Name.StartsWith("2026년 12월 12일 토요일",StringComparison.Ordinal),"after a week move the tree shows the new week");
+                    view.SetWeekView(false);
+                    Check(root.GetChildCount()==inputs+35&&cell(0).Name.StartsWith("2026년 11월 29일 일요일",StringComparison.Ordinal),"back in month view the month grid is exposed again");
+                }
+            }finally{Directory.Delete(dir,true);}
+            Console.WriteLine("PASS calendar dates are exposed to screen readers with names, states and a select action");
         }
 
         static void DateTyping(){

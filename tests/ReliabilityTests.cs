@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -245,6 +245,37 @@ namespace PetCalendarDesktop {
                 }
             }finally{Directory.Delete(dir,true);}
             Console.WriteLine("PASS calendar dates are exposed to screen readers with names, states and a select action");
+        }
+
+        // Each shown task checkbox is a check button named with its title, due date and completion state. Its default action
+        // toggles completion. Checked through the AccessibleObject API only, with no mouse input.
+        static void TaskCheckAccessibility(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    // Saved through the store first, because a completion is saved from the store's copy of the state.
+                    var seeded=new CalendarState();seeded.settings.hideCompleted=false;
+                    seeded.tasks=new[]{
+                        new CalendarTask{id="report",title="보고서 제출",dueDate="2026-11-20",createdAt="00000001",done=false},
+                        new CalendarTask{id="water",title="물 마시기",dueDate="",createdAt="00000002",done=true}};
+                    Task.Run(()=>store.Save(Codec.Json(seeded),h=>Task.FromResult(0)).GetAwaiter().GetResult()).Wait();
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;
+                    form.Controls.Add(view);form.Show();view.JumpTo("2026-11-16");view.Update();
+                    var root=view.AccessibilityObject;
+                    var checks=Enumerable.Range(0,root.GetChildCount()).Select(i=>root.GetChild(i)).Where(c=>c.Role==AccessibleRole.CheckButton).ToList();
+                    Check(checks.Count==2,"each shown task exposes one checkbox in the accessibility tree");
+                    var report=checks[0];var water=checks[1];
+                    Check(report.Name=="보고서 제출, 마감 2026년 11월 20일, 미완료"&&!report.State.HasFlag(AccessibleStates.Checked),"an open task is named with its title, due date and incomplete state");
+                    Check(water.Name=="물 마시기, 완료됨"&&water.State.HasFlag(AccessibleStates.Checked),"a completed task is named as completed and has the checked state");
+                    Check(report.DefaultAction=="완료 표시"&&water.DefaultAction=="완료 취소","the default action says whether it marks or unmarks the task");
+                    // The completion is saved through the API, which writes to the store as the host does.
+                    view.ApiCall=(m,p,b,v,f)=>Task.Run(async()=>{await store.Save(b,h=>Task.FromResult(0));return new ApiResponse(200,new Dictionary<string,object>{{"version",1}});});
+                    report.DoDefaultAction();
+                    for(int i=0;i<500&&view.Saving;i++){Application.DoEvents();System.Threading.Thread.Sleep(10);}
+                    Check(view.state.tasks.First(t=>t.id=="report").done&&report.State.HasFlag(AccessibleStates.Checked)&&report.Name.EndsWith(", 완료됨",StringComparison.Ordinal),"the default action completes the task and the checkbox reports it");
+                }
+            }finally{Directory.Delete(dir,true);}
+            Console.WriteLine("PASS task checkboxes are exposed to screen readers with names, checked states and a completion action");
         }
 
         static void DateTyping(){

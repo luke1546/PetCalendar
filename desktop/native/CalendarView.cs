@@ -933,16 +933,21 @@ namespace PetCalendarDesktop {
         sealed class CalendarAccessible : ControlAccessibleObject {
             readonly CalendarView owner;
             public CalendarAccessible(CalendarView view):base(view){owner=view;}
-            // The search box and the new-task inputs keep their own elements; the shown dates follow them.
-            public override int GetChildCount(){return owner.Controls.Count+owner.DayCellItems().Count;}
+            // The search box and the new-task inputs keep their own elements; the shown dates follow them, then the shown task checkboxes.
+            public override int GetChildCount(){return owner.Controls.Count+owner.DayCellItems().Count+owner.TaskCheckItems().Count;}
             public override AccessibleObject GetChild(int index){
                 if(index<0)return null;
                 if(index<owner.Controls.Count)return owner.Controls[index].AccessibilityObject;
                 var items=owner.DayCellItems();int i=index-owner.Controls.Count;
-                return i<items.Count?items[i]:null;
+                if(i<items.Count)return items[i];
+                var checks=owner.TaskCheckItems();i-=items.Count;
+                return i<checks.Count?checks[i]:null;
             }
             public override AccessibleObject HitTest(int x,int y){
-                var p=owner.PointToClient(new Point(x,y));p.Y+=owner.pageScroll.Offset;
+                var p=owner.PointToClient(new Point(x,y));
+                var check=owner.TaskCheckItems().FirstOrDefault(c=>c.Rect.Contains(p));
+                if(check!=null)return check;
+                p.Y+=owner.pageScroll.Offset;
                 var cell=owner.DayCellItems().FirstOrDefault(c=>c.Rect.Contains(p));
                 return cell??base.HitTest(x,y);
             }
@@ -971,6 +976,47 @@ namespace PetCalendarDesktop {
             public override AccessibleObject Navigate(AccessibleNavigation direction){
                 if(direction!=AccessibleNavigation.Next&&direction!=AccessibleNavigation.Previous)return null;
                 var items=owner.DayCellItems();int i=index+(direction==AccessibleNavigation.Next?1:-1);
+                return i>=0&&i<items.Count?items[i]:null;
+            }
+        }
+        // Each shown task checkbox comes from the hit that painting recorded for it, so only the shown rows are exposed, in painted order.
+        List<TaskCheckAccessible> TaskCheckItems(){
+            var list=new List<TaskCheckAccessible>();
+            foreach(var h in hits){
+                if(!h.Id.StartsWith("task-",StringComparison.Ordinal)||!h.Id.EndsWith("-check",StringComparison.Ordinal))continue;
+                list.Add(new TaskCheckAccessible(this,list.Count,h.Id.Substring(5,h.Id.Length-5-6),h.Rect));
+            }
+            return list;
+        }
+        // One shown task checkbox. Its name carries the title, due date and completion state; its default action toggles completion, the same as a click.
+        sealed class TaskCheckAccessible : AccessibleObject {
+            readonly CalendarView owner;readonly int index;readonly string id;readonly Rectangle rect;
+            internal Rectangle Rect{get{return rect;}}
+            public TaskCheckAccessible(CalendarView view,int position,string taskId,Rectangle bounds){owner=view;index=position;id=taskId;rect=bounds;}
+            CalendarTask Task{get{return owner.state.tasks.FirstOrDefault(t=>t.id==id);}}
+            public override string Name{get{
+                var t=Task;if(t==null)return "";
+                string name=t.title;
+                if(t.dueDate!="")name+=", 마감 "+Rules.Date(t.dueDate).ToString("yyyy년 M월 d일",Rules.Korean);
+                return name+(t.done?", 완료됨":", 미완료");
+            }}
+            public override AccessibleRole Role{get{return AccessibleRole.CheckButton;}}
+            public override AccessibleStates State{get{
+                var flags=AccessibleStates.Focusable;
+                var t=Task;if(t!=null&&t.done)flags|=AccessibleStates.Checked;
+                if(owner.focusId=="task-"+id+"-check"&&owner.Focused)flags|=AccessibleStates.Focused;
+                return flags;
+            }}
+            public override string DefaultAction{get{var t=Task;return t!=null&&t.done?"완료 취소":"완료 표시";}}
+            public override Rectangle Bounds{get{return owner.RectangleToScreen(rect);}}
+            public override AccessibleObject Parent{get{return owner.AccessibilityObject;}}
+            public override void DoDefaultAction(){
+                if(owner.InvokeRequired){owner.Invoke(new Action(DoDefaultAction));return;}
+                if(!owner.modal&&Task!=null)owner.ToggleTask(id);
+            }
+            public override AccessibleObject Navigate(AccessibleNavigation direction){
+                if(direction!=AccessibleNavigation.Next&&direction!=AccessibleNavigation.Previous)return null;
+                var items=owner.TaskCheckItems();int i=index+(direction==AccessibleNavigation.Next?1:-1);
                 return i>=0&&i<items.Count?items[i]:null;
             }
         }

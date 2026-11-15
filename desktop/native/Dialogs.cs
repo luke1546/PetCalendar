@@ -241,7 +241,7 @@ namespace PetCalendarDesktop {
         public DdayDialog(CalendarView view):base(view,"D-day 일정 선택","중요한 날을 골라주세요"){
             Body.Add(Css.Hint("달력에 등록된 일정 중 하나를 골라주세요. 선택한 일정의 시작일을 기준으로 D-day가 표시됩니다."));
             var si=new SearchItem(SearchBox){Top=16,Bottom=12};Body.Add(si);
-            list=new ChoiceList(view);Body.Add(new ListItem(list));
+            list=new ChoiceList(view){AccessibleName="D-day 후보 일정"};Body.Add(new ListItem(list));
             Footer(new Control[]{clear},new Control[]{open});
             clear.Click+=delegate{View.ClearDday(this);};open.Click+=delegate{View.OpenDdayEvent(this);};
             SearchBox.Box.TextChanged+=delegate{View.limits["dday"]=CalendarView.pageSizes["dday"];list.Offset=0;Refresh2();};
@@ -258,7 +258,7 @@ namespace PetCalendarDesktop {
         }
     }
     public sealed class ChoiceList : Control {
-        readonly CalendarView view;public string Query="";List<Occurrence> rows=new List<Occurrence>();public int Offset;int hover=-1;bool hoverMore;readonly ScrollModel scroll=new ScrollModel();
+        readonly CalendarView view;public string Query="";List<Occurrence> rows=new List<Occurrence>();public int Offset;int hover=-1;bool hoverMore;int keyIndex=-1;readonly ScrollModel scroll=new ScrollModel();
         public ChoiceList(CalendarView owner){view=owner;SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;}
         float Sc{get{return DeviceDpi/96f;}}
         public int ViewHeight(){return view.ViewportScreen().Height;}
@@ -270,6 +270,7 @@ namespace PetCalendarDesktop {
                 bool pa=String.CompareOrdinal(a.startDate,today)<0,pb=String.CompareOrdinal(b.startDate,today)<0;c=pa.CompareTo(pb);if(c!=0)return c;
                 c=pa?String.CompareOrdinal(b.startDate,a.startDate):String.CompareOrdinal(a.startDate,b.startDate);if(c!=0)return Math.Sign(c);
                 return IntlKoreanComparer.Instance.Compare(a.@event.title,b.@event.title);});
+            keyIndex=rows.Count==0?-1:Math.Min(keyIndex,rows.Count-1);
             Invalidate();
         }
         int TextWidth(int width){float s=Sc;return width-(int)Math.Round((8+24+20+12+12)*s)-Ui.Width("D−999",Ui.Font(s,13,700))-(int)(12*s);}
@@ -284,6 +285,7 @@ namespace PetCalendarDesktop {
             foreach(var o in rows.Take(view.limits["dday"])){
                 int h=RowHeight(o,width);var r=new RectangleF(4*s,y,width-8*s,h);bool chosen=target!=null&&target.@event.id==o.@event.id&&target.startDate==o.startDate;
                 Ui.Box(g,r,8*s,chosen?Ui.C("#ffedf2"):i==hover?Ui.C(CalendarView.CategoryLight(o.@event.category)):Ui.C("#fffaf1"),chosen?Ui.C("#be6d83"):Ui.C("#e3d5bd"),s);
+                if(i==keyIndex&&Focused&&ShowFocusCues){var ring=r;ring.Inflate(-1*s,-1*s);using(var pen=new Pen(DesktopTheme.Orange,2*s))using(var p=Ui.Round(ring,7*s))g.DrawPath(pen,p);}
                 int x=(int)(r.X+13*s);var flagBox=new RectangleF(x+1*s,r.Y+(h-18*s)/2,18*s,18*s);
                 if(chosen)Ui.Text(g,"✓",Ui.Font(s,13,800,"✓"),Rectangle.Round(new RectangleF(x,r.Y,20*s,h)),Ui.C("#b84d6e"),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);else Ui.Icon(g,"flag",flagBox,Ui.C("#af8f70"));
                 x+=(int)(32*s);string dday=Rules.Dday(o.startDate,today);var df=Ui.Font(s,13,700,null,dday);int dw=Ui.Width(dday,df);Ui.Text(g,dday,df,new Rectangle((int)(r.Right-13*s-dw),(int)r.Y,dw+2,h),Ui.C("#9e4f68"),TextFormatFlags.VerticalCenter);
@@ -295,9 +297,22 @@ namespace PetCalendarDesktop {
             Ui.ScrollBar(g,scroll,s);
         }
         int At(Point p,out bool more){float s=Sc;more=false;int width=scroll.Visible?Width-(int)(12*s):Width;int y=(int)(4*s)-Offset;int i=0;foreach(var o in rows.Take(view.limits["dday"])){int h=RowHeight(o,width);if(p.Y>=y&&p.Y<y+h&&p.X<width)return i;y+=h+(int)(7*s);i++;}if(rows.Count>view.limits["dday"]&&p.Y>=y&&p.Y<y+Ui.Font(s,12,400).GetHeight()+22*s)more=true;return -1;}
+        void ShowMore(){view.limits["dday"]+=CalendarView.pageSizes["dday"];Invalidate();var form=FindForm() as DialogForm;if(form!=null)form.Relayout();}
+        // Keyboard: the highlighted row moves with Up/Down (scrolled into view), and Enter chooses it like a click.
+        int RowTop(int index,int width){int y=(int)(4*Sc);for(int i=0;i<index;i++)y+=RowHeight(rows[i],width)+(int)(7*Sc);return y;}
+        void MoveKey(int index){keyIndex=index;int width=scroll.Visible?Width-(int)(12*Sc):Width;int top=RowTop(index,width)-Offset;int bottom=top+RowHeight(rows[index],width);if(top<0)Offset+=top;else if(bottom>Height)Offset+=bottom-Height;Invalidate();}
+        protected override bool IsInputKey(Keys k){return k==Keys.Up||k==Keys.Down||k==Keys.Enter||base.IsInputKey(k);}
+        protected override void OnKeyDown(KeyEventArgs e){
+            base.OnKeyDown(e);int visible=Math.Min(rows.Count,view.limits["dday"]);
+            if(e.KeyCode==Keys.Up&&keyIndex>0){MoveKey(keyIndex-1);e.Handled=true;}
+            else if(e.KeyCode==Keys.Down&&keyIndex<rows.Count-1){if(keyIndex+1>=visible)ShowMore();MoveKey(keyIndex+1);e.Handled=true;}
+            else if(e.KeyCode==Keys.Enter&&keyIndex>=0&&keyIndex<visible){var o=rows[keyIndex];view.ChooseDday(o.@event.id,o.startDate,false);e.Handled=e.SuppressKeyPress=true;}
+        }
+        protected override void OnGotFocus(EventArgs e){if(keyIndex<0&&rows.Count>0)keyIndex=0;Invalidate();base.OnGotFocus(e);}
+        protected override void OnLostFocus(EventArgs e){Invalidate();base.OnLostFocus(e);}
         protected override void OnMouseMove(MouseEventArgs e){bool more;int i=At(e.Location,out more);if(i!=hover||more!=hoverMore){hover=i;hoverMore=more;Invalidate();}Cursor=i>=0||more?Cursors.Hand:Cursors.Default;}
         protected override void OnMouseLeave(EventArgs e){hover=-1;hoverMore=false;Invalidate();}
-        protected override void OnMouseUp(MouseEventArgs e){if(e.Button!=MouseButtons.Left)return;bool more;int i=At(e.Location,out more);if(more){view.limits["dday"]+=CalendarView.pageSizes["dday"];Invalidate();var form=FindForm() as DialogForm;if(form!=null)form.Relayout();return;}if(i>=0){var o=rows[i];view.ChooseDday(o.@event.id,o.startDate,false);}}
+        protected override void OnMouseUp(MouseEventArgs e){if(e.Button!=MouseButtons.Left)return;bool more;int i=At(e.Location,out more);if(more){ShowMore();return;}if(i>=0){var o=rows[i];view.ChooseDday(o.@event.id,o.startDate,false);}}
         protected override void OnMouseWheel(MouseEventArgs e){scroll.Offset=Offset;scroll.Wheel(e.Delta,Sc,()=>{Offset=scroll.Offset;Invalidate();});var h=e as HandledMouseEventArgs;if(h!=null)h.Handled=true;}
     }
     // ---------------- Day list ("+N개 더 보기") ----------------

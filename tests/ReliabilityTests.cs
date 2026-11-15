@@ -52,6 +52,7 @@ namespace PetCalendarDesktop {
             Check(Rules.DdayOccurrence(endedPinned,"2026-11-16").startDate=="2026-11-14","a passed pinned occurrence of an ended series counts down to its last date");
             DdayChoiceFollowsToday();
             DdayChoiceClicks();
+            DdayChoiceKeyboard();
         }
 
         // The D-day picker judges pinned dates by the real today, not by the date selected in the calendar:
@@ -68,6 +69,34 @@ namespace PetCalendarDesktop {
                     var list=new ChoiceList(view);list.Rebuild();
                     var rows=(List<Occurrence>)typeof(ChoiceList).GetField("rows",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(list);
                     Check(rows.Count==1&&rows[0].startDate==Rules.AddDays(today,3),"the D-day picker keeps a pinned occurrence still ahead of today when the calendar is set later");
+                }
+            }finally{Directory.Delete(dir,true);}
+        }
+
+        // The D-day picker works without a mouse: Down/Up move the highlighted row (showing more rows past the visible ones),
+        // and Enter chooses the highlighted schedule exactly like a click does.
+        static void DdayChoiceKeyboard(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    view.ApiCall=(method,path,body,version,force)=>new TaskCompletionSource<ApiResponse>().Task;
+                    string today=Rules.Key(DateTime.Today);
+                    view.state.events=new[]{Event("key1",Rules.AddDays(today,1)),Event("key2",Rules.AddDays(today,2)),Event("key3",Rules.AddDays(today,3))};
+                    view.limits["dday"]=2;
+                    var list=new ChoiceList(view){Size=new Size(400,600)};list.Rebuild();
+                    var keyDown=typeof(ChoiceList).GetMethod("OnKeyDown",BindingFlags.NonPublic|BindingFlags.Instance);
+                    var keyIndex=typeof(ChoiceList).GetField("keyIndex",BindingFlags.NonPublic|BindingFlags.Instance);
+                    Action<Keys> press=k=>keyDown.Invoke(list,new object[]{new KeyEventArgs(k)});
+                    Func<int> highlighted=()=>(int)keyIndex.GetValue(list);
+                    press(Keys.Down);
+                    Check(highlighted()==0,"the D-day picker highlights the first schedule with the Down key");
+                    press(Keys.Down);press(Keys.Down);
+                    Check(highlighted()==2&&view.limits["dday"]==2+CalendarView.pageSizes["dday"],"the D-day picker shows more rows when the highlight moves past the visible ones");
+                    press(Keys.Up);
+                    Check(highlighted()==1&&!view.Saving,"the Up key moves the D-day highlight back without choosing");
+                    press(Keys.Enter);
+                    Check(view.Saving&&view.state.events.Any(e=>e.pinned&&e.id=="key2"),"Enter chooses the highlighted D-day schedule like a click");
                 }
             }finally{Directory.Delete(dir,true);}
         }

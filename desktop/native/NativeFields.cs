@@ -89,7 +89,7 @@ namespace PetCalendarDesktop {
         protected override int Max(int i){return i==0?9999:i==1?12:31;}
         protected override int Today(int i){var t=DateTime.Today;return i==0?t.Year:i==1?t.Month:t.Day;}
         public override string Value{
-            get{if(!parts[0].HasValue||!parts[1].HasValue||!parts[2].HasValue||parts[0]<1000)return "";if(parts[2].Value>DateTime.DaysInMonth(parts[0].Value,parts[1].Value))return "";return parts[0].Value.ToString("0000")+"-"+parts[1].Value.ToString("00")+"-"+parts[2].Value.ToString("00");}
+            get{if(!parts[0].HasValue||!parts[1].HasValue||!parts[2].HasValue||parts[0]<1000)return "";if(parts[1].Value<1||parts[1].Value>12||parts[2].Value<1||parts[2].Value>DateTime.DaysInMonth(parts[0].Value,parts[1].Value))return "";return parts[0].Value.ToString("0000")+"-"+parts[1].Value.ToString("00")+"-"+parts[2].Value.ToString("00");}
             set{if(Rules.IsDate(value)){var d=Rules.Date(value);parts[0]=d.Year;parts[1]=d.Month;parts[2]=d.Day;}else{parts[0]=parts[1]=parts[2]=null;}typed="";Invalidate();}
         }
         public void SetValue(string value){Value=value;Changed();}

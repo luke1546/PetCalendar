@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace PetCalendarDesktop {
     // Regression checks for the 2026-11-15 review (docs/review-2026-11-15.md):
     // R1 a committed save is reported as saved, R3 alarms survive a locked ledger,
-    // R4 D-day finds the real next date, R5 .ics COUNT is kept exactly.
+    // R4 D-day finds the real next date, R5 .ics COUNT is kept exactly,
+    // and a month typed one digit at a time ("0" then "1") never throws or stores a partial date.
     internal static class ReliabilityTests {
         static int count;
         static void Check(bool value,string message){if(!value)throw new Exception(message);Console.WriteLine("PASS "+message);count++;}
@@ -20,7 +23,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();DateTyping();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -35,6 +38,24 @@ namespace PetCalendarDesktop {
             Check(Rules.DdayOccurrence(ended,"2026-11-15").startDate=="2026-06-01","an ended series counts down to its last date");
             var allGone=Event("gone","2026-01-01","yearly","2027-12-31",new[]{"2026-01-01","2027-01-01"});
             Check(Rules.DdayOccurrence(allGone,"2026-11-15").startDate=="2026-01-01","a series with no dates left keeps its start date");
+        }
+
+        // Typing into an existing date's month goes through the real key handlers, as a keyboard would.
+        static void DateTyping(){
+            var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            var keyDown=typeof(DateField).GetMethod("OnKeyDown",flags);var keyPress=typeof(DateField).GetMethod("OnKeyPress",flags);
+            var field=new DateField();field.Value="2026-11-15";
+            var seen=new List<string>();field.ValueChanged+=(s,e)=>seen.Add(field.Value);
+            Action<KeyPressEventArgs> type=k=>keyPress.Invoke(field,new object[]{k});
+            keyDown.Invoke(field,new object[]{new KeyEventArgs(Keys.Right)});
+            type(new KeyPressEventArgs('0'));
+            Check(seen.Count>0&&seen.Last()=="","a month typed as a lone 0 reads as no date and does not throw");
+            type(new KeyPressEventArgs('1'));
+            Check(field.Value=="2026-01-15","typing 01 into the month completes to 2026-01-15");
+            type(new KeyPressEventArgs('0'));
+            Check(field.Value=="","a day typed as a lone 0 is not stored as 2026-01-00");
+            type(new KeyPressEventArgs('5'));
+            Check(field.Value=="2026-01-05","typing 05 into the day completes to 2026-01-05");
         }
 
         static void Ics(){

@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -73,6 +73,34 @@ namespace PetCalendarDesktop {
         // Typing into an existing date's month goes through the real key handlers, as a keyboard would.
         // R6: at 800×600 and with large text, the month title shares no pixels with the toolbar buttons or the bottom
         // count, the bottom hint is dropped before it can reach the count, and the buttons still work after the layout changes.
+        static bool Drawn(Rectangle a,Rectangle b){return a.Width>0&&b.Width>0&&a.IntersectsWith(b);}
+
+        static void DayHeaderLayout(){
+            // The time, category name and D-day tag of an event row never paint over each other, from narrow cards to normal ones.
+            var small=Ui.Font(1,11,400,null,null);var cat=Ui.Font(1,11,400,null,"긴 사용자 분류 이름 · D-day");
+            int timeW=Ui.Width("10:00 – 11:00",small),nameW=Ui.Width("긴 사용자 분류 이름",cat),tagW=Ui.Width(" · D-day",cat),gap=8,minName=24,x=10;
+            bool overlap=false,outside=false,tagCut=false,nameCut=false;
+            // Rectangle.IntersectsWith also reports a zero-width slot as overlapping, so only drawn pieces are compared.
+            // A row narrower than the D-day tag cannot hold it at all, so the sweep starts at the tag width.
+            for(int width=tagW;width<=420;width++){
+                var r=CalendarView.DayHeaderRects(x,5,width,20,timeW,nameW,tagW,gap,minName);var time=r[0];var name=r[1];var tag=r[2];
+                overlap|=Drawn(time,name)||Drawn(time,tag)||Drawn(name,tag);
+                outside|=time.Left<x||tag.Right>x+width||(name.Width>0&&(name.Left<x||name.Right>tag.Left));
+                tagCut|=tag.Width!=tagW;
+                nameCut|=name.Width>0&&name.Width<minName&&name.Width<nameW;
+            }
+            Check(!overlap,"event header time, category and D-day never overlap at any card width");
+            Check(!outside,"event header pieces stay inside the card row");
+            Check(!tagCut,"D-day tag is never cut, even in a narrow card");
+            Check(!nameCut,"category name is either whole or at least the minimum visible width");
+            var wide=CalendarView.DayHeaderRects(x,5,timeW+gap+nameW+tagW,20,timeW,nameW,tagW,gap,minName);
+            Check(wide[1].Width==nameW&&wide[0].Width>=timeW&&wide[2].Width==tagW,"normal card keeps the full category name and D-day tag");
+            var narrow=CalendarView.DayHeaderRects(x,5,timeW+gap+tagW+minName,20,timeW,nameW,tagW,gap,minName);
+            Check(narrow[1].Width==minName&&narrow[0].Width==timeW,"narrow card cuts the category name with an ellipsis instead of overlapping");
+            var tiny=CalendarView.DayHeaderRects(x,5,timeW+gap+tagW,20,timeW,nameW,tagW,gap,minName);
+            Check(tiny[1].Width==0&&tiny[0].Right<=tiny[2].Left&&tiny[2].Width==tagW,"too narrow for the name drops it and keeps the time and D-day tag apart");
+        }
+
         static void ToolbarLayout(){
             string dir=Temp();var store=new StateStore(dir);var scale=DesktopTheme.TextScale;var bold=DesktopTheme.BoldText;
             try{

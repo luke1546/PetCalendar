@@ -658,6 +658,14 @@ namespace PetCalendarDesktop {
             if(o.startDate!=o.endDate||e.repeat!="none")h+=6*s+Css(11)*1.7f*s;
             h+=12*s+2*s;return (int)Math.Ceiling(Math.Max(h,62*s));
         }
+        // Header row of one event: time on the left, category name and D-day tag on the right.
+        // Returns time, name and tag rectangles (an empty name means it was dropped); they never overlap.
+        // A narrow card cuts the name with an ellipsis first and drops it last, so the time and D-day tag keep their place.
+        internal static Rectangle[] DayHeaderRects(int x,int y,int width,int height,int timeW,int nameW,int tagW,int gap,int minName){
+            int tagX=x+width-tagW,nameRoom=Math.Min(nameW,width-timeW-gap-tagW);
+            if(nameRoom<nameW&&nameRoom<minName)return new[]{new Rectangle(x,y,Math.Max(0,width-tagW-gap),height),Rectangle.Empty,new Rectangle(tagX,y,tagW,height)};
+            return new[]{new Rectangle(x,y,width-nameRoom-tagW-gap,height),new Rectangle(tagX-nameRoom,y,nameRoom,height),new Rectangle(tagX,y,tagW,height)};
+        }
         void PaintDayEvents(Graphics g,Rectangle area){
             var items=SelectedRows();int y=area.Y;
             if(items.Count==0){PaintEmptyDay(g,area);return;}
@@ -669,8 +677,9 @@ namespace PetCalendarDesktop {
                 int x=card.X+P(4)+P(10);var box=new RectangleF(x,card.Y+(card.Height-16*s)/2,16*s,16*s);Ui.CheckBox(g,box,done,Hover(id+"-check"),true,5*s,s,fill);
                 string eid=e.id,occ=o.startDate;AddHit(id+"-check",Rectangle.Round(new RectangleF(box.X-3*s,box.Y-3*s,22*s,22*s)),()=>ToggleEvent(eid,occ),e.repeat=="none"?"일정 완료":"이 회차만 완료",Page(card));
                 x+=P(26);int actionsW=P(34);int textW=card.Right-actionsW-P(12)-x;int ty0=card.Y+P(12);
-                var small=F(11);string time=e.startTime!=""?e.startTime+(e.endTime!=""?" – "+e.endTime:""):"종일";string cat=DesktopTheme.CategoryName(e.category)+(IsDdayOccurrence(o)?" · D-day":"");
-                int lh=(int)Math.Round(Css(11)*1.5f*s);Ui.Text(g,time,small,new Rectangle(x,ty0,textW,lh),Ui.C("#79694f"),TextFormatFlags.VerticalCenter);int cw=Ui.Width(cat,F(11,400,cat));Ui.Text(g,cat,F(11,400,cat),new Rectangle(x+textW-cw,ty0,cw+2,lh),Ui.C("#79694f"),TextFormatFlags.VerticalCenter);
+                var small=F(11);string time=e.startTime!=""?e.startTime+(e.endTime!=""?" – "+e.endTime:""):"종일";string name=DesktopTheme.CategoryName(e.category),tag=IsDdayOccurrence(o)?" · D-day":"";var catFont=F(11,400,name+tag);
+                int lh=(int)Math.Round(Css(11)*1.5f*s);var header=DayHeaderRects(x,ty0,textW,lh,Ui.Width(time,small),Ui.Width(name,catFont),Ui.Width(tag,catFont),P(8),P(24));
+                Ui.Text(g,time,small,header[0],Ui.C("#79694f"),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);Ui.Text(g,name,catFont,header[1],Ui.C("#79694f"),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);Ui.Text(g,tag,catFont,header[2],Ui.C("#79694f"),TextFormatFlags.VerticalCenter);
                 ty0+=lh+P(5);var tf=F(12,700,e.title,null,done?FontStyle.Strikeout:FontStyle.Regular);ty0+=Ui.Paragraph(g,e.title,tf,x,ty0,textW,Css(12)*1.6f*s,done?Ui.C("#7b7060"):DesktopTheme.Ink);
                 if(e.note!=""){ty0+=P(5);ty0+=Ui.Paragraph(g,e.note,F(10,400,e.note),x,ty0,textW,Css(10)*1.7f*s,Ui.C("#93836a"));}
                 if(o.startDate!=o.endDate||e.repeat!="none"){ty0+=P(6);int mx=x;var mf=F(11);int mh=(int)Math.Round(Css(11)*1.7f*s);

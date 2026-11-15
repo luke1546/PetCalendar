@@ -362,7 +362,7 @@ namespace PetCalendarDesktop {
             if(list.Count>2000)throw new AppError(400,"백업의 펫 일기가 너무 커요.");
             return list;
         }
-        internal void Replace(List<DiaryEntry> next){entries=next.OrderByDescending(e=>e.date,StringComparer.Ordinal).Take(400).ToList();StateStore.Atomic(path,Codec.Json(entries),null);}
+        internal void Replace(List<DiaryEntry> next){var list=next.OrderByDescending(e=>e.date,StringComparer.Ordinal).Take(400).ToList();StateStore.Atomic(path,Codec.Json(list),null);entries=list;}
         internal DiaryEntry[] Entries{get{return entries.OrderByDescending(e=>e.date,StringComparer.Ordinal).ToArray();}}
         static string Tail(string species){return species=="cat"?"냥":species=="dog"?"멍":"";}
         static string Short(string t){t=(t??"").Trim();return t.Length>18?t.Substring(0,17)+"…":t;}

@@ -42,12 +42,17 @@ namespace PetCalendarDesktop {
             SystemEvents.PowerModeChanged+=PowerChanged;SystemEvents.TimeChanged+=TimeChanged;
         }
         AlarmLedger Load(){foreach(string file in new[]{path,path+".bak"}){if(!File.Exists(file))continue;try{var value=Codec.Read<AlarmLedger>(File.ReadAllText(file));if(value!=null&&value.sent!=null&&value.unread!=null){if(value.snoozed==null)value.snoozed=new List<SnoozedAlarm>();return value;}}catch{}}return new AlarmLedger();}
-        void Save(){StateStore.Atomic(path,Codec.Json(ledger),File.Exists(path)?path+".bak":null);}
+        void Save(){StateStore.Atomic(path,Codec.Json(ledger),File.Exists(path)?path+".bak":null);dirty=false;}
+        // The ledger is only the record of what was shown. When it cannot be written (file
+        // locked, disk busy) the alert is still delivered, the record stays in memory so it is
+        // not shown twice, and writing is retried within a minute.
+        bool dirty;
+        bool TrySave(){try{Save();return true;}catch(Exception error){dirty=true;if(Error!=null)Error(error);return false;}}
         public List<Alarm> Pending(){lock(gate)return ledger.unread.ToList();}
         public Dictionary<string,long> Sent(){lock(gate)return new Dictionary<string,long>(ledger.sent);}
         public void ImportLegacy(string text){lock(gate){if(!ledger.legacyImported){try{var old=Codec.Read<Dictionary<string,long>>(text);if(old!=null)foreach(var entry in old){long current;if(!ledger.sent.TryGetValue(entry.Key,out current)||entry.Value>current)ledger.sent[entry.Key]=entry.Value;}}catch{}ledger.legacyImported=true;Save();}if(!disposed)timer.Change(10,Timeout.Infinite);}}
         public void Restore(){List<Alarm> pending=Pending();if(pending.Count>0&&store.Snapshot.settings.desktopPopups&&Delivered!=null)Delivered(pending,false,false);}
-        void Changed(){lock(gate){if(disposed)return;var valid=store.Snapshot.events.ToDictionary(e=>e.id);int removed=ledger.unread.RemoveAll(a=>a.eventId!=""&&(!valid.ContainsKey(a.eventId)||(Rules.Done(valid[a.eventId],a.startDate)||!Rules.OccursOn(valid[a.eventId],a.startDate))));removed+=ledger.snoozed.RemoveAll(s=>s.alarm.eventId!=""&&(!valid.ContainsKey(s.alarm.eventId)||(Rules.Done(valid[s.alarm.eventId],s.alarm.startDate)||!Rules.OccursOn(valid[s.alarm.eventId],s.alarm.startDate))));if(removed>0)Save();timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
+        void Changed(){lock(gate){if(disposed)return;var valid=store.Snapshot.events.ToDictionary(e=>e.id);int removed=ledger.unread.RemoveAll(a=>a.eventId!=""&&(!valid.ContainsKey(a.eventId)||(Rules.Done(valid[a.eventId],a.startDate)||!Rules.OccursOn(valid[a.eventId],a.startDate))));removed+=ledger.snoozed.RemoveAll(s=>s.alarm.eventId!=""&&(!valid.ContainsKey(s.alarm.eventId)||(Rules.Done(valid[s.alarm.eventId],s.alarm.startDate)||!Rules.OccursOn(valid[s.alarm.eventId],s.alarm.startDate))));if(removed>0)TrySave();timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
         void PowerChanged(object sender,PowerModeChangedEventArgs e){if(e.Mode==PowerModes.Resume){if(Resume!=null)Resume();Run(DateTime.UtcNow);}}
         void TimeChanged(object sender,EventArgs e){if(Resume!=null)Resume();Run(DateTime.UtcNow);}
         public void CheckAt(DateTime utc){Run(utc);}
@@ -78,7 +83,8 @@ namespace PetCalendarDesktop {
                     }
                     lastCheck=now;
                     foreach(string id in ledger.sent.Where(p=>p.Value<now-7*86400000L).Select(p=>p.Key).ToArray())ledger.sent.Remove(id);
-                    if(changed||newAlerts.Count>0)Save();
+                    if(changed||newAlerts.Count>0||dirty)TrySave();
+                    if(dirty&&next>now+60000)next=now+60000;
                     pending=ledger.unread.ToList();
                     timer.Change((int)Math.Max(20,Math.Min(86400000L,next-now+10)),Timeout.Infinite);
                     if(newAlerts.Count>0&&state.settings.desktopPopups&&state.settings.notificationSound)SoundBatches++;
@@ -88,8 +94,8 @@ namespace PetCalendarDesktop {
             }catch(Exception e){if(Error!=null)Error(e);lock(gate){if(!disposed)timer.Change(60000,Timeout.Infinite);}}
         }
         public void Test(){List<Alarm> list;lock(gate){var alarm=new Alarm{id="test-"+Guid.NewGuid().ToString("N"),eventId="",startDate=Rules.Key(DateTime.Now),title="알림이 잘 도착했어요",body="펫 캘린더를 숨겨두어도 이렇게 알려드립니다.",createdAt=Rules.Epoch(DateTime.UtcNow)};ledger.unread.Add(alarm);Save();list=ledger.unread.ToList();if(store.Snapshot.settings.notificationSound)SoundBatches++;}if(Delivered!=null)Delivered(list,true,true);}
-        public void Acknowledge(string id){lock(gate){if(id==null)ledger.unread.Clear();else ledger.unread.RemoveAll(a=>a.id==id);Save();}if(Delivered!=null)Delivered(Pending(),false,false);}
-        public void Snooze(string id,int minutes){if(minutes!=5&&minutes!=10)return;lock(gate){var alarm=ledger.unread.FirstOrDefault(a=>a.id==id);if(alarm==null)return;ledger.unread.Remove(alarm);ledger.snoozed.RemoveAll(s=>s.alarm.id==id);ledger.snoozed.Add(new SnoozedAlarm{alarm=alarm,dueAt=Rules.Epoch(DateTime.UtcNow.AddMinutes(minutes))});Save();if(!disposed)timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
+        public void Acknowledge(string id){lock(gate){if(id==null)ledger.unread.Clear();else ledger.unread.RemoveAll(a=>a.id==id);TrySave();}if(Delivered!=null)Delivered(Pending(),false,false);}
+        public void Snooze(string id,int minutes){if(minutes!=5&&minutes!=10)return;lock(gate){var alarm=ledger.unread.FirstOrDefault(a=>a.id==id);if(alarm==null)return;ledger.unread.Remove(alarm);ledger.snoozed.RemoveAll(s=>s.alarm.id==id);ledger.snoozed.Add(new SnoozedAlarm{alarm=alarm,dueAt=Rules.Epoch(DateTime.UtcNow.AddMinutes(minutes))});TrySave();if(!disposed)timer.Change(10,Timeout.Infinite);}if(Delivered!=null)Delivered(Pending(),false,false);}
         public void Dispose(){lock(gate){if(disposed)return;disposed=true;timer.Dispose();store.Changed-=Changed;SystemEvents.PowerModeChanged-=PowerChanged;SystemEvents.TimeChanged-=TimeChanged;}}
     }
     public sealed class AlarmPopup : Form {

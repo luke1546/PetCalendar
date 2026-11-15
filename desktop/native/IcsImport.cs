@@ -159,11 +159,17 @@ namespace PetCalendarDesktop {
             string until,count;
             if(parts.TryGetValue("UNTIL",out until)){DateTime u;bool only;if(ParseWhen(until,new Dictionary<string,string>(),out u,out only))e.repeatUntil=Rules.Key(u.Date);}
             else if(parts.TryGetValue("COUNT",out count)){int c;if(int.TryParse(count,out c)&&c>0){
-                // The last date of the series: walk the app's own rule until c dates have passed.
+                // The last date of the series: walk the app's own rule in ten-year steps until c dates
+                // have passed. A count that cannot be reached is not silently cut: only the first date is kept.
                 var probe=Codec.Read<CalendarEvent>(Codec.Json(e));probe.repeatUntil="";probe.excludedDates=new string[0];
-                var horizon=Rules.Key(start.Date.AddYears(repeat=="yearly"?c+1:Math.Min(60,c/12+2)));
-                var dates=Rules.Occurrences(new[]{probe},e.startDate,horizon,false).Select(o=>o.startDate).OrderBy(x=>x,StringComparer.Ordinal).Take(c).ToList();
-                if(dates.Count>0)e.repeatUntil=dates[dates.Count-1];}}
+                var dates=new List<string>();var cursor=start.Date;
+                while(dates.Count<c&&c<=100000&&cursor.Year<9000){
+                    var to=cursor.AddYears(10);string first=Rules.Key(cursor);
+                    dates.AddRange(Rules.Occurrences(new[]{probe},first,Rules.Key(to),false).Select(o=>o.startDate).Where(k=>String.CompareOrdinal(k,first)>=0).OrderBy(k=>k,StringComparer.Ordinal));
+                    cursor=to.AddDays(1);
+                }
+                if(dates.Count>=c)e.repeatUntil=dates[c-1];
+                else{e.repeat="none";e.repeatUntil="";e.excludedDates=new string[0];result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}}}
             if(e.repeatUntil!=""&&String.CompareOrdinal(e.repeatUntil,e.startDate)<0)e.repeatUntil=e.startDate;
         }
         static int DayIndex(string code){return Array.IndexOf(new[]{"SU","MO","TU","WE","TH","FR","SA"},(code??"").Trim().ToUpperInvariant());}

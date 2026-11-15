@@ -15,7 +15,7 @@ param([string]$AppDirectory,[switch]$Full)
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot -Parent;Set-Location $root
 $nodeTests=@('tests/calendar.test.mjs','tests/calendar-index.test.mjs','tests/calendar-order-repeat.test.mjs','tests/desktop-parity.test.mjs','tests/native-pets-tour.test.mjs','tests/native-affinity-badges.test.mjs')
-$psTests=@('tests/toy-follow.ps1','tests/name-tag-emoji.ps1','tests/font-coverage.ps1','tests/brand-migration.ps1','tests/pet-schedule.ps1')
+$psTests=@('tests/toy-follow.ps1','tests/name-tag-emoji.ps1','tests/font-coverage.ps1','tests/brand-migration.ps1','tests/pet-schedule.ps1','tests/reliability.ps1')
 # pet-speech-windows drives the real mouse pointer over bubbles, so it is opt-in (and kept out of releases).
 if($Full){$psTests+='tests/pet-speech-windows.ps1'}
 

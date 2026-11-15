@@ -407,24 +407,38 @@ namespace PetCalendarDesktop {
             // Toolbar
             var tb=toolbarRect;int x=tb.X+P(m.TbX);int cy=tb.Y+P(m.TbT)+(tb.Height-P(m.TbT)-P(m.TbB))/2;
             var parts=month.Split('-');int year=int.Parse(parts[0]),mon=int.Parse(parts[1]);string label=weekView?WeekLabel():year+"년 "+mon+"월";
-            var h2=F(m.MonthH2,700,label);int h2h=(int)Math.Ceiling(h2.GetHeight());Ui.Spaced(g,label,h2,x,cy-h2h/2,h2h,DesktopTheme.Ink,-1f*s);
-            if(m.English&&!weekView){float hw=Ui.SpacedWidth(label,h2,-s);string eng=new DateTime(year,mon,1).ToString("MMMM",CultureInfo.GetCultureInfo("en-US")).ToUpperInvariant();var ef=F(10,400,null,"mono");float baseline=cy-h2h/2f+Ui.Ascent(h2);int eh=(int)Math.Ceiling(ef.GetHeight());Ui.Spaced(g,eng,ef,x+hw+P(m.MonthGap),(int)(baseline-Ui.Ascent(ef)),eh,DesktopTheme.Muted,1f*s);}
             int right=tb.Right-P(m.TbX);
-            // Add event (primary)
             var addFont=F(13,700,"일정 추가");int addTw=(int)Math.Ceiling(Ui.Advance("일정 추가",addFont));int addKbdW=m.AddKbd?KbdWidth("N",10):0;
             // The label is centred in the button; the plus icon and the N badge sit on either side of it, with equal side padding.
             int addIconSide=P(3)+P(20)+P(7);int addBadgeSide=m.AddKbd?P(7)+addKbdW:0;int addSide=P(m.AddPadX)+Math.Max(addIconSide,addBadgeSide);
-            int addW=addSide*2+addTw;var add=new Rectangle(right-addW-P(2),cy-P(19),addW,P(38));
+            int addW=addSide*2+addTw;
+            var tf=F(12,700,"오늘");int todayW=Ui.Width("오늘",tf)+P(27);int vw=ViewSwitchWidth();
+            Func<int,int> controls=aw=>aw+P(2)+P(m.AddMargin)+P(6)+P(36)+P(6)+todayW+P(6)+P(36)+P(10)+vw;
+            // Narrow calendars (small windows, large text): the add button drops its label and the
+            // week title shortens, so the title never runs under the buttons.
+            var h2=F(m.MonthH2,700,label);float titleW=Ui.SpacedWidth(label,h2,-s);bool compactAdd=false;
+            if(x+titleW+P(12)>right-controls(addW)){compactAdd=true;addW=P(38);}
+            if(weekView&&x+titleW+P(12)>right-controls(addW)){label=WeekLabelShort();h2=F(m.MonthH2,700,label);titleW=Ui.SpacedWidth(label,h2,-s);}
+            int titleRoom=right-controls(addW)-P(12)-x;
+            if(titleW>titleRoom&&titleRoom>0){for(float css=m.MonthH2-1;css>=14&&titleW>titleRoom;css--){h2=F(css,700,label);titleW=Ui.SpacedWidth(label,h2,-s);}}
+            int h2h=(int)Math.Ceiling(h2.GetHeight());Ui.Spaced(g,label,h2,x,cy-h2h/2,h2h,DesktopTheme.Ink,-1f*s);
+            if(m.English&&!weekView){string eng=new DateTime(year,mon,1).ToString("MMMM",CultureInfo.GetCultureInfo("en-US")).ToUpperInvariant();var ef=F(10,400,null,"mono");
+                if(x+titleW+P(m.MonthGap)+Ui.SpacedWidth(eng,ef,s)+P(12)<=right-controls(addW)){float baseline=cy-h2h/2f+Ui.Ascent(h2);int eh=(int)Math.Ceiling(ef.GetHeight());Ui.Spaced(g,eng,ef,x+titleW+P(m.MonthGap),(int)(baseline-Ui.Ascent(ef)),eh,DesktopTheme.Muted,1f*s);}}
+            // Add event (primary)
+            var add=new Rectangle(right-addW-P(2),cy-P(19),addW,P(38));
             ButtonBox(g,"add-event",add,true);var addBox=add;if(Hover("add-event")&&!Pressed("add-event"))addBox.Offset(-P(1),-P(1));if(Pressed("add-event"))addBox.Offset(P(2),P(2));
-            int addTextX=addBox.X+addSide;Ui.Icon(g,"plus",new RectangleF(addBox.X+P(m.AddPadX)-P(5),addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
-            // Typographic drawing so the glyphs fill exactly the advance width that the layout centres.
-using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추가",addFont,labelBrush,addTextX,addBox.Y+(addBox.Height-addFont.GetHeight())/2f,StringFormat.GenericTypographic);
-            if(m.AddKbd){int kw=addKbdW,kh=Math.Max(P(19),(int)Math.Ceiling(F(10,400,null,"mono").GetHeight()+4*s));Kbd(g,"N",new Rectangle(addBox.X+addW-P(m.AddPadX)-kw,addBox.Y+(addBox.Height-kh)/2,kw,kh),10,true);}
-            AddHit("add-event",add,()=>OpenEvent(null,selected,false));FocusRing(g,"add-event",add,9*s);
+            if(compactAdd)Ui.Icon(g,"plus",new RectangleF(addBox.X+(addBox.Width-20*s)/2,addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
+            else{
+                int addTextX=addBox.X+addSide;Ui.Icon(g,"plus",new RectangleF(addBox.X+P(m.AddPadX)-P(5),addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
+                // Typographic drawing so the glyphs fill exactly the advance width that the layout centres.
+                using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추가",addFont,labelBrush,addTextX,addBox.Y+(addBox.Height-addFont.GetHeight())/2f,StringFormat.GenericTypographic);
+                if(m.AddKbd){int kw=addKbdW,kh=Math.Max(P(19),(int)Math.Ceiling(F(10,400,null,"mono").GetHeight()+4*s));Kbd(g,"N",new Rectangle(addBox.X+addW-P(m.AddPadX)-kw,addBox.Y+(addBox.Height-kh)/2,kw,kh),10,true);}
+            }
+            AddHit("add-event",add,()=>OpenEvent(null,selected,false),compactAdd?"일정 추가 (N)":null);FocusRing(g,"add-event",add,9*s);
             int bx=add.X-P(m.AddMargin)-P(6)-P(36);var next=new Rectangle(bx,cy-P(18),P(36),P(36));ButtonBox(g,"next-month",next,false);Ui.Icon(g,"right",new RectangleF(next.X+8*s,next.Y+8*s,20*s,20*s),DesktopTheme.Ink);AddHit("next-month",next,()=>PageMove(1),weekView?"다음 주":"다음 달");FocusRing(g,"next-month",next,9*s);
-            var tf=F(12,700,"오늘");int todayW=Ui.Width("오늘",tf)+P(27);bx-=P(6)+todayW;var today=new Rectangle(bx,cy-P(18),todayW,P(36));ButtonBox(g,"go-today",today,false);var tbx=today;if(Pressed("go-today"))tbx.Offset(P(1),P(1));Ui.Text(g,"오늘",tf,tbx,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);AddHit("go-today",today,()=>JumpTo(Rules.Key(DateTime.Today)));FocusRing(g,"go-today",today,9*s);
+            bx-=P(6)+todayW;var today=new Rectangle(bx,cy-P(18),todayW,P(36));ButtonBox(g,"go-today",today,false);var tbx=today;if(Pressed("go-today"))tbx.Offset(P(1),P(1));Ui.Text(g,"오늘",tf,tbx,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);AddHit("go-today",today,()=>JumpTo(Rules.Key(DateTime.Today)));FocusRing(g,"go-today",today,9*s);
             bx-=P(6)+P(36);var prev=new Rectangle(bx,cy-P(18),P(36),P(36));ButtonBox(g,"prev-month",prev,false);Ui.Icon(g,"left",new RectangleF(prev.X+8*s,prev.Y+8*s,20*s,20*s),DesktopTheme.Ink);AddHit("prev-month",prev,()=>PageMove(-1),weekView?"이전 주":"이전 달");FocusRing(g,"prev-month",prev,9*s);
-            int vw=ViewSwitchWidth();bx-=P(10)+vw;PaintViewSwitch(g,new Rectangle(bx,cy-P(18),vw,P(36)));
+            bx-=P(10)+vw;PaintViewSwitch(g,new Rectangle(bx,cy-P(18),vw,P(36)));
             // Filters
             var fr=filterRect;int fy=fr.Y,fh=fr.Height-P(m.FtB);int chipH=Math.Max(P(30),(int)Math.Ceiling(LH(11)+12*s+2*s));int fx=fr.X+P(m.FtX);
             var chips=new List<KeyValuePair<string,string>>{new KeyValuePair<string,string>("all","전체")};foreach(var c in AllCategories())chips.Add(new KeyValuePair<string,string>(c,DesktopTheme.CategoryName(c)));
@@ -449,8 +463,10 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             // Bottom bar
             var br=bottomRect;using(var b=new SolidBrush(Ui.C("#ded2bb")))g.FillRectangle(b,br.X,br.Y,br.Width,P(1));
             var bf=F(11);int bx0=br.X+P(m.BottomX);using(var b=new SolidBrush(DesktopTheme.Orange))g.FillEllipse(b,bx0,br.Y+P(1)+(br.Height-P(1)-5*s)/2,5*s,5*s);
-            Ui.Text(g,weekView?"빈 시간을 누르거나 위아래로 끌어 일정 추가 · 날짜는 끌어서 옮기기":"날짜 선택 · 한 번 더 누르면 일정 추가 · 여러 날짜를 끌면 기간 일정",bf,new Rectangle(bx0+P(10),br.Y+P(1),br.Width,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter);
-            string count=weekView?WeekCount():VisibleCount();var mf=F(9,400,null,"mono");int mw=Ui.Width(count,mf);Ui.Text(g,count,mf,new Rectangle(br.Right-P(m.BottomX)-mw-2,br.Y+P(1),mw+2,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.Right);
+            string count=weekView?WeekCount():VisibleCount();var mf=F(9,400,null,"mono");int mw=Ui.Width(count,mf);
+            // The hint uses what the schedule count leaves, shortened with "…", and disappears when too little is left.
+            int hintW=br.Right-P(m.BottomX)-mw-P(16)-(bx0+P(10));
+            if(hintW>=P(90))Ui.Text(g,weekView?"빈 시간을 누르거나 위아래로 끌어 일정 추가 · 날짜는 끌어서 옮기기":"날짜 선택 · 한 번 더 누르면 일정 추가 · 여러 날짜를 끌면 기간 일정",bf,new Rectangle(bx0+P(10),br.Y+P(1),hintW,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);Ui.Text(g,count,mf,new Rectangle(br.Right-P(m.BottomX)-mw-2,br.Y+P(1),mw+2,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.Right);
         }
         int[] RowHeights(){if(!m.Fit)return GridRowHeights(gridRect.Width);var h=new int[rows];for(int r=0;r<rows;r++)h[r]=gridRect.Height*(r+1)/rows-gridRect.Height*r/rows;return h;}
         int Density(int rowHeight){float h=rowHeight/s;return m.Fit?(h<76?0:h<100?1:h<125?2:3):3;}
@@ -589,7 +605,10 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             int cy=head.Y+P(m.SecT)+(head.Height-P(m.SecT)-P(m.SecB))/2;var add=new Rectangle(head.Right-P(m.SecX)-P(30),cy-P(15),P(30),P(30));
             ButtonBox(g,"day-add",add,false,Ui.C("#fff2d6"),Ui.C("#ceba96"));Ui.Icon(g,"plus",new RectangleF(add.X+7.5f*s,add.Y+7.5f*s,15*s,15*s),DesktopTheme.Ink);AddHit("day-add",add,()=>OpenEvent(null,selected,false),"선택 날짜에 일정 추가");FocusRing(g,"day-add",add,9*s);
             int missed=Overdue().Count;
-            if(missed>0){string label="놓친 일정 "+missed;var lf=F(10,700,label);int lw=Ui.Width(label,lf)+P(16);var pill=new Rectangle(add.X-P(8)-lw,cy-P(12),lw,P(24));bool hv=Hover("overdue");
+            if(missed>0){float titleRight=head.X+P(m.SecX)+Ui.SpacedWidth(FormatDay(selected),F(17,700,FormatDay(selected)),-0.6f*s)+P(8);string label="놓친 일정 "+missed;var lf=F(10,700,label);int lw=Ui.Width(label,lf)+P(16);
+                // Narrow sidebar: "놓친 2", then just the number, so the pill never covers the date.
+                foreach(var shorter in new[]{"놓친 "+missed,missed.ToString()}){if(add.X-P(8)-lw>=titleRight)break;label=shorter;lf=F(10,700,label);lw=Ui.Width(label,lf)+P(16);}
+                var pill=new Rectangle(add.X-P(8)-lw,cy-P(12),lw,P(24));bool hv=Hover("overdue");
                 Ui.Box(g,pill,12*s,hv?Ui.C("#ffd9c9"):Ui.C("#ffeadf"),Ui.C("#e8a58a"),s);Ui.Text(g,label,lf,pill,Ui.C("#b04a2a"),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
                 AddHit("overdue",pill,OpenOverdue,"지나간 미완료 일정을 오늘로 옮기거나 완료해요");FocusRing(g,"overdue",pill,12*s);}
             var list=dayList;int width=list.Width-P(32);int content=DayContentHeight(width);

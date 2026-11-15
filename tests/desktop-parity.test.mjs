@@ -30,6 +30,11 @@ test('기존 JavaScript와 C# 저장·반복·D-day·알림 계산 결과가 같
         assert.equal((await call({action:'dday',date:actual.startDate,today})).result,dday(expected.startDate,today));checked++;
       }
     }
+    // Review 2026-11-15 R4: both must find the real next date, not just agree with each other.
+    for(const [e,today,expected] of [[event('leap',{startDate:'2024-02-29',endDate:'2024-02-29',repeat:'yearly',pinned:true,excludedDates:['2027-02-28']}),'2026-03-01','2028-02-29'],[event('ended',{startDate:'2026-01-01',endDate:'2026-01-01',repeat:'monthly',repeatUntil:'2026-06-30',pinned:true}),'2026-11-15','2026-06-01']]){
+      const actual=(await call({action:'selected-dday',events:[e],today})).result;
+      assert.equal(selectedDday([e],today).startDate,expected);assert.equal(actual.startDate,expected);checked++;
+    }
     for(const startTime of ['', '00:15','09:00','23:59'])for(const reminder of [null,0,10,30,60]){
       const e=event('alarm',{startTime,endTime:'',reminder});const o=occurrences([e],e.startDate,e.startDate)[0];
       assert.equal((await call({action:'reminder',occurrence:o})).result,reminderTime(o));checked++;

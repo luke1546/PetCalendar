@@ -79,7 +79,7 @@ namespace PetCalendarDesktop {
             root=appRoot;profile=profileDir;automation=test;
             Marshal.ThrowExceptionForHR(SetCurrentProcessExplicitAppUserModelID(ApplicationId));
             bool freshProfile=!File.Exists(Path.Combine(dataDir,"calendar.json"))&&!File.Exists(Path.Combine(dataDir,"pets.json"));
-            store=new StateStore(dataDir);DesktopTheme.TextScale=store.Snapshot.settings.textScale;DesktopTheme.FontKey=store.Snapshot.settings.fontFamily??"default";DesktopTheme.BoldText=store.Snapshot.settings.boldText;DesktopTheme.SetCategories(store.Snapshot.settings.categories,store.Snapshot.settings.hiddenCategories);
+            store=new StateStore(dataDir);store.ListenerFailed+=error=>Log(error);DesktopTheme.TextScale=store.Snapshot.settings.textScale;DesktopTheme.FontKey=store.Snapshot.settings.fontFamily??"default";DesktopTheme.BoldText=store.Snapshot.settings.boldText;DesktopTheme.SetCategories(store.Snapshot.settings.categories,store.Snapshot.settings.hiddenCategories);
             pets=new CalendarPets(dataDir,()=>store.Snapshot,Log,freshProfile);
             // The WebView build kept the tour flag in its browser profile; an
             // existing profile means this user has already been through it.
@@ -184,12 +184,22 @@ namespace PetCalendarDesktop {
                     var calendar=Rules.Validate(Codec.Json(request["calendar"]));var petBackup=CalendarPets.CheckBackup(request["pets"]);var widgetBackup=CalendarWidget.CheckBackup(request["widget"]);
                     // Backups from before v3.5.1 have no notes or diary; those stay as they are.
                     var noteBackup=request.ContainsKey("notes")&&request["notes"]!=null?StickyNotes.CheckBackup(request["notes"]):null;var diaryBackup=request.ContainsKey("diary")&&request["diary"]!=null?PetDiary.CheckBackup(request["diary"]):null;
-                    var previousPets=pets.BackupPreferences();var previousWidget=widget.BackupPreferences();
+                    var previousPets=pets.BackupPreferences();var previousWidget=widget.BackupPreferences();var previousNotes=notes.Backup();var previousDiary=pets.DiaryBackup();
                     if(!request.ContainsKey("expectedRevision")||Convert.ToInt64(request["expectedRevision"])!=store.Snapshot.revision)throw new AppError(409,"다른 창에서 일정이 변경되었습니다. 최신 내용을 불러온 뒤 다시 복원해 주세요.");
-                    try{pets.RestorePreferences(petBackup);widget.RestorePreferences(widgetBackup);calendar.revision=Convert.ToInt64(request["expectedRevision"]);var saved=await store.Save(Codec.Json(calendar),ApplyHotkey);
-                        try{if(noteBackup!=null)notes.Replace(noteBackup);if(diaryBackup!=null)pets.RestoreDiary(diaryBackup);}catch(Exception partial){Log(partial);}
-                        return new ApiResponse(200,saved);}
-                    catch{try{pets.RestorePreferences(previousPets);widget.RestorePreferences(previousWidget);}catch(Exception rollback){Log(rollback);}throw;}
+                    // All or nothing: every part is written before the calendar (which is saved last),
+                    // and any failure puts back what was already replaced and reports the error.
+                    bool notesReplaced=false,diaryReplaced=false;
+                    try{
+                        if(noteBackup!=null){notes.Replace(noteBackup);notesReplaced=true;}
+                        if(diaryBackup!=null){pets.RestoreDiary(diaryBackup);diaryReplaced=true;}
+                        pets.RestorePreferences(petBackup);widget.RestorePreferences(widgetBackup);calendar.revision=Convert.ToInt64(request["expectedRevision"]);
+                        return new ApiResponse(200,await store.Save(Codec.Json(calendar),ApplyHotkey));
+                    }catch(Exception failure){
+                        var rollbackErrors=new List<string>();
+                        foreach(var undo in new Action[]{()=>pets.RestorePreferences(previousPets),()=>widget.RestorePreferences(previousWidget),()=>{if(notesReplaced)notes.Replace(previousNotes);},()=>{if(diaryReplaced)pets.RestoreDiary(previousDiary);}}){try{undo();}catch(Exception rollback){Log(rollback);rollbackErrors.Add(rollback.Message);}}
+                        var app=failure as AppError;
+                        throw new AppError(app!=null?app.Status:500,(rollbackErrors.Count==0?"백업을 복원하지 못해 원래 기록을 그대로 두었어요. ":"백업을 복원하지 못했고 일부를 되돌리지 못했어요: "+String.Join(", ",rollbackErrors)+" ")+failure.Message);
+                    }
                 }
                 if(method=="PUT"&&path=="/api/state")return new ApiResponse(200,await store.Save(body,ApplyHotkey,force));
                 if(method=="GET"&&path=="/api/hotkey")return new ApiResponse(200,HotkeyStatus());

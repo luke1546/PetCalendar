@@ -180,23 +180,35 @@ export function dday(key, today = dateKey()) {
   const diff = dayNumber(key)-dayNumber(today);
   return diff === 0 ? 'D-day' : diff > 0 ? `D−${diff}` : `D+${-diff}`;
 }
+// First date on or after `from` the series lands on (excluded dates skipped), searched in
+// 400-day windows; null when the series has no such date. Mirrors Rules.DdayOccurrence in C#.
+function nextOccurrence(event, from) {
+  let cursor=from;let limit=event.repeatUntil||addDays(from,73048);if(limit>'9000-01-01')limit='9000-01-01';
+  while(cursor<=limit) {
+    let to=addDays(cursor,399);if(to>limit)to=limit;
+    const hit=occurrences([event],cursor,to).map(o=>o.startDate).filter(k=>k>=cursor).sort()[0];
+    if(hit)return hit;cursor=addDays(to,1);
+  }
+  return null;
+}
+function lastOccurrence(event) {
+  let cursor=event.repeatUntil;
+  while(cursor>=event.startDate) {
+    let back=addDays(cursor,-399);if(back<event.startDate)back=event.startDate;
+    const hits=occurrences([event],back,cursor).map(o=>o.startDate).filter(k=>k>=back&&k<=cursor).sort();
+    if(hits.length)return hits[hits.length-1];cursor=addDays(back,-1);
+  }
+  return null;
+}
 export function ddayOccurrence(event, today = dateKey()) {
   let startDate=event.startDate;
   if(event.repeat!=='none') {
     if(event.pinnedDate && occursOn(event,event.pinnedDate))startDate=event.pinnedDate;
     else {
       const from=today>event.startDate?today:event.startDate;
-      let found=false;
-      for(let i=0;i<=(event.repeat==='yearly'?366:62);i++) {
-        const key=addDays(from,i);
-        if(occursOn(event,key)){startDate=key;found=true;break;}
-      }
-      if(!found && event.repeatUntil) {
-        for(let i=0;i<=(event.repeat==='yearly'?366:62);i++) {
-          const key=addDays(event.repeatUntil,-i);
-          if(occursOn(event,key)){startDate=key;break;}
-        }
-      }
+      const next=nextOccurrence(event,from);
+      if(next)startDate=next;
+      else if(event.repeatUntil){const last=lastOccurrence(event);if(last)startDate=last;}
     }
   }
   return {event,startDate,endDate:addDays(startDate,dayNumber(event.endDate)-dayNumber(event.startDate))};

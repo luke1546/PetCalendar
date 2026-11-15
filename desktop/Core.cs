@@ -179,13 +179,40 @@ namespace PetCalendarDesktop {
             return list.OrderBy(o=>o.startDate,StringComparer.Ordinal).ThenBy(o=>o.@event.startTime,StringComparer.Ordinal).ThenBy(o=>o.@event.title,StringComparer.Create(Korean,false)).ToList();
         }
         public static string Dday(string key,string today){int days=(Date(key)-Date(today)).Days;return days==0?"D-day":days>0?"D−"+days:"D+"+(-days);}
+        // A repeating schedule's D-day date: the pinned date when it still occurs, else the first
+        // date on or after today, else (a series that has ended) its last date. Dates are found
+        // through Occurrences, so excluded dates and leap years are handled like everywhere else.
         public static Occurrence DdayOccurrence(CalendarEvent e,string today) {
             string start=e.startDate;
             if(e.repeat!="none") {
                 if(!String.IsNullOrEmpty(e.pinnedDate)&&OccursOn(e,e.pinnedDate))start=e.pinnedDate;
-                else {string from=String.CompareOrdinal(today,e.startDate)>0?today:e.startDate;bool found=false;for(int i=0;i<=(e.repeat=="yearly"?366:62);i++){string key=AddDays(from,i);if(OccursOn(e,key)){start=key;found=true;break;}}if(!found&&!String.IsNullOrEmpty(e.repeatUntil))for(int i=0;i<=(e.repeat=="yearly"?366:62);i++){string key=AddDays(e.repeatUntil,-i);if(OccursOn(e,key)){start=key;break;}}}
+                else {
+                    string from=String.CompareOrdinal(today,e.startDate)>0?today:e.startDate;
+                    string next=NextOccurrence(e,from);
+                    if(next!=null)start=next;
+                    else if(!String.IsNullOrEmpty(e.repeatUntil)){string last=LastOccurrence(e);if(last!=null)start=last;}
+                }
             }
             return new Occurrence{@event=e,key=e.id+"@"+start,startDate=start,endDate=AddDays(start,(Date(e.endDate)-Date(e.startDate)).Days)};
+        }
+        static readonly DateTime SearchEnd=new DateTime(9000,1,1);
+        static string NextOccurrence(CalendarEvent e,string from){
+            DateTime cursor=Date(from),limit=String.IsNullOrEmpty(e.repeatUntil)?cursor.AddYears(200):Date(e.repeatUntil);if(limit>SearchEnd)limit=SearchEnd;
+            while(cursor<=limit){
+                DateTime to=cursor.AddDays(399);if(to>limit)to=limit;string first=Key(cursor);
+                var hit=Occurrences(new[]{e},first,Key(to),false).Select(o=>o.startDate).Where(k=>String.CompareOrdinal(k,first)>=0).OrderBy(k=>k,StringComparer.Ordinal).FirstOrDefault();
+                if(hit!=null)return hit;cursor=to.AddDays(1);
+            }
+            return null;
+        }
+        static string LastOccurrence(CalendarEvent e){
+            DateTime first=Date(e.startDate),cursor=Date(e.repeatUntil);
+            while(cursor>=first){
+                DateTime back=cursor.AddDays(-399);if(back<first)back=first;
+                var hit=Occurrences(new[]{e},Key(back),Key(cursor),false).Select(o=>o.startDate).Where(k=>String.CompareOrdinal(k,Key(back))>=0&&String.CompareOrdinal(k,Key(cursor))<=0).OrderByDescending(k=>k,StringComparer.Ordinal).FirstOrDefault();
+                if(hit!=null)return hit;cursor=back.AddDays(-1);
+            }
+            return null;
         }
         public static long Epoch(DateTime utc){return (utc.ToUniversalTime().Ticks-new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc).Ticks)/TimeSpan.TicksPerMillisecond;}
         public static long? ReminderAt(Occurrence o){if(!o.@event.reminder.HasValue||Done(o.@event,o.startDate))return null;DateTime local=Date(o.startDate).Add(TimeSpan.Parse(String.IsNullOrEmpty(o.@event.startTime)?"09:00":o.@event.startTime,CultureInfo.InvariantCulture));var zone=TimeZoneInfo.Local;if(zone.IsInvalidTime(local)){var next=local;while(zone.IsInvalidTime(next))next=next.AddMinutes(1);var previous=local;while(zone.IsInvalidTime(previous))previous=previous.AddMinutes(-1);local=local.Add(zone.GetUtcOffset(next)-zone.GetUtcOffset(previous));}TimeSpan offset=zone.IsAmbiguousTime(local)?zone.GetAmbiguousTimeOffsets(local).Max():zone.GetUtcOffset(local);return Epoch(new DateTimeOffset(local,offset).UtcDateTime)-o.@event.reminder.Value*60000L;}
@@ -223,6 +250,9 @@ namespace PetCalendarDesktop {
         readonly SemaphoreSlim gate=new SemaphoreSlim(1,1);
         CalendarState current;
         public event Action Changed;
+        // Raised when something listening to Changed (alarms, widget, pets) fails. The calendar
+        // itself is already on disk by then, so the save still succeeds; the host logs this.
+        public event Action<Exception> ListenerFailed;
         public CalendarState Snapshot {get{return current;}}
         public StateStore(string directory){DirectoryPath=directory;FilePath=Path.Combine(directory,"calendar.json");Directory.CreateDirectory(Path.Combine(directory,"backups"));if(File.Exists(FilePath)){try{current=Rules.Validate(File.ReadAllText(FilePath,Encoding.UTF8));}catch(Exception e){throw new AppError(500,"저장 파일을 읽지 못했습니다. 원본을 보존했습니다.\n"+FilePath+"\n"+e.Message);}}else{current=new CalendarState();Atomic(FilePath,Codec.Json(current),null);}}
         public async Task<CalendarState> Save(string json,Func<Hotkey,Task> apply,bool forceHotkey=false) {
@@ -237,7 +267,9 @@ namespace PetCalendarDesktop {
                 if(writeFailure!=null){if(changed)await apply(previous);throw writeFailure;}
                 current=next;
                 await Task.Run(()=>{try{var files=Directory.GetFiles(Path.Combine(DirectoryPath,"backups"),"calendar-*.json").Where(p=>Regex.IsMatch(Path.GetFileName(p),"^calendar-[0-9]+-[0-9]+\\.json$")).OrderBy(p=>p,StringComparer.Ordinal).ToArray();foreach(string old in files.Take(Math.Max(0,files.Length-30)))File.Delete(old);}catch{}});
-                if(Changed!=null)Changed();return next;
+                var listeners=Changed;
+                if(listeners!=null)foreach(Action listener in listeners.GetInvocationList()){try{listener();}catch(Exception error){var failed=ListenerFailed;if(failed!=null)try{failed(error);}catch(Exception){}}}
+                return next;
             }finally{gate.Release();}
         }
         public async Task Drain(){await gate.WaitAsync();gate.Release();}

@@ -34,6 +34,8 @@ namespace PetCalendarDesktop {
             var a=Rules.Date(WeekStart());var b=a.AddDays(6);
             return a.Month==b.Month?a.Month+"월 "+a.Day+"일 – "+b.Day+"일":a.Month+"월 "+a.Day+"일 – "+b.Month+"월 "+b.Day+"일";
         }
+        // "11/9–15" or "10/27–11/2" for narrow toolbars.
+        internal string WeekLabelShort(){var a=Rules.Date(WeekStart());var b=a.AddDays(6);return a.Month+"/"+a.Day+"–"+(a.Month==b.Month?b.Day.ToString():b.Month+"/"+b.Day);}
         string WeekCount(){
             var index=WeekIndex();int count=index.Values.SelectMany(l=>l.Select(o=>o.@event.id)).Distinct().Count();
             var a=Rules.Date(WeekStart());return a.ToString("M/d",CultureInfo.InvariantCulture)+" – "+a.AddDays(6).ToString("M/d",CultureInfo.InvariantCulture)+" · "+count+"개 일정";

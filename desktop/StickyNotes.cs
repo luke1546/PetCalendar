@@ -36,9 +36,11 @@ namespace PetCalendarDesktop {
             foreach(var n in list){n.text=n.text??"";if(Array.IndexOf(StickyNoteWindow.Colors,n.color)<0)n.color="yellow";}
             return list;
         }
+        // Writes the file first (throws if it cannot), and only then swaps what is on screen.
         internal void Replace(List<StickyNote> next){
-            saveTimer.Stop();foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();
-            notes.Clear();notes.AddRange(next);Save();Restore();
+            saveTimer.Stop();StateStore.Atomic(path,Codec.Json(next),null);
+            foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();
+            notes.Clear();notes.AddRange(next);Restore();
         }
         internal void Restore(){foreach(var note in notes.Where(n=>!n.closed).ToArray())Open(note);}
         // Widget +: straight to a new note, or a menu with the closed notes to reopen.

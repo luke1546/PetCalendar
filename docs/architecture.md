@@ -18,7 +18,7 @@
 
 `desktop/ui/model.mjs`는 화면이 아니라 **일정 규칙의 JavaScript 사본**입니다. `tests/desktop-parity.test.mjs`가 C# `Rules`와 같은 결과를 내는지 비교하므로, 반복 규칙을 바꿀 때는 두 곳을 함께 고칩니다.
 
-## 데이터 파일 (`%APPDATA%\PetCalendar\data`)
+## 데이터 파일 (`%LOCALAPPDATA%\PetCalendar\data`)
 
 | 파일 | 내용 | 손상되면 |
 |---|---|---|

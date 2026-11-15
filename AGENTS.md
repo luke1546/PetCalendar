@@ -1,19 +1,22 @@
-# PetCalendar 자동 개발 작업 복사본
+# PetCalendar 자가발전 전용 브랜치
 
-이 폴더는 OpenClaw 감독관이 Claude Code에 구현을 맡기는 격리 작업 복사본이다.
-원본 C:\toyproject\petcalendar (/mnt/c/toyproject/petcalendar) 은 수정하지 않는다.
+사용자는 이 브랜치에서 사람이 개입하지 않는 지속적 개선을 명시적으로 요청했다.
+구현은 Claude Code, 분석과 독립 검토는 Codex, 작업 선택과 최종 판정은 OpenClaw가 담당한다.
+외부 실행기가 버전·검증·커밋·태그·산출물·텔레그램 보고를 처리한다.
 
-- 구현 담당은 Claude Code, 분석·독립 검토 담당은 Codex다. 배정된 역할을 지킨다.
-- 감독관이 전달한 구체적 작업과 완료 기준을 따른다. 관련 없는 대규모 변경은 하지 않는다.
-- 기존 사용자 변경이 포함된 snapshot을 기준으로 작업한다. 원본 작업을 되돌리지 않는다.
-- Windows x64 / .NET Framework 4.8 / C# WinForms 앱이다. README와 desktop/build.ps1를 참고한다.
-- WSL에서는 Windows PowerShell로 빌드/테스트한다:
-  /home/luke1546/.local/bin/petcalendar-check build
-  /home/luke1546/.local/bin/petcalendar-check test
-- node tests에도 Windows 실행 파일을 쓰는 경우가 있으므로 종합 테스트는 위 test 명령을 사용한다.
-- Full 테스트는 실제 마우스를 움직이므로 사용자가 요청한 경우만 실행한다.
-- 이 설정 요청은 릴리스, push, 자동 병합을 포함하지 않는다.
-- 작업 보고에 원인, 변경 파일, 결과, 실행한 검증과 실패/제한을 포함한다.
-- 읽기 전용 또는 연동 검증을 요청받으면 파일을 수정하지 않는다.
-
-Windows PowerShell은 서비스 PATH에 없을 수 있다. 커스텀 명령에는 /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe 절대 경로를 사용한다.
+- 유일한 작업 폴더: /mnt/c/toyproject/petcalendar-autoevolve (Windows C:\toyproject\petcalendar-autoevolve).
+- 원본 petcalendar 및 petcalendar-openclaw 폴더를 수정하지 않는다.
+- 배정된 작은 개선 한 건만 처리하고 다른 에이전트를 호출하지 않는다.
+- 질문이나 승인 대기 대신 주어진 범위에서 스스로 완료한다. 불가능한 것은 정확히 보고한다.
+- 분석·검토 요청은 읽기만 한다. 구현 담당만 앱 코드를 수정한다.
+- git commit/tag/push/reset/clean/stash/checkout, GitHub 배포, 기존 tools/release.ps1 실행은 외부 실행기만 담당한다.
+- AGENTS.md, CLAUDE.md, .autoevolve-owner, .gitignore, .claude/, .github/, .codex/, tools/test.ps1,
+  tools/release.ps1, desktop/build.ps1, desktop/package.ps1, desktop/build-portable.ps1을 변경하지 않는다.
+- 기존 테스트를 삭제하거나 약화하지 않는다. 실제 회귀를 막는 테스트를 추가한다.
+- 버전 숫자와 릴리스 노트는 외부 실행기가 관리하므로 구현 담당이 바꾸지 않는다.
+- .env/인증 파일/사용자의 실제 일정 데이터/부모 폴더의 개인 파일에 접근하지 않는다.
+- Windows x64 / .NET Framework 4.8 / WinForms 프로젝트다.
+- Windows PowerShell: /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
+- 필요시 빌드·테스트: /home/luke1546/.local/bin/petcalendar-autocheck build 또는 test
+- Full 마우스 조작 테스트는 실행하지 않는다.
+- 자동화의 성공 여부를 위해 기능을 무력화하거나 검증을 우회하지 않는다.

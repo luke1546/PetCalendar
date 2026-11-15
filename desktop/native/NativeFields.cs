@@ -164,13 +164,17 @@ namespace PetCalendarDesktop {
         }
     }
     sealed class TimePicker : Control {
-        readonly TimeField owner;int ampm,hour,minute;int[] offsets=new int[3];readonly WheelNotch[] wheels={new WheelNotch(),new WheelNotch(),new WheelNotch()};int hoverCol=-1,hoverRow=-1;public Action<string> Done;
+        readonly TimeField owner;int ampm,hour,minute;int[] offsets=new int[3];readonly WheelNotch[] wheels={new WheelNotch(),new WheelNotch(),new WheelNotch()};int hoverCol=-1,hoverRow=-1;int keyCol=1;public Action<string> Done;
         public TimePicker(TimeField field){owner=field;DoubleBuffered=true;SetStyle(ControlStyles.Selectable|ControlStyles.ResizeRedraw,true);var v=owner.Value;TimeSpan t;if(!TimeSpan.TryParseExact(v,"hh\\:mm",CultureInfo.InvariantCulture,out t))t=new TimeSpan(9,0,0);ampm=t.Hours<12?0:1;hour=t.Hours%12==0?12:t.Hours%12;minute=t.Minutes;}
         float Sc{get{return owner.DeviceDpi/96f;}}
         int Row{get{return (int)Math.Round(28*Sc);}}
         int Count(int col){return col==0?2:col==1?12:60;}
         string Label(int col,int i){return col==0?(i==0?"오전":"오후"):col==1?(i+1).ToString("00"):i.ToString("00");}
         bool Chosen(int col,int i){return col==0?i==ampm:col==1?i+1==hour:i==minute;}
+        int Index(int col){return col==0?ampm:col==1?hour-1:minute;}
+        void Select(int col,int i){if(col==0)ampm=i;else if(col==1)hour=i+1;else minute=i;}
+        // Keeps the keyboard-selected row inside its column, the same way the wheel scrolls.
+        void ScrollTo(int col){int h=Column(col).Height;int top=Index(col)*Row;int max=Math.Max(0,Count(col)*Row-h);if(top<offsets[col])offsets[col]=top;else if(top+Row>offsets[col]+h)offsets[col]=top+Row-h;offsets[col]=Math.Max(0,Math.Min(max,offsets[col]));}
         Rectangle Column(int col){float s=Sc;int w=(Width-(int)(16*s))/3;return new Rectangle((int)(8*s)+col*w,(int)(8*s),w,Height-(int)(52*s));}
         Rectangle Ok{get{float s=Sc;return new Rectangle(Width-(int)(70*s),Height-(int)(38*s),(int)(60*s),(int)(30*s));}}
         protected override void OnHandleCreated(EventArgs e){base.OnHandleCreated(e);offsets[1]=Math.Max(0,(hour-1)*Row-Row*2);offsets[2]=Math.Max(0,minute*Row-Row*2);}
@@ -181,6 +185,7 @@ namespace PetCalendarDesktop {
                 var area=Column(col);var clip=g.Clip;g.SetClip(area);
                 for(int i=0;i<Count(col);i++){var r=new Rectangle(area.X+(int)(2*s),area.Y+i*Row-offsets[col],area.Width-(int)(4*s),Row-(int)(2*s));if(r.Bottom<area.Top||r.Top>area.Bottom)continue;
                     if(Chosen(col,i))Ui.Fill(g,r,6*s,Ui.C("#ffe1ca"));else if(col==hoverCol&&i==hoverRow)Ui.Fill(g,r,6*s,Ui.C("#f9ecd6"));
+                    if(Focused&&col==keyCol&&Chosen(col,i))Ui.Stroke(g,r,6*s,DesktopTheme.Orange,1.5f*s);
                     Ui.Text(g,Label(col,i),Chosen(col,i)?Ui.Font(s,12,700,null,Label(col,i)):font,r,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);}
                 g.Clip=clip;
             }
@@ -190,14 +195,22 @@ namespace PetCalendarDesktop {
         protected override void OnMouseMove(MouseEventArgs e){int c,r;Hit(e.Location,out c,out r);if(c!=hoverCol||r!=hoverRow){hoverCol=c;hoverRow=r;Invalidate();}Cursor=c>=0||Ok.Contains(e.Location)?Cursors.Hand:Cursors.Default;}
         protected override void OnMouseUp(MouseEventArgs e){
             if(Ok.Contains(e.Location)){Finish();return;}
-            int c,r;Hit(e.Location,out c,out r);if(c==0)ampm=r;else if(c==1)hour=r+1;else if(c==2)minute=r;Invalidate();
+            int c,r;Hit(e.Location,out c,out r);if(c>=0){keyCol=c;Select(c,r);}Invalidate();
         }
         void Finish(){int h=hour%12+(ampm==1?12:0);if(Done!=null)Done(h.ToString("00")+":"+minute.ToString("00"));}
         protected override void OnMouseWheel(MouseEventArgs e){WheelAt(PointToClient(Cursor.Position),e.Delta);}
         // Scrolls only the column under p, never the selection. Small deltas (touchpads) add up per column.
         internal void WheelAt(Point p,int delta){int c,r;Hit(p,out c,out r);if(c<0)return;int notches=wheels[c].Take(delta);int max=Math.Max(0,Count(c)*Row-Column(c).Height);offsets[c]=Math.Max(0,Math.Min(max,offsets[c]-notches*Row*2));Invalidate();}
-        protected override bool IsInputKey(Keys k){return k==Keys.Enter||base.IsInputKey(k);}
-        protected override void OnKeyDown(KeyEventArgs e){if(e.KeyCode==Keys.Enter)Finish();}
+        protected override bool IsInputKey(Keys k){return k==Keys.Enter||k==Keys.Escape||k==Keys.Left||k==Keys.Right||k==Keys.Up||k==Keys.Down||base.IsInputKey(k);}
+        // Left/Right pick the ampm, hour or minute column; Up/Down step its value (no wrap). Enter confirms, Esc closes without a change.
+        protected override void OnKeyDown(KeyEventArgs e){
+            if(e.KeyCode==Keys.Enter){Finish();return;}
+            if(e.KeyCode==Keys.Escape){if(Done!=null)Done(null);return;}
+            if(e.KeyCode==Keys.Left||e.KeyCode==Keys.Right)keyCol=Math.Max(0,Math.Min(2,keyCol+(e.KeyCode==Keys.Left?-1:1)));
+            else if(e.KeyCode==Keys.Up||e.KeyCode==Keys.Down){int i=Index(keyCol)+(e.KeyCode==Keys.Up?-1:1);if(i>=0&&i<Count(keyCol)){Select(keyCol,i);ScrollTo(keyCol);}}
+            else return;
+            e.Handled=true;Invalidate();
+        }
     }
     // input[type=number] with Chrome's validity messages.
     public sealed class NumberBox : InputBox {

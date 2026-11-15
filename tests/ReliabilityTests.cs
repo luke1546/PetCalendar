@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -572,6 +572,36 @@ namespace PetCalendarDesktop {
             Check(listOffset(end)==listOffset(endFew)&&listOffset(end)>0,"wheel turns past the last option stop at the end of the select popup");
             Check(keyOf()=="k0"&&pickedOption==null,"wheel turns in the select popup neither change nor pick the selected option");
             Console.WriteLine("PASS small wheel turns scroll the time and select popups without changing the selection");
+        }
+
+        static void KeyboardTimePicker(){
+            // Arrow keys move through the ampm/hour/minute columns and step the value; Enter confirms, Esc closes with null.
+            var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            var keyDown=typeof(TimePicker).GetMethod("OnKeyDown",flags);
+            var column=typeof(TimePicker).GetMethod("Column",flags);
+            var offsets=typeof(TimePicker).GetField("offsets",flags);
+            Func<Keys[],string> run=keys=>{
+                string picked="unset";var p=new TimePicker(new TimeField()){Size=new Size(196,236)};p.Done=v=>picked=v;
+                foreach(var k in keys)keyDown.Invoke(p,new object[]{new KeyEventArgs(k)});
+                return picked;
+            };
+            Check(run(new[]{Keys.Down,Keys.Enter})=="10:00","Up/Down in the hour column move the time picker value and Enter confirms it");
+            Check(run(new[]{Keys.Up,Keys.Enter})=="08:00","Up in the hour column moves to the previous hour");
+            Check(run(new[]{Keys.Left,Keys.Down,Keys.Enter})=="21:00","Left moves to the ampm column and Down switches to 오후");
+            Check(run(new[]{Keys.Right,Keys.Right,Keys.Down,Keys.Enter})=="09:01","Right moves to the minute column and Down steps the minute");
+            Check(run(new[]{Keys.Left,Keys.Up,Keys.Enter})=="09:00","Up at the first ampm stop does not wrap");
+            Check(run(new[]{Keys.Right,Keys.Up,Keys.Enter})=="09:00","Up at the first minute stop does not wrap");
+            Check(run(new[]{Keys.Right,Keys.Right,Keys.Right,Keys.Enter})=="09:00","Right stops at the minute column");
+            Check(run(new[]{Keys.Down,Keys.Escape})==null,"Esc closes the time picker without changing the field");
+            Check(run(new[]{Keys.Right,Keys.Right})=="unset","arrow keys alone do not confirm the time picker");
+
+            var far=new TimePicker(new TimeField()){Size=new Size(196,236)};
+            keyDown.Invoke(far,new object[]{new KeyEventArgs(Keys.Right)});
+            for(int i=0;i<59;i++)keyDown.Invoke(far,new object[]{new KeyEventArgs(Keys.Down)});
+            int top=59*(int)Math.Round(28*(far.DeviceDpi/96f));
+            var minuteArea=(Rectangle)column.Invoke(far,new object[]{2});
+            Check(((int[])offsets.GetValue(far))[2]+minuteArea.Height>=top+(int)Math.Round(28*(far.DeviceDpi/96f)),"the keyboard-selected minute 59 scrolls into view in the time picker");
+            Console.WriteLine("PASS keyboard moves the time picker selection and Esc closes it");
         }
 
         static void Ics(){

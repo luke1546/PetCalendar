@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -274,6 +274,27 @@ namespace PetCalendarDesktop {
                 Check(kept.Length==10&&kept.Contains(first)&&kept.Contains(second)&&kept.Contains(third)&&!kept.Contains(Path.Combine(folder,prefix+"2026-10-10-0900.json")),"the newest ten unique backups are kept and the oldest is dropped");
             }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
             Console.WriteLine("PASS same-minute backups keep every file and the newest-10 rule holds");
+        }
+
+        // A widget backup larger than the monitor, or placed off it, is fitted into the working area when restored, and the fitted value is saved again.
+        static void WidgetBackupBounds(){
+            string dir=Temp();
+            try{
+                var area=Screen.PrimaryScreen.WorkingArea;var store=new StateStore(dir);
+                var widget=new CalendarWidget(store,h=>Task.FromResult(0),(id,key)=>{},e=>{});
+                widget.RestorePreferences(new WidgetSettings{enabled=false,x=area.Left+100,y=area.Top+120,width=380,height=590});
+                Check(widget.Bounds==new Rectangle(area.Left+100,area.Top+120,380,590),"a normal widget backup is restored at its saved size and position");
+                widget.RestorePreferences(new WidgetSettings{enabled=false,x=area.Left+50,y=area.Top+50,width=9000,height=9000});
+                Check(area.Contains(widget.Bounds),"a widget backup larger than the monitor is fitted inside the working area");
+                widget.RestorePreferences(new WidgetSettings{enabled=false,x=area.Right+5000,y=area.Bottom+5000,width=380,height=590});
+                Check(area.Contains(widget.Bounds)&&widget.Bounds.Size==new Size(380,590),"a widget backup placed off the monitor is moved back inside the working area");
+                var saved=Codec.Read<WidgetSettings>(File.ReadAllText(Path.Combine(dir,"widget.json")));
+                Check(new Rectangle(saved.x,saved.y,saved.width,saved.height)==widget.Bounds,"the fitted widget position and size are saved again");
+                widget.Dispose();
+                var shortArea=new Rectangle(0,0,1280,400);var fitted=CalendarWidget.FitToArea(new WidgetSettings{width=380,height=590},shortArea,900,300);
+                Check(shortArea.Contains(fitted),"a widget backup on a monitor shorter than the widget minimum stays inside the working area");
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+            Console.WriteLine("PASS widget backups are fitted to the working area on restore");
         }
 
         // Touchpads send deltas under one notch: small turns add up like one full notch, and turning back cancels them.

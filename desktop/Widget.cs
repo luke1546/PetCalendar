@@ -74,6 +74,7 @@ namespace PetCalendarDesktop {
         WidgetSettings settings;
         string selected=Rules.Key(DateTime.Today),month=Rules.Key(DateTime.Today).Substring(0,7),today=Rules.Key(DateTime.Today);
         bool closing,busy,rendering,loaded,layingOut,restoringBounds;
+        static readonly Size WidgetMinimum=new Size(340,480);
         CalendarState renderedState,rowsState;string renderedDate,renderedMonth,renderedToday,rowsDate;
         Occurrence[] cachedRows;
         public event Action VisibilityPreferenceChanged;
@@ -88,7 +89,7 @@ namespace PetCalendarDesktop {
             if(settings==null)settings=new WidgetSettings();
             SuspendLayout();AutoScaleDimensions=new SizeF(96,96);AutoScaleMode=AutoScaleMode.Dpi;
             Text="펫 캘린더 · 바탕화면 위젯";ShowInTaskbar=false;FormBorderStyle=FormBorderStyle.None;Padding=new Padding(12);MaximizeBox=false;MinimizeBox=false;StartPosition=FormStartPosition.Manual;
-            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale);MinimumSize=new Size(340,480);Size=new Size(380,590);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
+            BackColor=DesktopTheme.Paper;ForeColor=DesktopTheme.Ink;Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale);MinimumSize=WidgetMinimum;Size=new Size(380,590);DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw,true);
             layout.Name="widget-layout";layout.Dock=DockStyle.Fill;layout.Margin=Padding.Empty;layout.ColumnCount=1;layout.RowCount=5;
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
             foreach(float height in new float[]{40,196,54,42,0})layout.RowStyles.Add(new RowStyle(height==0?SizeType.Percent:SizeType.Absolute,height==0?100:height));
@@ -128,7 +129,7 @@ namespace PetCalendarDesktop {
                 var area=Screen.PrimaryScreen.WorkingArea;var rect=new Rectangle(settings.x,settings.y,Math.Max(MinimumSize.Width,Math.Min(DesktopTheme.Px(this,1000),settings.width)),Math.Max(MinimumSize.Height,Math.Min(DesktopTheme.Px(this,1400),settings.height)));
                 var screen=Screen.AllScreens.FirstOrDefault(s=>s.WorkingArea.IntersectsWith(rect));if(screen!=null)area=screen.WorkingArea;
                 if(settings.x==-1&&settings.y==-1){rect.Width=DesktopTheme.Px(this,380);rect.Height=DesktopTheme.Px(this,590);rect.X=area.Right-rect.Width-DesktopTheme.Px(this,20);rect.Y=area.Top+DesktopTheme.Px(this,24);}
-                rect.Width=Math.Min(rect.Width,area.Width);rect.Height=Math.Min(rect.Height,area.Height);rect.X=Math.Max(area.Left,Math.Min(area.Right-rect.Width,rect.X));rect.Y=Math.Max(area.Top,Math.Min(area.Bottom-rect.Height,rect.Y));Bounds=rect;
+                rect.Width=Math.Min(rect.Width,area.Width);rect.Height=Math.Min(rect.Height,area.Height);rect.X=Math.Max(area.Left,Math.Min(area.Right-rect.Width,rect.X));rect.Y=Math.Max(area.Top,Math.Min(area.Bottom-rect.Height,rect.Y));ApplyBounds(rect);
             }finally{restoringBounds=false;}FitCalendar();
         }
         protected override void OnLoad(EventArgs e){base.OnLoad(e);RestoreSavedBounds();}
@@ -143,9 +144,22 @@ namespace PetCalendarDesktop {
         void Persist(){if(!loaded||restoringBounds)return;settings.x=Left;settings.y=Top;settings.width=Width;settings.height=Height;try{StateStore.Atomic(path,Codec.Json(settings),File.Exists(path)?path+".bak":null);}catch(Exception e){log(e);}}
         internal WidgetSettings BackupPreferences(){if(loaded&&Visible){settings.x=Left;settings.y=Top;settings.width=Width;settings.height=Height;}return Codec.Read<WidgetSettings>(Codec.Json(settings));}
         internal static WidgetSettings CheckBackup(object value){WidgetSettings s;try{s=Codec.Read<WidgetSettings>(Codec.Json(value));}catch{throw new AppError(400,"위젯 백업 설정을 확인해 주세요.");}if(s==null||s.width<200||s.width>10000||s.height<200||s.height>10000||s.x< -100000||s.x>100000||s.y< -100000||s.y>100000)throw new AppError(400,"위젯 백업 설정을 확인해 주세요.");return s;}
+        // A backup can come from a bigger or different monitor: fit its size to the monitor it lands on and move it back inside that working area.
+        Rectangle FitBounds(WidgetSettings value){
+            bool keepPosition=value.x==-1||value.y==-1;int x=keepPosition?Left:value.x,y=keepPosition?Top:value.y;
+            var wanted=new Rectangle(x,y,value.width,value.height);var screen=Screen.AllScreens.FirstOrDefault(s=>s.WorkingArea.IntersectsWith(wanted));
+            return FitToArea(value,(screen==null?Screen.PrimaryScreen:screen).WorkingArea,x,y);
+        }
+        // A monitor shorter or narrower than WidgetMinimum still gets a window that fits it, so the minimum is capped to the working area.
+        internal static Rectangle FitToArea(WidgetSettings value,Rectangle area,int x,int y){
+            int width=Math.Min(area.Width,Math.Max(WidgetMinimum.Width,value.width)),height=Math.Min(area.Height,Math.Max(WidgetMinimum.Height,value.height));
+            return new Rectangle(Math.Max(area.Left,Math.Min(area.Right-width,x)),Math.Max(area.Top,Math.Min(area.Bottom-height,y)),width,height);
+        }
+        // WinForms grows a window back to MinimumSize when Bounds is smaller, which can push it off a short monitor, so lower the minimum to the applied size first.
+        void ApplyBounds(Rectangle rect){MinimumSize=new Size(Math.Min(WidgetMinimum.Width,rect.Width),Math.Min(WidgetMinimum.Height,rect.Height));Bounds=rect;}
         internal void RestorePreferences(WidgetSettings value){
             saveTimer.Stop();settings=Codec.Read<WidgetSettings>(Codec.Json(value));
-            restoringBounds=true;try{Size=new Size(settings.width,settings.height);if(settings.x!=-1&&settings.y!=-1){var target=new Rectangle(settings.x,settings.y,Width,Height);bool visible=false;foreach(var screen in Screen.AllScreens)if(screen.WorkingArea.IntersectsWith(target)){visible=true;break;}if(visible)Location=new Point(settings.x,settings.y);}}finally{restoringBounds=false;}
+            restoringBounds=true;try{ApplyBounds(FitBounds(settings));}finally{restoringBounds=false;}
             pin.Checked=settings.topmost;positionLock.Checked=settings.locked;showDday.Checked=settings.showDday;TopMost=settings.topmost;dday.Visible=settings.showDday;
             if(settings.enabled)ShowWidget();else HideWidget();FitCalendar();Persist();NotifyPreference();
         }

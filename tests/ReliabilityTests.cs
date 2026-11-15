@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();LeapDayIcs();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -248,6 +248,23 @@ namespace PetCalendarDesktop {
             Check(r.Cancelled==1&&noticeDetail.Contains("취소된 일정 1개")&&!noticeDetail.Contains("찾지 못했어요"),"a cancelled-only file notice counts the cancelled VEVENT");
             IcsImport.NothingToImport(r,2,out noticeTitle,out noticeDetail);
             Check(noticeDetail.Contains("같은 일정 2개를 건너뛰었어요."),"duplicates are still counted in the notice");
+        }
+
+        static void IcsDuplicates(){
+            // Same title and start time, but another end, or a repeat: three different schedules, all imported.
+            const string text="BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nSUMMARY:병원\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T120000\r\nSUMMARY:병원\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            var parsed=IcsImport.Parse(text,"work",null);
+            int duplicates;var fresh=IcsImport.FreshEvents(new CalendarEvent[0],parsed.Events,out duplicates);
+            Check(parsed.Events.Count==3&&fresh.Count==3&&duplicates==0,"same title and start with another end or repeat are all imported");
+            // The stored copies go through the same JSON as a save; importing the same text again then adds nothing.
+            var stored=fresh.Select(x=>Codec.Read<CalendarEvent>(Codec.Json(x))).ToArray();
+            var again=IcsImport.Parse(text,"work",null);
+            var none=IcsImport.FreshEvents(stored,again.Events,out duplicates);
+            Check(none.Count==0&&duplicates==3,"importing the same iCalendar file again adds nothing");
+            // A changed skipped date makes a different series, so it is imported next to the stored one.
+            var changed=IcsImport.Parse(text.Replace("RRULE:FREQ=WEEKLY","RRULE:FREQ=WEEKLY\r\nEXDATE:20260308T100000"),"work",null);
+            var added=IcsImport.FreshEvents(stored,changed.Events,out duplicates);
+            Check(added.Count==1&&duplicates==2&&added[0].repeat=="weekly","a repeat with other skipped dates is imported, the rest are still recognized");
         }
 
         static void LeapDayIcs(){

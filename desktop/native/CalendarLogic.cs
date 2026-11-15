@@ -406,17 +406,15 @@ namespace PetCalendarDesktop {
             }
         }
         // ---------- .ics import ----------
-        // Adds the schedules of an iCalendar export; ones already here (same title, date and
-        // start time) are skipped so importing the same file twice adds nothing.
+        // Adds the schedules of an iCalendar export; ones already here (same title, dates, times and
+        // repeat) are skipped so importing the same file twice adds nothing.
         internal async void ImportIcs(string file){
             IcsImport.Result parsed;
             try{
                 if(new FileInfo(file).Length>20*1024*1024)throw new AppError(400,"20MB 이하의 .ics 파일만 가져올 수 있어요.");
                 parsed=IcsImport.Parse(File.ReadAllText(file,System.Text.Encoding.UTF8),DefaultCategory(),state.settings.defaultReminder);
             }catch(Exception error){Toast("일정 파일을 읽지 못했어요",error.Message,"error");return;}
-            var existing=new HashSet<string>(state.events.Select(x=>x.title+"|"+x.startDate+"|"+x.startTime));
-            var fresh=new List<CalendarEvent>();int duplicates=0;
-            foreach(var e in parsed.Events){if(existing.Add(e.title+"|"+e.startDate+"|"+e.startTime))fresh.Add(e);else duplicates++;}
+            int duplicates;var fresh=IcsImport.FreshEvents(state.events,parsed.Events,out duplicates);
             if(fresh.Count==0){string noticeTitle,noticeDetail;IcsImport.NothingToImport(parsed,duplicates,out noticeTitle,out noticeDetail);Toast(noticeTitle,noticeDetail);return;}
             if(state.events.Length+fresh.Count>10000){Toast("일정이 너무 많아요","일정은 모두 합쳐 10,000개까지 저장할 수 있어요.","error");return;}
             var notes=new List<string>();

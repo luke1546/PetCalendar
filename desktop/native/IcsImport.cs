@@ -28,6 +28,17 @@ namespace PetCalendarDesktop {
             if(r.Cancelled>0)reasons.Add("취소된 일정 "+r.Cancelled+"개는 가져오지 않았어요.");
             title=r.Events.Count==0?"가져올 일정이 없어요":"이미 모두 들어 있어요";detail=String.Join("\n",reasons);
         }
+        // Two schedules are the same only when title, start, end, repeat rule and skipped dates all match. The same title and
+        // start time with another end or repeat is a separate schedule, so it is imported.
+        static string Identity(CalendarEvent e){
+            return String.Join("|",new[]{e.title,e.startDate,e.startTime,e.endDate,e.endTime,e.repeat,e.repeatUntil,String.Join(",",(e.excludedDates??new string[0]).OrderBy(x=>x,StringComparer.Ordinal))});
+        }
+        // The imported schedules that are not already in `existing`; `duplicates` counts the rest. Importing one file twice adds nothing.
+        internal static List<CalendarEvent> FreshEvents(IEnumerable<CalendarEvent> existing,IEnumerable<CalendarEvent> imported,out int duplicates){
+            var seen=new HashSet<string>(existing.Select(Identity));var fresh=new List<CalendarEvent>();duplicates=0;
+            foreach(var e in imported){if(seen.Add(Identity(e)))fresh.Add(e);else duplicates++;}
+            return fresh;
+        }
         public static Result Parse(string text,string category,int? reminder){
             var result=new Result();var lines=Unfold(text);
             Dictionary<string,List<KeyValuePair<Dictionary<string,string>,string>>> props=null;int depth=0;

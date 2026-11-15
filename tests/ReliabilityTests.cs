@@ -206,6 +206,20 @@ namespace PetCalendarDesktop {
             r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260115\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=15;COUNT=3\r\nSUMMARY:15일 반복\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
             e=r.Events.Single();
             Check(e.repeat=="monthly"&&e.repeatUntil=="2026-03-15"&&r.Simplified==0,"monthly BYMONTHDAY=15 COUNT=3 still ends on 2026-03-15 (until "+e.repeatUntil+")");
+            // A timed UNTIL is an instant: 18:00 daily ending at 17:00 on Jan 5 must not keep a Jan 5 occurrence.
+            Func<string,string> untilOf=rule=>{
+                r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T180000\r\nRRULE:FREQ=DAILY;"+rule+"\r\nSUMMARY:시각 UNTIL\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+                return r.Events.Single().repeatUntil;};
+            Check(untilOf("UNTIL=20260105T170000")=="2026-01-04","UNTIL 17:00 on Jan 5 excludes the 18:00 occurrence on Jan 5 (until "+untilOf("UNTIL=20260105T170000")+")");
+            Check(untilOf("UNTIL=20260105T180000")=="2026-01-05","UNTIL equal to the start time keeps the Jan 5 occurrence");
+            Check(untilOf("UNTIL=20260105T190000")=="2026-01-05","UNTIL after the start time keeps the Jan 5 occurrence");
+            Check(untilOf("UNTIL=20260105")=="2026-01-05","a date-only UNTIL on a timed series keeps its date");
+            Check(untilOf("UNTIL=20260101T170000")=="2026-01-01","UNTIL on the start date is unchanged by the time rule");
+            var untilUtc=new DateTime(2026,1,5,17,0,0).ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'",System.Globalization.CultureInfo.InvariantCulture);
+            Check(untilOf("UNTIL="+untilUtc)=="2026-01-04","a UTC UNTIL is compared in local time (UNTIL="+untilUtc+")");
+            // An all-day series keeps its date-only UNTIL behaviour even when UNTIL carries a time.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nRRULE:FREQ=DAILY;UNTIL=20260105T170000\r\nSUMMARY:종일 UNTIL\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(r.Events.Single().repeatUntil=="2026-01-05","an all-day series keeps the UNTIL date");
         }
 
         static async Task Saves(){

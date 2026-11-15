@@ -159,7 +159,10 @@ namespace PetCalendarDesktop {
             if(repeat==null){result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}
             e.repeat=repeat;
             string until,count;
-            if(parts.TryGetValue("UNTIL",out until)){DateTime u;bool only;if(ParseWhen(until,new Dictionary<string,string>(),out u,out only))e.repeatUntil=Rules.Key(u.Date);}
+            if(parts.TryGetValue("UNTIL",out until)){DateTime u;bool only;if(ParseWhen(until,new Dictionary<string,string>(),out u,out only)){
+                // A timed UNTIL is an instant: on its own date the occurrence only counts if it starts at or before that time.
+                if(!only&&e.startTime!=""&&u.Date>start.Date&&String.CompareOrdinal(u.ToString("HH:mm",CultureInfo.InvariantCulture),e.startTime)<0)u=u.Date.AddDays(-1);
+                e.repeatUntil=Rules.Key(u.Date);}}
             else if(parts.TryGetValue("COUNT",out count)){int c;
                 // A COUNT that is not a positive number would leave the series endless: keep only the first date and report it.
                 if(!int.TryParse(count,out c)||c<=0){e.repeat="none";e.repeatUntil="";e.excludedDates=new string[0];result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}

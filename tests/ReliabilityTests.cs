@@ -220,6 +220,34 @@ namespace PetCalendarDesktop {
             // An all-day series keeps its date-only UNTIL behaviour even when UNTIL carries a time.
             r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nRRULE:FREQ=DAILY;UNTIL=20260105T170000\r\nSUMMARY:종일 UNTIL\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
             Check(r.Events.Single().repeatUntil=="2026-01-05","an all-day series keeps the UNTIL date");
+            // A DURATION too large for the app's dates skips only its own VEVENT; the normal event in the same file is still imported and counted.
+            foreach(var bad in new[]{"P2147483648D","P99999999999999999999999999D","PT2562047788H","P1000000000W"}){
+                r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T100000\r\nDURATION:"+bad+"\r\nSUMMARY:범위 밖\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+                Check(r.Events.Count==0&&r.Skipped==1,"DURATION="+bad+" skips its VEVENT and counts it as skipped, without an exception");
+            }
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T100000\r\nDURATION:P2147483648D\r\nSUMMARY:범위 밖\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nDTSTART:20260102T100000\r\nDURATION:PT1H\r\nSUMMARY:정상\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(r.Events.Count==1&&r.Events[0].title=="정상"&&r.Skipped==1,"a bad DURATION does not stop the normal VEVENT after it from being imported");
+            // A normal DURATION still gives the end: PT1H from 10:00 ends at 11:00, and P1W on an all-day start covers 7 days.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T100000\r\nDURATION:PT1H\r\nSUMMARY:한 시간\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            e=r.Events.Single();
+            Check(e.endDate=="2026-01-01"&&e.endTime=="11:00"&&r.Skipped==0,"DURATION PT1H from 10:00 ends at 11:00 (end "+e.endDate+" "+e.endTime+")");
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nDURATION:P1W\r\nSUMMARY:일주일\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            e=r.Events.Single();
+            Check(e.startDate=="2026-01-01"&&e.endDate=="2026-01-07"&&r.Skipped==0,"DURATION P1W on an all-day start ends on 2026-01-07 (end "+e.endDate+")");
+            // A file whose only VEVENT is skipped imports nothing, but the notice says a VEVENT was skipped, not that none was found.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T100000\r\nDURATION:P2147483648D\r\nSUMMARY:범위 밖\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(r.Events.Count==0&&r.Skipped==1&&r.FoundVEvent,"a file with only a skipped VEVENT still reports that a VEVENT was found");
+            string noticeTitle,noticeDetail;
+            IcsImport.NothingToImport(r,0,out noticeTitle,out noticeDetail);
+            Check(noticeTitle=="가져올 일정이 없어요"&&noticeDetail.Contains("가져오지 못한 일정 1개는 건너뛰었어요")&&!noticeDetail.Contains("찾지 못했어요"),"a skipped-only file notice counts the skipped VEVENT (detail: "+noticeDetail+")");
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n","work",null);
+            IcsImport.NothingToImport(r,0,out noticeTitle,out noticeDetail);
+            Check(!r.FoundVEvent&&noticeDetail=="파일에서 일정(VEVENT)을 찾지 못했어요.","a file without any VEVENT still says none was found");
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260101T100000\r\nSTATUS:CANCELLED\r\nSUMMARY:취소\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            IcsImport.NothingToImport(r,0,out noticeTitle,out noticeDetail);
+            Check(r.Cancelled==1&&noticeDetail.Contains("취소된 일정 1개")&&!noticeDetail.Contains("찾지 못했어요"),"a cancelled-only file notice counts the cancelled VEVENT");
+            IcsImport.NothingToImport(r,2,out noticeTitle,out noticeDetail);
+            Check(noticeDetail.Contains("같은 일정 2개를 건너뛰었어요."),"duplicates are still counted in the notice");
         }
 
         static void LeapDayIcs(){

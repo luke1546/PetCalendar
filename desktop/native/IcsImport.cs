@@ -15,6 +15,18 @@ namespace PetCalendarDesktop {
         public sealed class Result {
             public List<CalendarEvent> Events=new List<CalendarEvent>();
             public int Simplified,Skipped,Cancelled;public List<string> SimplifiedTitles=new List<string>();
+            // A VEVENT was read even when none of them became a schedule (all skipped or cancelled).
+            public bool FoundVEvent{get{return Events.Count+Skipped+Cancelled>0;}}
+        }
+        // The notice when nothing new can be imported: says whether the file had no VEVENT at all,
+        // or how many were skipped, cancelled or already here.
+        internal static void NothingToImport(Result r,int duplicates,out string title,out string detail){
+            if(!r.FoundVEvent){title="가져올 일정이 없어요";detail="파일에서 일정(VEVENT)을 찾지 못했어요.";return;}
+            var reasons=new List<string>();
+            if(duplicates>0)reasons.Add("같은 일정 "+duplicates+"개를 건너뛰었어요.");
+            if(r.Skipped>0)reasons.Add("가져오지 못한 일정 "+r.Skipped+"개는 건너뛰었어요.");
+            if(r.Cancelled>0)reasons.Add("취소된 일정 "+r.Cancelled+"개는 가져오지 않았어요.");
+            title=r.Events.Count==0?"가져올 일정이 없어요":"이미 모두 들어 있어요";detail=String.Join("\n",reasons);
         }
         public static Result Parse(string text,string category,int? reminder){
             var result=new Result();var lines=Unfold(text);
@@ -80,10 +92,21 @@ namespace PetCalendarDesktop {
             string mapped;if(Iana.TryGetValue(id,out mapped))id=mapped;
             try{return TimeZoneInfo.FindSystemTimeZoneById(id);}catch(Exception){return null;}
         }
-        static TimeSpan? Duration(string v){
-            if(String.IsNullOrEmpty(v))return null;var m=System.Text.RegularExpressions.Regex.Match(v.Trim(),@"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$");
-            if(!m.Success)return null;Func<int,int> n=i=>m.Groups[i].Success?int.Parse(m.Groups[i].Value,CultureInfo.InvariantCulture):0;
-            return new TimeSpan(n(2)*7+n(3),n(4),n(5),n(6));
+        // The end that a DURATION gives after start. A value that is not a duration gives no end; one too large for a date
+        // the app can hold returns false, so its VEVENT is skipped instead of failing the whole file.
+        static bool EndByDuration(string v,DateTime start,out DateTime? end){
+            end=null;if(String.IsNullOrEmpty(v))return true;var m=System.Text.RegularExpressions.Regex.Match(v.Trim(),@"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$");
+            if(!m.Success)return true;
+            int[] groups={2,3,4,5,6};long[] unit={7*TimeSpan.TicksPerDay,TimeSpan.TicksPerDay,TimeSpan.TicksPerHour,TimeSpan.TicksPerMinute,TimeSpan.TicksPerSecond};
+            decimal ticks=0;
+            for(int i=0;i<groups.Length;i++){
+                if(!m.Groups[groups[i]].Success)continue;decimal amount;
+                if(!decimal.TryParse(m.Groups[groups[i]].Value,NumberStyles.None,CultureInfo.InvariantCulture,out amount))return false;
+                if(amount>DateTime.MaxValue.Ticks/unit[i])return false;
+                ticks+=amount*unit[i];
+            }
+            if(start.Ticks+ticks>DateTime.MaxValue.Ticks)return false;
+            end=start.AddTicks((long)ticks);return true;
         }
         static void Convert(Dictionary<string,List<KeyValuePair<Dictionary<string,string>,string>>> p,string category,int? reminder,Result result){
             if(First(p,"RECURRENCE-ID")!=null){result.Skipped++;return;} // a changed copy of one repeat; the series itself is imported
@@ -91,7 +114,7 @@ namespace PetCalendarDesktop {
             DateTime start,end;bool allDay,endDateOnly;
             if(!ParseWhen(First(p,"DTSTART"),Params(p,"DTSTART"),out start,out allDay)){result.Skipped++;return;}
             bool hasEnd=ParseWhen(First(p,"DTEND"),Params(p,"DTEND"),out end,out endDateOnly);
-            if(!hasEnd){var d=Duration(First(p,"DURATION"));if(d!=null){end=start+d.Value;hasEnd=true;}}
+            if(!hasEnd){DateTime? byDuration;if(!EndByDuration(First(p,"DURATION"),start,out byDuration)){result.Skipped++;return;}if(byDuration!=null){end=byDuration.Value;hasEnd=true;}}
             string title=Unescape(First(p,"SUMMARY")??"").Trim();if(title.Length==0)title="(제목 없음)";if(title.Length>200)title=title.Substring(0,200);
             string note=Unescape(First(p,"DESCRIPTION")??"").Trim();
             string location=Unescape(First(p,"LOCATION")??"").Trim();if(location.Length>0)note=("장소: "+location+(note.Length>0?"\n"+note:""));

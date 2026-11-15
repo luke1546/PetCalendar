@@ -417,7 +417,7 @@ namespace PetCalendarDesktop {
             var existing=new HashSet<string>(state.events.Select(x=>x.title+"|"+x.startDate+"|"+x.startTime));
             var fresh=new List<CalendarEvent>();int duplicates=0;
             foreach(var e in parsed.Events){if(existing.Add(e.title+"|"+e.startDate+"|"+e.startTime))fresh.Add(e);else duplicates++;}
-            if(fresh.Count==0){Toast(parsed.Events.Count==0?"가져올 일정이 없어요":"이미 모두 들어 있어요",parsed.Events.Count==0?"파일에서 일정(VEVENT)을 찾지 못했어요.":"같은 일정 "+duplicates+"개를 건너뛰었어요.");return;}
+            if(fresh.Count==0){string noticeTitle,noticeDetail;IcsImport.NothingToImport(parsed,duplicates,out noticeTitle,out noticeDetail);Toast(noticeTitle,noticeDetail);return;}
             if(state.events.Length+fresh.Count>10000){Toast("일정이 너무 많아요","일정은 모두 합쳐 10,000개까지 저장할 수 있어요.","error");return;}
             var notes=new List<string>();
             if(duplicates>0)notes.Add("이미 있는 일정 "+duplicates+"개는 건너뜁니다.");

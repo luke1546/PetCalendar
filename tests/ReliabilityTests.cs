@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -334,6 +334,49 @@ namespace PetCalendarDesktop {
             var changed=IcsImport.Parse(text.Replace("RRULE:FREQ=WEEKLY","RRULE:FREQ=WEEKLY\r\nEXDATE:20260308T100000"),"work",null);
             var added=IcsImport.FreshEvents(stored,changed.Events,out duplicates);
             Check(added.Count==1&&duplicates==2&&added[0].repeat=="weekly","a repeat with other skipped dates is imported, the rest are still recognized");
+        }
+
+        static void IcsRepeatDates(){
+            // RDATE adds dates to a repeat: each extra date is a schedule with the series' title, memo, time, span and reminder.
+            const string weekly="BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nRDATE:20260322T100000\r\nSUMMARY:치과\r\nDESCRIPTION:세척 예약\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            var r=IcsImport.Parse(weekly,"work",10);
+            var series=r.Events.Where(x=>x.repeat=="weekly").ToList();var extras=r.Events.Where(x=>x.repeat=="none").ToList();
+            Check(series.Count==1&&series[0].repeatUntil==Rules.AddDays("2026-03-01",14)&&extras.Count==1,"an RRULE with an RDATE keeps the repeat and adds the extra date as its own schedule");
+            var x0=extras[0];
+            Check(x0.startDate=="2026-03-22"&&x0.endDate=="2026-03-22"&&x0.startTime=="10:00"&&x0.endTime=="11:00","the RDATE occurrence keeps the series' time (start "+x0.startDate+" "+x0.startTime+")");
+            Check(x0.title=="치과"&&x0.note=="세척 예약"&&x0.reminder==10&&x0.id!=series[0].id&&x0.excludedDates.Length==0,"the RDATE occurrence keeps the title, memo and reminder under a new id");
+            // A multi-day all-day series keeps its span on an RDATE date.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260301\r\nDTEND;VALUE=DATE:20260303\r\nRDATE;VALUE=DATE:20260320\r\nSUMMARY:출장\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(r.Events.Count==2&&r.Events[1].startDate=="2026-03-20"&&r.Events[1].endDate=="2026-03-21"&&r.Events[1].startTime==""&&r.Events[1].repeat=="none","an all-day RDATE without RRULE keeps the two-day span and adds the date");
+            // A date-time PERIOD counts by its start; a date-time RDATE on another minute is another occurrence.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nRDATE;VALUE=PERIOD:20260322T140000/PT2H\r\nRDATE:20260308T150000\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            var starts=r.Events.Where(x=>x.repeat=="none").Select(x=>x.startDate+" "+x.startTime).OrderBy(x=>x,StringComparer.Ordinal).ToArray();
+            Check(starts.SequenceEqual(new[]{"2026-03-08 15:00","2026-03-22 14:00"}),"a PERIOD RDATE counts by its start and a same-day RDATE at another time is another occurrence ("+string.Join(", ",starts)+")");
+            // A PERIOD keeps its own end, from a duration or an explicit end time, and does not take the series' 10:00-11:00.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nRDATE;VALUE=PERIOD:20260322T140000/PT2H\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            var byDuration=r.Events.Where(x=>x.repeat=="none").ToList();
+            Check(byDuration.Count==1&&byDuration[0].startDate=="2026-03-22"&&byDuration[0].startTime=="14:00"&&byDuration[0].endDate=="2026-03-22"&&byDuration[0].endTime=="16:00","a PERIOD RDATE with a duration keeps its own end (14:00-16:00)");
+            Check(r.Events[0].startTime=="10:00"&&r.Events[0].endTime=="11:00","the series keeps its own 10:00-11:00 when an RDATE has a PERIOD");
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nRDATE;VALUE=PERIOD:20260322T140000/20260322T153000,20260315T220000/PT3H\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            var explicitEnd=r.Events.Where(x=>x.repeat=="none").OrderBy(x=>x.startDate,StringComparer.Ordinal).ToList();
+            Check(explicitEnd.Count==2&&explicitEnd[1].endDate=="2026-03-22"&&explicitEnd[1].endTime=="15:30","a PERIOD RDATE with an explicit end time keeps that end (14:00-15:30)");
+            Check(explicitEnd[0].startTime=="22:00"&&explicitEnd[0].endDate=="2026-03-16"&&explicitEnd[0].endTime=="01:00","a PERIOD RDATE running past midnight ends on the next day (22:00-01:00)");
+            // The series' own date (DTSTART), an RRULE date, a repeated RDATE and an EXDATE-skipped RDATE are not added twice or at all.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nEXDATE:20260315T100000\r\nRDATE:20260301T100000,20260308T100000,20260315T100000,20260322T100000,20260322T100000\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            var extra=r.Events.Where(x=>x.repeat=="none").ToList();
+            Check(extra.Count==1&&extra[0].startDate=="2026-03-22","an RDATE that repeats the start, an RRULE date or an EXDATE is not added again (extras: "+extra.Count+")");
+            Check(r.Events.Count==2&&r.Events[0].excludedDates.SequenceEqual(new[]{"2026-03-15"}),"the series keeps its EXDATE and the RDATE extra is the only added occurrence");
+            // DTSTART with seconds is saved to the minute, so an RDATE on an RRULE date at the same minute is not a second occurrence.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100030\r\nDTEND:20260301T110000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nRDATE:20260308T100000,20260322T100045\r\nSUMMARY:병원\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            var secondsExtra=r.Events.Where(x=>x.repeat=="none").Select(x=>x.startDate+" "+x.startTime).ToArray();
+            Check(secondsExtra.SequenceEqual(new[]{"2026-03-22 10:00"}),"an RDATE on an RRULE date at the same minute as a DTSTART with seconds is not added twice (extras: "+string.Join(", ",secondsExtra)+")");
+            // Without RRULE, DTSTART plus RDATE is one schedule per date, and importing the file again adds nothing.
+            const string plain="BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20260301T100000\r\nDTEND:20260301T110000\r\nRDATE:20260305T100000,20260310T100000\r\nSUMMARY:회의\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+            r=IcsImport.Parse(plain,"work",null);
+            Check(r.Events.Count==3&&r.Events.All(x=>x.repeat=="none"),"DTSTART plus two RDATE dates imports three one-off schedules");
+            var stored=r.Events.Select(x=>Codec.Read<CalendarEvent>(Codec.Json(x))).ToArray();
+            int duplicates;var fresh=IcsImport.FreshEvents(stored,IcsImport.Parse(plain,"work",null).Events,out duplicates);
+            Check(fresh.Count==0&&duplicates==3,"importing a file with RDATE dates again adds nothing");
         }
 
         static void LeapDayIcs(){

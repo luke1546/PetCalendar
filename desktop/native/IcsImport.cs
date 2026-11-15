@@ -8,7 +8,7 @@ namespace PetCalendarDesktop {
     // Reads an iCalendar (.ics) export from Google Calendar, Outlook or Apple Calendar into
     // this app's schedules. Supported: all-day and timed events (UTC, local or TZID times),
     // multi-day spans, DESCRIPTION as the memo, daily/weekly/monthly RRULEs with UNTIL or
-    // COUNT, "nth weekday" monthly rules and EXDATE. Rules the app cannot express (every 2
+    // COUNT, "nth weekday" monthly rules, EXDATE and RDATE (each extra date becomes its own schedule). Rules the app cannot express (every 2
     // weeks, several weekdays, yearly, monthly on the 29th-31st) keep only the first date and
     // are counted as simplified.
     public static class IcsImport {
@@ -131,6 +131,15 @@ namespace PetCalendarDesktop {
             string location=Unescape(First(p,"LOCATION")??"").Trim();if(location.Length>0)note=("장소: "+location+(note.Length>0?"\n"+note:""));
             if(note.Length>5000)note=note.Substring(0,5000);
             var e=new CalendarEvent{id=Guid.NewGuid().ToString(),title=title,note=note,category=category,repeat="none",repeatUntil="",reminder=reminder,pinned=false,pinnedDate="",completedDates=new string[0],excludedDates=new string[0]};
+            Place(e,start,end,hasEnd,allDay);
+            var template=Codec.Read<CalendarEvent>(Codec.Json(e));
+            ApplyRule(e,First(p,"RRULE"),start,result);
+            if(e.repeat!="none")e.excludedDates=ListDates(p,"EXDATE").Select(d=>Rules.Key(d.Date)).Distinct().ToArray();
+            result.Events.Add(e);
+            AddRepeatDates(p,e,template,start,end,hasEnd,allDay,result);
+        }
+        // Sets the date and time fields of a schedule from its start and end; `end` is read only when hasEnd.
+        static void Place(CalendarEvent e,DateTime start,DateTime end,bool hasEnd,bool allDay){
             e.startDate=Rules.Key(start.Date);
             if(allDay){
                 e.startTime=e.endTime="";
@@ -145,14 +154,54 @@ namespace PetCalendarDesktop {
                     else{e.endDate=Rules.Key(end.Date);e.endTime=end.ToString("HH:mm",CultureInfo.InvariantCulture);}
                 }
             }
-            ApplyRule(e,First(p,"RRULE"),start,result);
-            List<KeyValuePair<Dictionary<string,string>,string>> ex;
-            if(e.repeat!="none"&&p.TryGetValue("EXDATE",out ex)){
-                var dates=new List<string>();
-                foreach(var item in ex)foreach(var v in item.Value.Split(',')){DateTime d;bool only;if(ParseWhen(v,item.Key,out d,out only))dates.Add(Rules.Key(d.Date));}
-                e.excludedDates=dates.Distinct().ToArray();
+        }
+        // RDATE lists extra dates of a series. Each one becomes a one-off schedule with the series' title, memo, time, span and
+        // reminder, or with the end of its own PERIOD value. A date the series already has (DTSTART, RRULE) or that EXDATE skips is not added again.
+        static void AddRepeatDates(Dictionary<string,List<KeyValuePair<Dictionary<string,string>,string>>> p,CalendarEvent series,CalendarEvent template,DateTime start,DateTime end,bool hasEnd,bool allDay,Result result){
+            var taken=new HashSet<string>(ListDates(p,"EXDATE").Select(Slot).Concat(new[]{Slot(start)}));
+            foreach(var value in ListValues(p,"RDATE")){
+                var when=value.Start;
+                if(!taken.Add(Slot(when)))continue;
+                // The series is saved to the minute, so seconds in DTSTART or in the RDATE do not make another occurrence.
+                if(when.Hour==start.Hour&&when.Minute==start.Minute&&Rules.OccursOn(series,Rules.Key(when.Date)))continue;
+                if(value.TooLong){result.Skipped++;continue;}
+                var occurrenceEnd=end;var occurrenceHasEnd=hasEnd;
+                if(value.End!=null){occurrenceEnd=value.End.Value;occurrenceHasEnd=true;}
+                else if(hasEnd){
+                    var shift=when-start;long endTicks=end.Ticks+shift.Ticks;
+                    if(endTicks<DateTime.MinValue.Ticks||endTicks>DateTime.MaxValue.Ticks){result.Skipped++;continue;}
+                    occurrenceEnd=end.Add(shift);
+                }
+                var extra=Codec.Read<CalendarEvent>(Codec.Json(template));extra.id=Guid.NewGuid().ToString();
+                Place(extra,when,occurrenceEnd,occurrenceHasEnd,allDay);
+                result.Events.Add(extra);
             }
-            result.Events.Add(e);
+        }
+        // A date and minute, so that the same moment in an RDATE, EXDATE or DTSTART compares equal.
+        static string Slot(DateTime d){return Rules.Key(d.Date)+" "+d.ToString("HH:mm",CultureInfo.InvariantCulture);}
+        // One value of a DATE, DATE-TIME or PERIOD list: its local start, and the end of a PERIOD when it has one.
+        // TooLong is a PERIOD duration that goes past the last date the app can hold.
+        sealed class ListValue{public DateTime Start;public DateTime? End;public bool TooLong;}
+        static List<DateTime> ListDates(Dictionary<string,List<KeyValuePair<Dictionary<string,string>,string>>> p,string name){
+            var dates=new List<DateTime>();foreach(var value in ListValues(p,name))dates.Add(value.Start);
+            return dates;
+        }
+        // The values of an EXDATE or RDATE list. A PERIOD (start/end or start/duration) keeps its end; an EXDATE ignores it.
+        static List<ListValue> ListValues(Dictionary<string,List<KeyValuePair<Dictionary<string,string>,string>>> p,string name){
+            var values=new List<ListValue>();List<KeyValuePair<Dictionary<string,string>,string>> items;
+            if(!p.TryGetValue(name,out items))return values;
+            foreach(var item in items)foreach(var v in item.Value.Split(',')){
+                var parts=v.Split('/');DateTime d;bool only;
+                if(!ParseWhen(parts[0],item.Key,out d,out only))continue;
+                var value=new ListValue{Start=d};
+                if(parts.Length>1){
+                    var tail=parts[1].Trim();DateTime until;
+                    if(tail.StartsWith("P",StringComparison.OrdinalIgnoreCase)||tail.StartsWith("+")||tail.StartsWith("-")){DateTime? byDuration;if(EndByDuration(tail,d,out byDuration))value.End=byDuration;else value.TooLong=true;}
+                    else if(ParseWhen(tail,item.Key,out until,out only))value.End=until;
+                }
+                values.Add(value);
+            }
+            return values;
         }
         // Maps an RRULE onto the app's repeats. Anything the app cannot express exactly (every 3
         // weeks, Mon/Wed/Fri, hourly, months limited by BYMONTH, ...) keeps only the first date and

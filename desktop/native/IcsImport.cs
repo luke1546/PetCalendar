@@ -13,7 +13,7 @@ namespace PetCalendarDesktop {
     public static class IcsImport {
         public sealed class Result {
             public List<CalendarEvent> Events=new List<CalendarEvent>();
-            public int Simplified,Skipped,Cancelled;
+            public int Simplified,Skipped,Cancelled;public List<string> SimplifiedTitles=new List<string>();
         }
         public static Result Parse(string text,string category,int? reminder){
             var result=new Result();var lines=Unfold(text);
@@ -119,34 +119,110 @@ namespace PetCalendarDesktop {
             }
             result.Events.Add(e);
         }
+        // Maps an RRULE onto the app's repeats. Anything the app cannot express exactly (every 3
+        // weeks, Mon/Wed/Fri, hourly, months limited by BYMONTH, ...) keeps only the first date and
+        // is reported, so a rule is never silently widened (e.g. weekdays turning into every day).
+        static readonly HashSet<string> KnownParts=new HashSet<string>(StringComparer.OrdinalIgnoreCase){"FREQ","INTERVAL","UNTIL","COUNT","BYDAY","BYMONTHDAY","BYSETPOS","BYMONTH","WKST"};
+        static readonly string WeekdaySet="FR,MO,TH,TU,WE";
         static void ApplyRule(CalendarEvent e,string rule,DateTime start,Result result){
             if(String.IsNullOrEmpty(rule))return;
-            var parts=rule.Split(';').Select(x=>x.Split(new[]{'='},2)).Where(x=>x.Length==2).ToDictionary(x=>x[0].Trim().ToUpperInvariant(),x=>x[1].Trim(),StringComparer.OrdinalIgnoreCase);
-            string freq;parts.TryGetValue("FREQ",out freq);freq=(freq??"").ToUpperInvariant();
-            string interval;bool every=!parts.TryGetValue("INTERVAL",out interval)||interval=="1";
-            string byDay;parts.TryGetValue("BYDAY",out byDay);
+            var parts=rule.Split(';').Select(x=>x.Split(new[]{'='},2)).Where(x=>x.Length==2).GroupBy(x=>x[0].Trim(),StringComparer.OrdinalIgnoreCase).ToDictionary(g=>g.Key,g=>g.First()[1].Trim().ToUpperInvariant(),StringComparer.OrdinalIgnoreCase);
+            string freq;parts.TryGetValue("FREQ",out freq);freq=freq??"";
+            string interval;parts.TryGetValue("INTERVAL",out interval);int every=1;if(interval!=null&&!int.TryParse(interval,out every))every=0;
+            string byDay,byMonthDay,byMonth,bySetPos;parts.TryGetValue("BYDAY",out byDay);parts.TryGetValue("BYMONTHDAY",out byMonthDay);parts.TryGetValue("BYMONTH",out byMonth);parts.TryGetValue("BYSETPOS",out bySetPos);
+            string days=byDay==null?null:String.Join(",",byDay.Split(',').Select(x=>x.Trim()).OrderBy(x=>x,StringComparer.Ordinal));
+            bool startDay=byDay==null||(!byDay.Contains(",")&&DayIndex(byDay)==(int)start.DayOfWeek);
+            string monthNumber=start.Month.ToString(CultureInfo.InvariantCulture),dayNumber=start.Day.ToString(CultureInfo.InvariantCulture);
             string repeat=null;
-            if(every&&freq=="DAILY")repeat="daily";
-            else if(every&&freq=="WEEKLY"&&(byDay==null||(!byDay.Contains(",")&&DayIndex(byDay)==(int)start.DayOfWeek)))repeat="weekly";
-            else if(every&&freq=="MONTHLY"){
-                if(byDay==null){string byMonthDay;if(!parts.TryGetValue("BYMONTHDAY",out byMonthDay)||byMonthDay==start.Day.ToString(CultureInfo.InvariantCulture))repeat="monthly";}
-                else{
+            if(parts.Keys.Any(k=>!KnownParts.Contains(k))){}
+            else if(freq=="DAILY"&&every==1&&byMonthDay==null&&byMonth==null&&bySetPos==null){
+                if(byDay==null||days=="FR,MO,SA,SU,TH,TU,WE")repeat="daily";else if(days==WeekdaySet)repeat="weekdays";
+            }
+            else if(freq=="WEEKLY"&&byMonthDay==null&&byMonth==null&&bySetPos==null){
+                if(every==1&&days==WeekdaySet)repeat="weekdays";
+                else if(every==1&&days=="FR,MO,SA,SU,TH,TU,WE")repeat="daily";
+                else if(startDay&&every==1)repeat="weekly";
+                else if(startDay&&every==2)repeat="biweekly";
+            }
+            else if(freq=="MONTHLY"&&every==1&&byMonth==null){
+                if(byDay==null){if(bySetPos==null&&(byMonthDay==null||byMonthDay==dayNumber))repeat="monthly";}
+                else if(byMonthDay==null){
                     // "2TU" (2nd Tuesday) or BYDAY=TU with BYSETPOS=2; -1 is the last one.
-                    var m=System.Text.RegularExpressions.Regex.Match(byDay,@"^([+-]?\d)?([A-Z]{2})$");string pos;parts.TryGetValue("BYSETPOS",out pos);
-                    if(m.Success){int week;string n=m.Groups[1].Success?m.Groups[1].Value:pos;int day=DayIndex(m.Groups[2].Value);
-                        if(n!=null&&int.TryParse(n,out week)&&(week==-1||(week>=1&&week<=4))&&day>=0)repeat="monthly:"+week+":"+day;}
+                    var m=System.Text.RegularExpressions.Regex.Match(byDay,@"^([+-]?\d)?([A-Z]{2})$");
+                    if(m.Success){int week;string n=m.Groups[1].Success?m.Groups[1].Value:bySetPos;int day=DayIndex(m.Groups[2].Value);
+                        if(n!=null&&int.TryParse(n,out week)&&(week==-1||(week>=1&&week<=4))&&day==(int)start.DayOfWeek)repeat="monthly:"+week+":"+day;}
                 }
             }
-            if(repeat==null){result.Simplified++;return;}
+            else if(freq=="YEARLY"&&every==1&&byDay==null&&bySetPos==null&&(byMonth==null||byMonth==monthNumber)&&(byMonthDay==null||byMonthDay==dayNumber))repeat="yearly";
+            if(repeat==null){result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}
             e.repeat=repeat;
             string until,count;
             if(parts.TryGetValue("UNTIL",out until)){DateTime u;bool only;if(ParseWhen(until,new Dictionary<string,string>(),out u,out only))e.repeatUntil=Rules.Key(u.Date);}
             else if(parts.TryGetValue("COUNT",out count)){int c;if(int.TryParse(count,out c)&&c>0){
-                var last=repeat=="daily"?start.AddDays(c-1):repeat=="weekly"?start.AddDays(7*(c-1)):start.AddMonths(c-1);
-                if(repeat.StartsWith("monthly:"))last=last.AddDays(7); // nth-weekday dates drift within the month
-                e.repeatUntil=Rules.Key(last.Date);}}
+                // The last date of the series: walk the app's own rule until c dates have passed.
+                var probe=Codec.Read<CalendarEvent>(Codec.Json(e));probe.repeatUntil="";probe.excludedDates=new string[0];
+                var horizon=Rules.Key(start.Date.AddYears(repeat=="yearly"?c+1:Math.Min(60,c/12+2)));
+                var dates=Rules.Occurrences(new[]{probe},e.startDate,horizon,false).Select(o=>o.startDate).OrderBy(x=>x,StringComparer.Ordinal).Take(c).ToList();
+                if(dates.Count>0)e.repeatUntil=dates[dates.Count-1];}}
             if(e.repeatUntil!=""&&String.CompareOrdinal(e.repeatUntil,e.startDate)<0)e.repeatUntil=e.startDate;
         }
         static int DayIndex(string code){return Array.IndexOf(new[]{"SU","MO","TU","WE","TH","FR","SA"},(code??"").Trim().ToUpperInvariant());}
+    }
+
+    // Writes schedules as an iCalendar file that Google Calendar, Outlook and Apple Calendar
+    // import. Timed schedules are written in UTC; all-day ones as dates (DTEND is exclusive).
+    public static class IcsExport {
+        public static string Write(IEnumerable<CalendarEvent> events,Func<string,string> categoryName){
+            var sb=new StringBuilder();string stamp=DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture);
+            Action<string> line=l=>Fold(sb,l);
+            line("BEGIN:VCALENDAR");line("VERSION:2.0");line("PRODID:-//PetCalendar//KO");line("CALSCALE:GREGORIAN");line("X-WR-CALNAME:펫 캘린더");
+            foreach(var e in events){
+                bool allDay=e.startTime=="";
+                line("BEGIN:VEVENT");line("UID:"+e.id+"@petcalendar");line("DTSTAMP:"+stamp);
+                if(allDay){line("DTSTART;VALUE=DATE:"+D(e.startDate));line("DTEND;VALUE=DATE:"+D(Rules.AddDays(e.endDate,1)));}
+                else{
+                    var start=Local(e.startDate,e.startTime);var end=e.endTime!=""?Local(e.endDate,e.endTime):e.endDate!=e.startDate?Local(e.endDate,e.startTime):start.AddHours(1);
+                    if(end<=start)end=start.AddHours(1);
+                    line("DTSTART:"+Utc(start));line("DTEND:"+Utc(end));
+                }
+                line("SUMMARY:"+Escape(e.title));
+                if(!String.IsNullOrEmpty(e.note))line("DESCRIPTION:"+Escape(e.note));
+                string category=categoryName(e.category);if(!String.IsNullOrEmpty(category))line("CATEGORIES:"+Escape(category));
+                string rule=Rule(e);if(rule!=null)line("RRULE:"+rule);
+                foreach(var x in e.excludedDates??new string[0])line(allDay?"EXDATE;VALUE=DATE:"+D(x):"EXDATE:"+Utc(Local(x,e.startTime)));
+                if(e.reminder.HasValue){line("BEGIN:VALARM");line("ACTION:DISPLAY");line("DESCRIPTION:"+Escape(e.title));line("TRIGGER:-PT"+e.reminder.Value+"M");line("END:VALARM");}
+                line("END:VEVENT");
+            }
+            line("END:VCALENDAR");return sb.ToString();
+        }
+        static string Rule(CalendarEvent e){
+            string r;
+            switch(e.repeat){
+                case "none":return null;
+                case "daily":r="FREQ=DAILY";break;
+                case "weekdays":r="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR";break;
+                case "weekly":r="FREQ=WEEKLY";break;
+                case "biweekly":r="FREQ=WEEKLY;INTERVAL=2";break;
+                case "monthly":r="FREQ=MONTHLY;BYMONTHDAY="+Rules.Date(e.startDate).Day;break;
+                case "yearly":r="FREQ=YEARLY";break;
+                default:
+                    if(!e.repeat.StartsWith("monthly:"))return null;
+                    var p=e.repeat.Split(':');r="FREQ=MONTHLY;BYDAY="+p[1]+new[]{"SU","MO","TU","WE","TH","FR","SA"}[int.Parse(p[2],CultureInfo.InvariantCulture)];break;
+            }
+            if(!String.IsNullOrEmpty(e.repeatUntil))r+=";UNTIL="+(e.startTime==""?D(e.repeatUntil):Utc(Local(e.repeatUntil,"23:59")));
+            return r;
+        }
+        static DateTime Local(string date,string time){return DateTime.SpecifyKind(Rules.Date(date).Add(TimeSpan.Parse(time,CultureInfo.InvariantCulture)),DateTimeKind.Local);}
+        static string Utc(DateTime local){return local.ToUniversalTime().ToString("yyyyMMdd'T'HHmmss'Z'",CultureInfo.InvariantCulture);}
+        static string D(string key){return key.Replace("-","");}
+        static string Escape(string v){return (v??"").Replace("\\","\\\\").Replace(";","\\;").Replace(",","\\,").Replace("\r\n","\n").Replace("\n","\\n");}
+        // Lines longer than 75 octets continue on the next line after a space (RFC 5545 3.1).
+        static void Fold(StringBuilder sb,string text){
+            int octets=0;
+            foreach(char ch in text){int size=Encoding.UTF8.GetByteCount(new[]{ch});if(char.IsHighSurrogate(ch))size=4;else if(char.IsLowSurrogate(ch))size=0;
+                if(octets+size>75&&size>0){sb.Append("\r\n ");octets=1;}
+                sb.Append(ch);octets+=size;}
+            sb.Append("\r\n");
+        }
     }
 }

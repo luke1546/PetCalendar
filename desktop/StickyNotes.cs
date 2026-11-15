@@ -21,11 +21,25 @@ namespace PetCalendarDesktop {
         internal event Action<string> EventFromLine;internal Func<string,System.Threading.Tasks.Task<bool>> TaskFromLine;
         internal StickyNotes(string dataDir,Action<Exception> error){
             path=Path.Combine(dataDir,"sticky-notes.json");log=error;
-            try{notes=File.Exists(path)?(Codec.Read<List<StickyNote>>(File.ReadAllText(path))??new List<StickyNote>()):new List<StickyNote>();}catch(Exception e){log(e);notes=new List<StickyNote>();}
+            try{notes=File.Exists(path)?(Codec.Read<List<StickyNote>>(File.ReadAllText(path))??new List<StickyNote>()):new List<StickyNote>();}catch(Exception e){log(e);DataRecovery.Preserve(path,"스티커 메모");notes=new List<StickyNote>();}
             notes.RemoveAll(n=>n==null||String.IsNullOrEmpty(n.id));
             saveTimer.Tick+=delegate{saveTimer.Stop();Save();};
         }
         internal int Count{get{return notes.Count;}}
+        // Whole-app backup: every note (open or closed) with its text, colour and place.
+        internal List<StickyNote> Backup(){return Codec.Read<List<StickyNote>>(Codec.Json(notes));}
+        internal static List<StickyNote> CheckBackup(object value){
+            List<StickyNote> list;try{list=Codec.Read<List<StickyNote>>(Codec.Json(value));}catch{throw new AppError(400,"백업의 스티커 메모를 확인해 주세요.");}
+            list=(list??new List<StickyNote>()).Where(n=>n!=null&&!String.IsNullOrEmpty(n.id)).ToList();
+            if(list.Count>500||list.Any(n=>(n.text??"").Length>100000))throw new AppError(400,"백업의 스티커 메모가 너무 커요.");
+            if(list.Select(n=>n.id).Distinct().Count()!=list.Count)throw new AppError(400,"백업의 스티커 메모를 확인해 주세요.");
+            foreach(var n in list){n.text=n.text??"";if(Array.IndexOf(StickyNoteWindow.Colors,n.color)<0)n.color="yellow";}
+            return list;
+        }
+        internal void Replace(List<StickyNote> next){
+            saveTimer.Stop();foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();
+            notes.Clear();notes.AddRange(next);Save();Restore();
+        }
         internal void Restore(){foreach(var note in notes.Where(n=>!n.closed).ToArray())Open(note);}
         // Widget +: straight to a new note, or a menu with the closed notes to reopen.
         internal void Request(Rectangle? beside){

@@ -119,6 +119,7 @@ namespace PetCalendarDesktop {
             var now=DateTime.Now;string date=now.ToString("yyyy년 M월 d일 dddd",Rules.Korean),time=now.ToString("HH:mm",CultureInfo.InvariantCulture);
             if(date!=todayText||time!=clockText){todayText=date;clockText=time;Invalidate(Page(masthead));if(weekView)Invalidate(Page(gridRect));}
             string day=Rules.Key(DateTime.Today);if(day!=dayAtRender){dayAtRender=day;Render();}
+            AutoBackupTick();
         }
         // ---------- Layout ----------
         bool paintAll=true;int paintedOffset=-1;List<KeyValuePair<string,List<Hit>>> sectionHits=new List<KeyValuePair<string,List<Hit>>>();
@@ -273,7 +274,7 @@ namespace PetCalendarDesktop {
             string today=Rules.Key(DateTime.Today);
             string common=s+"|"+DesktopTheme.TextScale+DesktopTheme.FontKey+DesktopTheme.BoldText+"|"+Width+"x"+Height+"|"+pageScroll.Offset+"|"+Interactive(c)+"|";
             switch(name){
-                case "masthead":return common+todayText+"|"+clockText+"|"+maximized;
+                case "masthead":return common+todayText+"|"+clockText+"|"+maximized+"|"+FocusMode.Active+FocusMode.Left();
                 case "summary":return common+dataStamp+"|"+today;
                 case "banner":return common+bannerText;
                 case "calendar":return common+dataStamp+"|"+today+"|"+month+"|"+filter+"|"+search+"|"+limits["search"]+"|"+searchBox.Focused+"|"+searchScroll.Offset+"|"+searchScroll.Hover+"|"+searchScroll.Dragging+"|"+dropDate+"|"+weekView+"|"+(weekView?selected:"");
@@ -345,6 +346,10 @@ namespace PetCalendarDesktop {
             AddHit("tour-help",help,ShowQuickTour,"퀵투어 다시 보기");FocusRing(g,"tour-help",help,9*s);
             x-=P(16)+ib;var petButton=new Rectangle(x,cy-ib/2,ib,ib);ButtonBox(g,"add-pet",petButton,false);Ui.Paw(g,new RectangleF(petButton.X+9*s,petButton.Y+8*s,18*s,18*s));
             var petScreen=petButton;petScreen.Offset(0,ty);AddHit("add-pet",petButton,()=>ShowPetMenu(petScreen),"펫 추가하기");FocusRing(g,"add-pet",petButton,9*s);
+            x-=P(16)+ib;var focusButton=new Rectangle(x,cy-ib/2,ib,ib);bool focusOn=FocusMode.Active;
+            if(focusOn)ButtonBox(g,"focus",focusButton,false,Ui.C("#ffe1b8"),DesktopTheme.Orange);else ButtonBox(g,"focus",focusButton,false);
+            Ui.Icon(g,"clock",new RectangleF(focusButton.X+8*s,focusButton.Y+8*s,20*s,20*s),focusOn?Ui.C("#c85029"):DesktopTheme.Ink);
+            var focusScreen=focusButton;focusScreen.Offset(0,ty);AddHit("focus",focusButton,()=>ShowFocusMenu(focusScreen),focusOn?"집중 모드 · "+FocusMode.Left()+" 남음":"집중 모드 · 펫이 낮잠을 자고 잡담을 쉬어요");FocusRing(g,"focus",focusButton,9*s);
             x-=P(16);var dateFont=F(12,400,todayText);var clockFont=F(20,400,null,"mono");int dh=(int)Math.Ceiling(dateFont.GetHeight()),ch=(int)Math.Ceiling(clockFont.GetHeight());int sy=cy-(dh+P(4)+ch)/2;
             int dw=Ui.Width(todayText,dateFont);Ui.Text(g,todayText,dateFont,new Rectangle(x-dw-2,sy,dw+2,dh),Ui.C("#71644f"),TextFormatFlags.Right|TextFormatFlags.VerticalCenter);
             float cw=Ui.SpacedWidth(clockText,clockFont,1.5f*s)+1.5f*s;Ui.Spaced(g,clockText,clockFont,x-cw,sy+dh+P(4),ch,DesktopTheme.Ink,1.5f*s);
@@ -583,6 +588,10 @@ using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추�
             SectionHeader(g,dayPanel,rel,FormatDay(selected),null,out head);
             int cy=head.Y+P(m.SecT)+(head.Height-P(m.SecT)-P(m.SecB))/2;var add=new Rectangle(head.Right-P(m.SecX)-P(30),cy-P(15),P(30),P(30));
             ButtonBox(g,"day-add",add,false,Ui.C("#fff2d6"),Ui.C("#ceba96"));Ui.Icon(g,"plus",new RectangleF(add.X+7.5f*s,add.Y+7.5f*s,15*s,15*s),DesktopTheme.Ink);AddHit("day-add",add,()=>OpenEvent(null,selected,false),"선택 날짜에 일정 추가");FocusRing(g,"day-add",add,9*s);
+            int missed=Overdue().Count;
+            if(missed>0){string label="놓친 일정 "+missed;var lf=F(10,700,label);int lw=Ui.Width(label,lf)+P(16);var pill=new Rectangle(add.X-P(8)-lw,cy-P(12),lw,P(24));bool hv=Hover("overdue");
+                Ui.Box(g,pill,12*s,hv?Ui.C("#ffd9c9"):Ui.C("#ffeadf"),Ui.C("#e8a58a"),s);Ui.Text(g,label,lf,pill,Ui.C("#b04a2a"),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
+                AddHit("overdue",pill,OpenOverdue,"지나간 미완료 일정을 오늘로 옮기거나 완료해요");FocusRing(g,"overdue",pill,12*s);}
             var list=dayList;int width=list.Width-P(32);int content=DayContentHeight(width);
             dayScroll.Content=content+P(m.Fit?12:17);dayScroll.Viewport=list.Height;if(dayScroll.Visible){width-=P(12);content=DayContentHeight(width);dayScroll.Content=content+P(m.Fit?12:17);}
             dayScroll.Bounds=Page(list);dayScroll.Clamp();

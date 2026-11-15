@@ -58,13 +58,10 @@ if(-not $SkipTests){
     $testJob=Start-Job -ArgumentList $copy -ScriptBlock {
         param($dir)Set-Location $dir;$log=New-Object System.Collections.Generic.List[string];$failed=$false
         try{& .\desktop\build.ps1 *> $null}catch{$log.Add("BUILD FAILED: $_");return @{failed=$true;log=$log}}
-        $nodeTests=@('tests/calendar.test.mjs','tests/calendar-index.test.mjs','tests/calendar-order-repeat.test.mjs','tests/desktop-parity.test.mjs','tests/native-pets-tour.test.mjs','tests/native-affinity-badges.test.mjs')|?{Test-Path $_}
-        $out=node --test @nodeTests 2>&1|Out-String;$m=[regex]::Match($out,'# pass (\d+)[\s\S]*?# fail (\d+)')
-        if($LASTEXITCODE -ne 0 -or -not $m.Success -or $m.Groups[2].Value -ne '0'){$failed=$true;$log.Add("node tests FAILED`n"+$out.Substring([Math]::Max(0,$out.Length-3000)))}else{$log.Add("node tests: $($m.Groups[1].Value) passed")}
-        foreach($ps in @('tests/toy-follow.ps1','tests/name-tag-emoji.ps1','tests/font-coverage.ps1')|?{Test-Path $_}){
-            $o=powershell -NoProfile -ExecutionPolicy Bypass -File $ps 2>&1|Out-String
-            if($LASTEXITCODE -ne 0 -or $o -notmatch 'PASS'){$failed=$true;$log.Add("$ps FAILED`n$o")}else{$log.Add("$ps "+(($o -split "`n"|?{$_ -match 'PASS'}|Select -First 1).Trim()))}
-        }
+        # The whole suite lives in tools/test.ps1 so a release runs exactly what a developer runs.
+        $o=powershell -NoProfile -ExecutionPolicy Bypass -File tools\test.ps1 -AppDirectory dist\app 2>&1|Out-String
+        if($LASTEXITCODE -ne 0){$failed=$true}
+        foreach($line in $o -split "`r?`n"|?{$_.Trim().Length -gt 0}){$log.Add($line)}
         @{failed=$failed;log=$log}
     }
 }

@@ -52,7 +52,7 @@ namespace PetCalendarDesktop {
             string key=Rules.Key(DateTime.Now);if(key!=today){today=key;days.Clear();}
             foreach(var pet in all){Day d;if(!days.TryGetValue(pet,out d)){d=new Day();days[pet]=d;}if(d.StartDistance<0)d.StartDistance=pet.Cat.Distance;}
             foreach(var gone in days.Keys.Where(p=>p.IsDisposed||!all.Contains(p)).ToArray())days.Remove(gone);
-            BedTick(all);if(!toyMode)MeetTick(all);NotesTick();
+            BedTick(all);if(!toyMode&&!FocusMode.Active)MeetTick(all);NotesTick();
             timer.Interval=notes.Count>0||meeting!=null?100:400;
         }
 
@@ -224,8 +224,19 @@ namespace PetCalendarDesktop {
         void BedTick(PetHost[] all){
             PlaceBed(all);
             var local=DateTime.Now;bool night=local.Hour>=23||local.Hour<6;
-            bool now=bed!=null&&!bed.Dragging&&(night||ForceBed||IdleSeconds()>=600);
+            bool focus=FocusMode.Active;
+            bool now=(bed!=null&&!bed.Dragging&&(night||ForceBed||IdleSeconds()>=600))||focus;
             if(!now){if(bedTime)WakeSleepers();return;}
+            if(bed==null){
+                // Focus mode without the cushion: each pet naps where it stands.
+                bedTime=true;
+                foreach(var pet in all){
+                    if(excused.Contains(pet)||sleepers.Contains(pet)){if(sleepers.Contains(pet)&&!pet.Cat.Sleeping&&!pet.Cat.GoalX.HasValue)excused.Add(pet);continue;}
+                    if(pet.Cat.Held||pet.SpeechHold||pet.Cat.Paused||!pet.Visible||pet.Cat.Support==null)continue;
+                    pet.Cat.GoalX=pet.Cat.X;pet.Cat.GoalSleep=true;sleepers.Add(pet);
+                }
+                return;
+            }
             bedTime=true;double center=BedCenter;int slot=0;
             foreach(var pet in all){
                 if(excused.Contains(pet))continue;
@@ -235,8 +246,10 @@ namespace PetCalendarDesktop {
                     continue;
                 }
                 var here=pet.Cat.Surfaces.FirstOrDefault(s=>s.Id==pet.Cat.Support);
-                if(pet.Cat.Held||pet.SpeechHold||pet.Cat.Paused||!pet.Visible||here==null||!here.Floor)continue;
-                if(!pet.Cat.Surfaces.Any(s=>s.Floor&&center>=s.Left&&center<=s.Right&&Math.Abs(s.Y-pet.Cat.Y)<2))continue;
+                if(pet.Cat.Held||pet.SpeechHold||pet.Cat.Paused||!pet.Visible||here==null)continue;
+                bool reachable=here.Floor&&pet.Cat.Surfaces.Any(s=>s.Floor&&center>=s.Left&&center<=s.Right&&Math.Abs(s.Y-pet.Cat.Y)<2);
+                // In focus mode a pet that cannot walk to the cushion (on a window, another screen) naps where it is.
+                if(!reachable){if(focus){pet.Cat.GoalX=pet.Cat.X;pet.Cat.GoalSleep=true;sleepers.Add(pet);}continue;}
                 double spread=bed.Width*.4;double offset=slot==0?0:((slot%2==1)?-1:1)*spread*((slot+1)/2);slot++;
                 pet.Cat.Sleeping=false;pet.Cat.GoalX=center+offset;pet.Cat.GoalSleep=true;sleepers.Add(pet);
                 Day d;if(days.TryGetValue(pet,out d))d.Bed=true;
@@ -340,8 +353,16 @@ namespace PetCalendarDesktop {
         readonly string path;List<DiaryEntry> entries;
         internal PetDiary(string dataDir){
             path=Path.Combine(dataDir,"pet-diary.json");
-            try{entries=File.Exists(path)?(Codec.Read<List<DiaryEntry>>(File.ReadAllText(path))??new List<DiaryEntry>()):new List<DiaryEntry>();}catch{entries=new List<DiaryEntry>();}
+            try{entries=File.Exists(path)?(Codec.Read<List<DiaryEntry>>(File.ReadAllText(path))??new List<DiaryEntry>()):new List<DiaryEntry>();}catch{DataRecovery.Preserve(path,"펫 일기");entries=new List<DiaryEntry>();}
         }
+        internal List<DiaryEntry> Backup(){return Codec.Read<List<DiaryEntry>>(Codec.Json(entries));}
+        internal static List<DiaryEntry> CheckBackup(object value){
+            List<DiaryEntry> list;try{list=Codec.Read<List<DiaryEntry>>(Codec.Json(value));}catch{throw new AppError(400,"백업의 펫 일기를 확인해 주세요.");}
+            list=(list??new List<DiaryEntry>()).Where(e=>e!=null&&e.date!=null&&System.Text.RegularExpressions.Regex.IsMatch(e.date,@"^\d{4}-\d{2}-\d{2}$")).ToList();
+            if(list.Count>2000)throw new AppError(400,"백업의 펫 일기가 너무 커요.");
+            return list;
+        }
+        internal void Replace(List<DiaryEntry> next){entries=next.OrderByDescending(e=>e.date,StringComparer.Ordinal).Take(400).ToList();StateStore.Atomic(path,Codec.Json(entries),null);}
         internal DiaryEntry[] Entries{get{return entries.OrderByDescending(e=>e.date,StringComparer.Ordinal).ToArray();}}
         static string Tail(string species){return species=="cat"?"냥":species=="dog"?"멍":"";}
         static string Short(string t){t=(t??"").Trim();return t.Length>18?t.Substring(0,17)+"…":t;}

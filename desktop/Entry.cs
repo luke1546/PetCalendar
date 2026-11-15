@@ -16,7 +16,7 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("펫 캘린더")]
 [assembly: AssemblyDescription("일정과 할 일을 정리하는 펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
-[assembly: AssemblyVersion("3.5.0.0")]
+[assembly: AssemblyVersion("3.5.1.0")]
 [assembly: TargetFramework(".NETFramework,Version=v4.8",FrameworkDisplayName=".NET Framework 4.8")]
 
 namespace PetCalendarDesktop {
@@ -94,6 +94,7 @@ namespace PetCalendarDesktop {
                     if(!created){for(int i=0;i<40;i++){if(Control("show",300))return 0;Thread.Sleep(100);}throw new Exception("캘린더의 응답을 기다리고 있습니다. 잠시 후 다시 실행해 주세요.");}
                     Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);
                     string profile=options.ContainsKey("profile-dir")?Path.GetFullPath(options["profile-dir"]):Path.Combine(Path.GetDirectoryName(DataDir),"WebView2");
+                    if(!CalendarRecovery.Run(DataDir,automation?(Action<string>)(line=>Reply(Codec.Object(line))):null))return 0;
                     using(var host=new DesktopHost(root,DataDir,profile,automation)) {
                         host.ExitRequested+=restart=>{restarting=restart;};
                         IntPtr handle=host.Handle;

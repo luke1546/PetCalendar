@@ -16,12 +16,12 @@ test('기존 JavaScript와 C# 저장·반복·D-day·알림 계산 결과가 같
   const call=data=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('Parity timeout '+diagnostic)),5000);queue.push({resolve,reject,timer});child.stdin.write(JSON.stringify(data)+'\n');});
   let checked=0;
   try{
-    for(const repeat of ['none','daily','weekly','monthly','monthly:3:5','monthly:1:0','monthly:4:6','monthly:-1:5'])for(const day of ['2024-01-31','2024-02-29','2026-01-31','2026-12-31'])for(const span of [0,2,35]){
-      const e=event('repeat',{startDate:day,endDate:addDays(day,span),repeat,repeatUntil:repeat==='none'?'':addDays(day,100)});
-      const from=addDays(day,15),to=addDays(day,120);
+    for(const repeat of ['none','daily','weekdays','weekly','biweekly','monthly','yearly','monthly:3:5','monthly:1:0','monthly:4:6','monthly:-1:5'])for(const day of ['2024-01-31','2024-02-29','2026-01-31','2026-12-31','2026-11-14'])for(const span of [0,2,35]){
+      const e=event('repeat',{startDate:day,endDate:addDays(day,span),repeat,repeatUntil:repeat==='none'?'':addDays(day,repeat==='yearly'?1500:100)});
+      const from=addDays(day,15),to=addDays(day,repeat==='yearly'?1600:120);
       assert.deepEqual((await call({action:'occurrences',events:[e],from,to})).result,occurrences([e],from,to));checked++;
     }
-    for(const repeat of ['none','weekly','monthly','monthly:3:5','monthly:-1:5'])for(const pinnedDate of ['', '2026-02-28']){
+    for(const repeat of ['none','weekly','weekdays','biweekly','yearly','monthly','monthly:3:5','monthly:-1:5'])for(const pinnedDate of ['', '2026-02-28']){
       const state={...defaultState(),events:[event('one',{repeat,pinned:true,pinnedDate,completedDates:['2026-01-31']})]};
       assert.deepEqual((await call({action:'validate',state})).result,validateState(state));checked++;
       for(const today of ['2025-12-01','2026-02-01','2026-04-30']){

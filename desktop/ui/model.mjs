@@ -64,7 +64,7 @@ export function validateState(input) {
     check(time(e.startTime) && time(e.endTime) && (!e.endTime || e.startTime), '일정 시간을 확인해 주세요.');
     check(e.endDate !== e.startDate || !e.endTime || e.endTime >= e.startTime, '종료 시간이 시작 시간보다 빠릅니다.');
     check(Object.hasOwn(CATEGORIES, e.category) || customIds.has(e.category), '일정 분류를 확인해 주세요.');
-    check(['none','daily','weekly','monthly'].includes(e.repeat) || /^monthly:(?:[1-4]|-1):[0-6]$/.test(e.repeat), '반복 방식을 확인해 주세요.');
+    check(['none','daily','weekdays','weekly','biweekly','monthly','yearly'].includes(e.repeat) || /^monthly:(?:[1-4]|-1):[0-6]$/.test(e.repeat), '반복 방식을 확인해 주세요.');
     check(e.repeatUntil === '' || (isDate(e.repeatUntil) && e.repeatUntil >= e.startDate), '반복 종료일을 확인해 주세요.');
     check([null,0,10,30,60].includes(e.reminder), '알림 시간을 확인해 주세요.');
     check(typeof e.pinned === 'boolean', 'D-day 설정을 확인해 주세요.');
@@ -97,9 +97,12 @@ export function occursOn(event, key) {
   if (key < event.startDate || (event.repeat !== 'none' && event.repeatUntil && key > event.repeatUntil)) return false;
   if (event.repeat === 'none') return key === event.startDate;
   if (event.repeat === 'daily') return true;
+  if (event.repeat === 'weekdays') {const weekday=(dayNumber(key)+4)%7;return weekday!==0&&weekday!==6;}
   if (event.repeat === 'weekly') return (dayNumber(key)-dayNumber(event.startDate)) % 7 === 0;
+  if (event.repeat === 'biweekly') return (dayNumber(key)-dayNumber(event.startDate)) % 14 === 0;
   const [year,month,day] = key.split('-').map(Number);
   const last = new Date(Date.UTC(year,month,0)).getUTCDate();
+  if (event.repeat === 'yearly') {const [,m0,d0]=event.startDate.split('-').map(Number);return month===m0&&day===Math.min(d0,last);}
   if(event.repeat.startsWith('monthly:')) {
     const [,week,weekday]=event.repeat.split(':').map(Number);
     return new Date(`${key}T12:00:00Z`).getUTCDay()===weekday && (week===-1?day+7>last:Math.ceil(day/7)===week);
@@ -125,9 +128,17 @@ function expand(events, from, to, visit) {
     const excluded=new Set(event.excludedDates||[]);
     const emit=number=>{const key=new Date(number*DAY).toISOString().slice(0,10);if(!excluded.has(key))visit({event,key:`${event.id}@${key}`,startDate:key,endDate:span?new Date((number+span)*DAY).toISOString().slice(0,10):key});};
     if(event.repeat==='none'){emit(origin);continue;}
-    if(event.repeat==='daily'||event.repeat==='weekly') {
-      const step=event.repeat==='weekly'?7:1;
-      for(let day=origin+Math.ceil((begin-origin)/step)*step;day<=end;day+=step)emit(day);
+    if(event.repeat==='daily'||event.repeat==='weekly'||event.repeat==='biweekly'||event.repeat==='weekdays') {
+      const step=event.repeat==='weekly'?7:event.repeat==='biweekly'?14:1;
+      for(let day=origin+Math.ceil((begin-origin)/step)*step;day<=end;day+=step){if(event.repeat==='weekdays'&&((day+4)%7===0||(day+4)%7===6))continue;emit(day);}
+      continue;
+    }
+    if(event.repeat==='yearly') {
+      const [,m0,d0]=event.startDate.split('-').map(Number);
+      for(let year=new Date(begin*DAY).getUTCFullYear();year<=new Date(end*DAY).getUTCFullYear();year++) {
+        const number=Date.UTC(year,m0-1,Math.min(d0,new Date(Date.UTC(year,m0,0)).getUTCDate()))/DAY;
+        if(number>=begin&&number<=end)emit(number);
+      }
       continue;
     }
     const date=new Date(begin*DAY),until=new Date(end*DAY);
@@ -160,7 +171,7 @@ export function onDate(list, key) {
 }
 export function repeatLabel(repeat) {
   if(repeat.startsWith('monthly:')){const [,week,day]=repeat.split(':').map(Number);return `매월 ${{1:'첫째',2:'둘째',3:'셋째',4:'넷째',[-1]:'마지막'}[week]} ${['일','월','화','수','목','금','토'][day]}요일`;}
-  return {none:'반복 안 함',daily:'매일',weekly:'매주',monthly:'매월'}[repeat];
+  return {none:'반복 안 함',daily:'매일',weekdays:'평일',weekly:'매주',biweekly:'격주',monthly:'매월',yearly:'매년'}[repeat];
 }
 export function isEventDone(event, startDate = event.startDate) {
   return (event.completedDates||[]).includes(startDate);
@@ -176,12 +187,12 @@ export function ddayOccurrence(event, today = dateKey()) {
     else {
       const from=today>event.startDate?today:event.startDate;
       let found=false;
-      for(let i=0;i<=62;i++) {
+      for(let i=0;i<=(event.repeat==='yearly'?366:62);i++) {
         const key=addDays(from,i);
         if(occursOn(event,key)){startDate=key;found=true;break;}
       }
       if(!found && event.repeatUntil) {
-        for(let i=0;i<=62;i++) {
+        for(let i=0;i<=(event.repeat==='yearly'?366:62);i++) {
           const key=addDays(event.repeatUntil,-i);
           if(occursOn(event,key)){startDate=key;break;}
         }

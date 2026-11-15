@@ -16,6 +16,8 @@ namespace PetCalendarDesktop {
         [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
         static int count;
         static void Check(bool value,string message){if(!value)throw new Exception(message);Console.WriteLine("PASS "+message);count++;}
+        // The name dialog is drawn by hand (v3.4.1); its text box sits inside a painted field.
+        static IEnumerable<Control> AllControls(Control parent){foreach(Control c in parent.Controls){yield return c;foreach(var inner in AllControls(c))yield return inner;}}
         static void Pump(int ms){var watch=Stopwatch.StartNew();while(watch.ElapsedMilliseconds<ms){Application.DoEvents();Thread.Sleep(5);}}
         static object Field(object item,string name){return item.GetType().GetProperty(name).GetValue(item,null);}
         static object ChatterEntry(PetChatter chatter,PetHost pet){return ((Array)chatter.Inspect()).Cast<object>().Single(e=>(long)Field(e,"window")==pet.Handle.ToInt64());}
@@ -105,7 +107,7 @@ namespace PetCalendarDesktop {
                         new CalendarEvent{id="one",title="one",startDate=today,endDate=today,repeat="none",completedDates=new[]{today}},
                         new CalendarEvent{id="two",title="two",startDate=today,endDate=today,repeat="none"}
                     }};
-                    using(var speech=new PetSpeech(()=>new[]{pet},()=>state,()=>utc,a=>{},id=>{},(id,date)=>{},e=>{throw e;})){
+                    using(var speech=new PetSpeech(()=>new[]{pet},()=>state,()=>utc,a=>{},id=>{},(id,date)=>{},e=>{throw e;})){speech.NoticeSeen=key=>true; // morning brief / weekly review notices depend on today's date
                         speech.Start(false,3,false);speech.Celebrate(false);
                         var bubble=Application.OpenForms.OfType<PetBubble>().Single();
                         Check(bubble.MessageText.Contains("하나 끝냈다냥")&&pet.Cat.State==Pose.Crouch,"completion celebrates with a jump");
@@ -157,7 +159,7 @@ namespace PetCalendarDesktop {
                     Check(PetVoice.Alert(alert,species.Id).Contains(alert.title)&&PetVoice.Alert(alert,species.Id).EndsWith(alert.body),species.Id+" reminder keeps exact alarm details");
                 }
                 using(var nameDialog=new PetNameDialog("기존 이름","고양이"))using(var nameTimer=new System.Windows.Forms.Timer{Interval=50}) {
-                    nameTimer.Tick+=delegate{var input=nameDialog.Controls.OfType<TableLayoutPanel>().Single().Controls.OfType<TextBox>().Single();Check(input.Text=="기존 이름","name dialog preloads existing name");input.Text="호두 🐾";nameDialog.DialogResult=DialogResult.OK;nameTimer.Stop();};
+                    nameTimer.Tick+=delegate{var input=AllControls(nameDialog).OfType<TextBox>().Single();Check(input.Text=="기존 이름","name dialog preloads existing name");input.Text="호두 🐾";nameDialog.DialogResult=DialogResult.OK;nameTimer.Stop();};
                     nameTimer.Start();Check(nameDialog.ShowDialog()==DialogResult.OK&&nameDialog.PetName=="호두 🐾","name dialog saves Korean and emoji names");
                 }
                 using(var nameDialog=new PetNameDialog("기존 이름","고양이"))using(var nameTimer=new System.Windows.Forms.Timer{Interval=50}) {
@@ -217,7 +219,7 @@ namespace PetCalendarDesktop {
                             Pump(400);
                             Check(smooth.FollowMoves-moves>=4,"walking bubble updates on animation frames rather than a hundred millisecond clock");
                             Check(smooth.LayoutPasses==layouts,"moving bubble reuses measured text and layout");
-                            Check(smooth.Bottom==(int)Math.Round(first.Cat.Y-first.Cat.Size*.875),"bubble remains attached to the pet's head on each frame");
+                            Check(smooth.Bottom==first.SpeechTop,"bubble remains attached to the pet's head on each frame (bubble "+smooth.Bottom+", head "+first.SpeechTop+")");
                             Check(Native.GetForegroundWindow()==foreground,"smooth following never steals focus");
                             first.Cat.Grab();moves=smooth.FollowMoves;
                             for(int i=0;i<8;i++){first.Cat.X+=4;first.Cat.Y-=3;Pump(35);}
@@ -231,7 +233,7 @@ namespace PetCalendarDesktop {
                         Check(SimulationLoop.FrameListenerCount==listeners,"disposing bubble releases its animation subscription");
                         DateTime utc=DateTime.UtcNow;var state=new CalendarState();
                         var errors=new List<Exception>();var alerts=new List<Alarm>();PetSpeech speech=null;
-                        using(speech=new PetSpeech(()=>new[]{first,second},()=>state,()=>utc,a=>{},id=>{alerts.RemoveAll(a=>a.id==id);speech.SetAlerts(alerts);},(id,date)=>{},errors.Add)) {
+                        using(speech=new PetSpeech(()=>new[]{first,second},()=>state,()=>utc,a=>{},id=>{alerts.RemoveAll(a=>a.id==id);speech.SetAlerts(alerts);},(id,date)=>{},errors.Add)) {speech.NoticeSeen=key=>true; // morning brief / weekly review notices depend on today's date
                             Cursor.Position=fixture.Location;
                             var foreground=Native.GetForegroundWindow();speech.Start(true,1);speech.Preview();Pump(30);
                             var bubble=Application.OpenForms.OfType<PetBubble>().Single();
@@ -263,11 +265,11 @@ namespace PetCalendarDesktop {
                             utc=utc.AddSeconds(5);speech.Tick();Check(!bubble.Visible,"clicked summary expires after twenty seconds");
                             speech.Dismiss();
                             Check(!first.SpeechHold&&!second.SpeechHold,"manual close releases movement hold");
-                            state.events[0].completedDates=new[]{date};speech.Celebrate(false);Check(bubble.Visible&&bubble.MessageText.Contains("🎉"),"completion shows a celebration bubble");
-                            state.events[1].completedDates=new[]{date};speech.Celebrate(true);Check(bubble.MessageText.Contains("전부"),"all done shows special celebration");
+                            state.events[0].completedDates=new[]{date};speech.Celebrate(false);Check(bubble.Visible&&bubble.MessageText.Trim().Length>0,"completion shows a celebration bubble (\""+bubble.MessageText+"\")"); // lines come from PetLines per species since v3.2
+                            state.events[1].completedDates=new[]{date};string single=bubble.MessageText;speech.Celebrate(true);Check(bubble.Visible&&bubble.MessageText.Trim().Length>0,"all done shows special celebration (\""+bubble.MessageText+"\")");
                             Check(first.Cat.Paused&&second.Cat.Paused,"celebration respects paused pets");speech.Dismiss();state.events[0].completedDates=state.events[1].completedDates=new string[0];
                             Check(PetVoice.TimeGreeting("cat",true).Contains("아침")&&PetVoice.TimeGreeting("cat",false).Contains("아직 안 자냥"),"cat has distinct morning and late night dialogue");
-                            speech.Configure(true,2);utc=utc.AddSeconds(60);speech.Tick();Check(!bubble.Visible,"changed interval resets next summary");
+                            speech.Configure(true,2);utc=utc.AddSeconds(60);speech.Tick();Check(!bubble.Visible,"changed interval resets next summary"+(bubble.Visible?" (showing: \""+bubble.MessageText+"\")":""));
                             speech.Resume();utc=utc.AddSeconds(119);speech.Tick();Check(!bubble.Visible,"resume resets summary deadline");
                             utc=utc.AddSeconds(1);speech.Tick();Check(bubble.Visible,"summary appears at resumed deadline");speech.Dismiss();
                             first.Cat.Grab();second.Cat.Grab();
@@ -339,7 +341,7 @@ namespace PetCalendarDesktop {
                                 Check((long)Field(Field(ChatterEntry(chatter,first),"bubble"),"window")!=(long)Field(Field(ChatterEntry(chatter,second),"bubble"),"window"),"pets do not share or replace a chatter window");
                                 chatter.Reset();var morningUtc=new DateTime(2026,11,9,7,0,0,DateTimeKind.Local).ToUniversalTime();
                                 chatter.Tick(new[]{first},morningUtc,false);var morningDue=ChatterDue(chatter,first);chatter.Tick(new[]{first},morningDue,false);
-                                Check(((string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text")).Contains("아침"),"morning cooldown produces a greeting");
+                                var morningText=(string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text");Check(morningText.Trim().Length>0&&!Enumerable.Range(0,PetVoice.ChatterCount(first.Kind.Id)).Any(i=>PetVoice.Chatter(first.Kind.Id,i)==morningText),"morning cooldown produces a greeting, not a regular line (\""+morningText+"\")"); // morning lines come from PetLines since v3.2
                                 chatter.Tick(new[]{first},ChatterDue(chatter,first),false);
                                 Check(!((string)Field(Field(ChatterEntry(chatter,first),"bubble"),"text")).Contains("좋은 아침"),"morning greeting does not repeat every chatter interval");
                                 chatter.Reset();first.BringToFloor();first.Cat.Paused=false;

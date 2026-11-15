@@ -138,15 +138,15 @@ namespace PetCalendarDesktop {
                 if(summary==null&&!manual&&utc>=noticeCheck){
                     noticeCheck=utc.AddSeconds(20);
                     var local=utc.ToLocalTime();string diaryKey="diary:"+Rules.Key(local);
-                    if(WriteDiary!=null&&local.TimeOfDay>=DiaryTime()&&!NoticeSeen(diaryKey)&&SelectSpeaker()){
+                    if(WriteDiary!=null&&!FocusMode.Active&&local.TimeOfDay>=DiaryTime()&&!NoticeSeen(diaryKey)&&SelectSpeaker()){
                         MarkNotice(diaryKey);WriteDiary(speaker);
                         summary=new PetSummary{Kind="notice",Key=diaryKey,Text="오늘 일기를 썼어요 📔\n캘린더에서 D를 누르면 볼 수 있어요"};expires=utc.AddSeconds(15);
                         EnsureBubble();bubble.Present(summary.Text,false,0,false);bubble.Follow(speaker);clock.Reset(utc,minutes);
                     }
-                    var notice=summary!=null||!summaryEnabled?null:PetNotices.Next(state(),local,NoticeSeen);
+                    var notice=summary!=null||!summaryEnabled||FocusMode.Active?null:PetNotices.Next(state(),local,NoticeSeen);
                     if(notice!=null&&SelectSpeaker()){MarkNotice(notice.Key);summary=notice;expires=utc.AddSeconds(15);EnsureBubble();bubble.Present(notice.Text,false,0,false);bubble.Follow(speaker);clock.Reset(utc,minutes);}
                 }
-                bool due=summaryEnabled&&clock.Due(utc,minutes);
+                bool due=summaryEnabled&&!FocusMode.Active&&clock.Due(utc,minutes);
                 if(manual && utc>manualUntil)manual=false;
                 if(manual || (due&&summary==null)) {
                     if(SelectSpeaker()) {
@@ -162,7 +162,7 @@ namespace PetCalendarDesktop {
                     }
                 }
             }
-            if(chatterEnabled)chatter.Tick(pets(),utc,alerts.Count>0||summary!=null||manual);
+            if(chatterEnabled&&!FocusMode.Active)chatter.Tick(pets(),utc,alerts.Count>0||summary!=null||manual);
             timer.Interval=alerts.Count>0||summary!=null||manual||chatter.ActiveCount>0?100:1000;
         }
         // Snacks earned by the completion being celebrated (shown once in the bubble).

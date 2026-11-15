@@ -228,6 +228,8 @@ namespace PetCalendarDesktop {
             life.ConfigureBed(preferences.bedEnabled,preferences.bedFraction);life.ConfigureToy(preferences.toyEnabled);Notify();
         }
         internal DiaryEntry[] DiaryEntries(){return diary.Entries;}
+        internal List<DiaryEntry> DiaryBackup(){return diary.Backup();}
+        internal void RestoreDiary(List<DiaryEntry> entries){diary.Replace(entries);}
         internal void FontChanged(){foreach(var pet in active.ToArray())if(!pet.IsDisposed)pet.RefreshTag();}
         // ---------- Affinity and snacks ----------
         internal void Award(PetHost pet,int points){
@@ -288,7 +290,7 @@ namespace PetCalendarDesktop {
         }
         internal void Home() {foreach(var pet in active)pet.BringToFloor();}
         internal object Inspect() {return new {enabled,count=active.Count,chatterEnabled=preferences.chatterEnabled,bedEnabled=preferences.bedEnabled,toyEnabled=preferences.toyEnabled,snacks=preferences.snacks,title=String.IsNullOrWhiteSpace(preferences.title)?"집사":preferences.title,affinity=active.Select(p=>{int level=PetLines.Level(p.Affinity);return new{name=String.IsNullOrWhiteSpace(p.PetName)?p.PaletteName+" "+p.Kind.Name:p.PetName,level,label=PetLines.LevelName(level),percent=PetLines.Percent(p.Affinity),hearts=PetLines.Hearts(level).Trim(),fed=p.FedAtUtc+TimeSpan.FromMinutes(10)>DateTime.UtcNow};}).ToArray(),diaryTime=preferences.diaryTime??"17:50",summaryEnabled=preferences.summaryEnabled,summaryIntervalMinutes=preferences.summaryIntervalMinutes,species=Species.All.Select(s=>new{id=s.Id,label=s.Name}).ToArray()};}
-        internal object Diagnostic() {return new {enabled,count=active.Count,packLoaded=archive!=null,decodedAtlases=Sprites.SourceCount,loopCount=SimulationLoop.Count,loopFrames=SimulationLoop.Frames,cacheBytes=Sprites.CachedBytes,speech=speech.Inspect(),pets=active.Select(p=>new{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName,personality=p.Personality,window=p.Handle.ToInt64(),x=p.Cat.X,y=p.Cat.Y,size=p.Cat.Size,pose=p.Cat.State.ToString()}).ToArray()};}
+        internal object Diagnostic() {return new {enabled,count=active.Count,packLoaded=archive!=null,decodedAtlases=Sprites.SourceCount,loopCount=SimulationLoop.Count,loopFrames=SimulationLoop.Frames,cacheBytes=Sprites.CachedBytes,speech=speech.Inspect(),pets=active.Select(p=>new{species=p.Kind.Id,palette=p.PaletteName,name=p.PetName,personality=p.Personality,window=p.Handle.ToInt64(),x=p.Cat.X,y=p.Cat.Y,size=p.Cat.Size,pose=p.Cat.State.ToString(),sleeping=p.Cat.Sleeping,goal=p.Cat.GoalX,support=p.Cat.Support==null?null:p.Cat.Support.ToString()}).ToArray()};}
         void CloseActive() {
             stopping=true;
             try {foreach(var pet in active.ToArray()){pet.Close();pet.Dispose();}active.Clear();}

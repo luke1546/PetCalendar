@@ -12,7 +12,7 @@ namespace PetCalendarDesktop {
     // Per-user UI memory that lived in WebView localStorage: quick tour
     // completion and unsaved event-editor drafts.
     public sealed class UiPrefs {
-        public sealed class Data {public bool quickTourDone,hotkeyMoved,weekView;public Dictionary<string,string> drafts=new Dictionary<string,string>();}
+        public sealed class Data {public bool quickTourDone,hotkeyMoved,weekView;public string backupFolder="",backupInterval="off",lastAutoBackup="";public Dictionary<string,string> drafts=new Dictionary<string,string>();}
         readonly string path;public Data Value;
         public UiPrefs(string dataDir,bool migrated){
             path=Path.Combine(dataDir,"ui-state.json");
@@ -21,6 +21,7 @@ namespace PetCalendarDesktop {
                 // Users upgrading from the WebView build have already seen the tour.
                 if(migrated)Value.quickTourDone=true;}
             if(Value.drafts==null)Value.drafts=new Dictionary<string,string>();
+            if(Value.backupFolder==null)Value.backupFolder="";if(Value.backupInterval!="daily"&&Value.backupInterval!="weekly")Value.backupInterval="off";if(Value.lastAutoBackup==null)Value.lastAutoBackup="";
         }
         public void Save(){try{StateStore.Atomic(path,Codec.Json(Value),null);}catch{}}
     }
@@ -39,7 +40,7 @@ namespace PetCalendarDesktop {
         internal static string FormatLong(string key){return Rules.Date(key).ToString("yyyy년 M월 d일 ddd",Rules.Korean);}
         internal static string RepeatLabel(string repeat){
             if(repeat.StartsWith("monthly:")){var p=repeat.Split(':');int week=int.Parse(p[1]),day=int.Parse(p[2]);string w=week==1?"첫째":week==2?"둘째":week==3?"셋째":week==4?"넷째":"마지막";return "매월 "+w+" "+"일월화수목금토"[day]+"요일";}
-            return repeat=="daily"?"매일":repeat=="weekly"?"매주":repeat=="monthly"?"매월":"반복 안 함";
+            return repeat=="daily"?"매일":repeat=="weekdays"?"평일 (월~금)":repeat=="weekly"?"매주":repeat=="biweekly"?"격주":repeat=="monthly"?"매월":repeat=="yearly"?"매년":"반복 안 함";
         }
         internal KeyValuePair<string,int> RangeForMonth(){var first=Rules.Date(month+"-01");int offset=(int)first.DayOfWeek;int count=DateTime.DaysInMonth(first.Year,first.Month);int size=(offset+count+6)/7*7;return new KeyValuePair<string,int>(Rules.Key(first.AddDays(-offset)),size);}
         bool Matches(CalendarEvent e){return (filter=="all"||e.category==filter)&&(search.Length==0||(e.title+" "+e.note).ToLower(Rules.Korean).Contains(search));}
@@ -326,6 +327,75 @@ namespace PetCalendarDesktop {
             var task=new CalendarTask{id=Guid.NewGuid().ToString(),title=title.Length>200?title.Substring(0,200):title,dueDate="",done=false,createdAt=DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ",CultureInfo.InvariantCulture)};
             return Commit(s=>{s.tasks=s.tasks.Concat(new[]{task}).ToArray();});
         }
+        // ---------- Overdue schedules ----------
+        // Past occurrences never ticked off: one-off schedules from the last 60 days, repeating
+        // ones from the last 7 (a missed daily habit would otherwise fill the list).
+        CalendarState overdueState;string overdueDay;List<Occurrence> overdueCache;
+        internal List<Occurrence> Overdue(){
+            string today=Rules.Key(DateTime.Today);if(overdueCache!=null&&overdueState==state&&overdueDay==today)return overdueCache;
+            string recent=Rules.AddDays(today,-7);
+            overdueCache=Rules.Occurrences(state.events,Rules.AddDays(today,-60),Rules.AddDays(today,-1)).Where(o=>String.CompareOrdinal(o.endDate,today)<0&&!Rules.Done(o.@event,o.startDate)&&(o.@event.repeat=="none"||String.CompareOrdinal(o.startDate,recent)>=0)).ToList();
+            overdueState=state;overdueDay=today;return overdueCache;
+        }
+        internal void OpenOverdue(){if(modal)return;new OverdueDialog(this).Show(null);}
+        // One-off schedules move to today (keeping their length); for a repeating one the missed
+        // dates are skipped in the series and a single copy is made for today.
+        internal async void MoveToToday(List<Occurrence> items){
+            if(saving||items.Count==0)return;string today=Rules.Key(DateTime.Today);
+            var bySeries=items.GroupBy(o=>o.@event.id).ToList();
+            bool ok=await Commit(s=>{
+                foreach(var group in bySeries){
+                    var series=s.events.FirstOrDefault(e=>e.id==group.Key);if(series==null)continue;
+                    var first=group.OrderBy(o=>o.startDate,StringComparer.Ordinal).First();int span=(Rules.Date(first.endDate)-Rules.Date(first.startDate)).Days;
+                    if(series.repeat=="none"){
+                        if(series.pinnedDate!="")series.pinnedDate=today;
+                        series.startDate=today;series.endDate=Rules.AddDays(today,span);
+                    }else{
+                        var copy=Codec.Read<CalendarEvent>(Codec.Json(series));copy.id=Guid.NewGuid().ToString();copy.startDate=today;copy.endDate=Rules.AddDays(today,span);
+                        copy.repeat="none";copy.repeatUntil="";copy.completedDates=new string[0];copy.excludedDates=new string[0];copy.pinned=false;copy.pinnedDate="";
+                        series.excludedDates=series.excludedDates.Concat(group.Select(o=>o.startDate)).Distinct().ToArray();
+                        s.events=s.events.Concat(new[]{copy}).ToArray();
+                    }
+                }
+            });
+            if(ok){JumpTo(today);UndoToast(items.Count==1?"오늘로 옮겼어요":"일정 "+items.Count+"개를 오늘로 옮겼어요",items.Count==1?items[0].@event.title:"놓친 일정",()=>Task.FromResult(false),"옮기기를 되돌렸어요");}
+        }
+        internal async void CompleteOccurrences(List<Occurrence> items){
+            if(saving||items.Count==0)return;
+            if(await Commit(s=>{foreach(var o in items){var e=s.events.FirstOrDefault(x=>x.id==o.@event.id);if(e!=null&&!e.completedDates.Contains(o.startDate))e.completedDates=e.completedDates.Concat(new[]{o.startDate}).ToArray();}}))
+                UndoToast("일정 "+items.Count+"개를 완료했어요","놓친 일정",()=>Task.FromResult(false),"완료를 되돌렸어요");
+        }
+        // ---------- Scheduled backup ----------
+        // With a folder and an interval set (this PC only, in ui-state.json), the whole-app backup
+        // is written there once a day or week while the app runs; the newest 10 files are kept.
+        internal const string AutoBackupPrefix="펫캘린더-자동백업-";
+        DateTime nextBackupCheck=DateTime.Now.AddSeconds(20);bool backupRunning;string lastBackupError;
+        void AutoBackupTick(){if(DateTime.Now<nextBackupCheck)return;nextBackupCheck=DateTime.Now.AddMinutes(5);if(AutoBackupDue())RunAutoBackup(false);}
+        internal bool AutoBackupDue(){
+            var p=prefs.Value;if(p.backupInterval=="off"||String.IsNullOrEmpty(p.backupFolder))return false;
+            DateTime last;if(!DateTime.TryParse(p.lastAutoBackup,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out last))return true;
+            return DateTime.Now-last.ToLocalTime()>=(p.backupInterval=="weekly"?TimeSpan.FromDays(7):TimeSpan.FromDays(1));
+        }
+        internal async Task<string> RunAutoBackup(bool manual){
+            if(backupRunning)return null;backupRunning=true;
+            try{
+                string folder=prefs.Value.backupFolder;if(String.IsNullOrEmpty(folder))throw new AppError(400,"백업 폴더를 먼저 골라 주세요.");
+                var backup=await Api("GET","/api/backup");
+                Directory.CreateDirectory(folder);
+                string file=Path.Combine(folder,AutoBackupPrefix+DateTime.Now.ToString("yyyy-MM-dd-HHmm",CultureInfo.InvariantCulture)+".json");
+                File.WriteAllText(file+".tmp",JsonPretty.Write(backup),new System.Text.UTF8Encoding(false));
+                if(File.Exists(file))File.Delete(file);File.Move(file+".tmp",file);
+                foreach(var old in new DirectoryInfo(folder).GetFiles(AutoBackupPrefix+"*.json").OrderByDescending(f=>f.Name,StringComparer.Ordinal).Skip(10)){try{old.Delete();}catch(Exception){}}
+                prefs.Value.lastAutoBackup=DateTime.UtcNow.ToString("o",CultureInfo.InvariantCulture);prefs.Save();lastBackupError=null;
+                if(manual)Toast("백업 파일을 만들었어요",Path.GetFileName(file));
+                foreach(var d in DialogForm.Open.OfType<SettingsDialog>())d.RenderBackupStatus();
+                return file;
+            }catch(Exception error){
+                // A failing folder (unplugged drive) is reported once, then retried on the next check.
+                if(manual||lastBackupError!=error.Message)Toast("정기 백업을 만들지 못했어요",error.Message,"error",10000);
+                lastBackupError=error.Message;return null;
+            }finally{backupRunning=false;}
+        }
         // ---------- .ics import ----------
         // Adds the schedules of an iCalendar export; ones already here (same title, date and
         // start time) are skipped so importing the same file twice adds nothing.
@@ -342,7 +412,8 @@ namespace PetCalendarDesktop {
             if(state.events.Length+fresh.Count>10000){Toast("일정이 너무 많아요","일정은 모두 합쳐 10,000개까지 저장할 수 있어요.","error");return;}
             var notes=new List<string>();
             if(duplicates>0)notes.Add("이미 있는 일정 "+duplicates+"개는 건너뜁니다.");
-            if(parsed.Simplified>0)notes.Add("반복 규칙 "+parsed.Simplified+"개(격주·여러 요일·매년 등)는 첫 날짜만 가져옵니다.");
+            if(parsed.Simplified>0){var names=parsed.SimplifiedTitles.Distinct().Take(3).Select(t=>"‘"+(t.Length>18?t.Substring(0,18)+"…":t)+"’").ToList();
+                notes.Add("이 앱에 없는 반복 규칙 "+parsed.Simplified+"개(3주마다, 월·수·금 등)는 첫 날짜만 가져옵니다: "+String.Join(", ",names)+(parsed.SimplifiedTitles.Count>3?" 외":""));}
             if(parsed.Skipped>0)notes.Add("반복 중 따로 바꾼 회차 등 "+parsed.Skipped+"개는 건너뜁니다.");
             var first=fresh.Select(x=>x.startDate).OrderBy(x=>x,StringComparer.Ordinal).First();var last=fresh.Select(x=>x.startDate).OrderBy(x=>x,StringComparer.Ordinal).Last();
             string range=first==last?FormatLong(first):FormatLong(first)+" ~ "+FormatLong(last);
@@ -352,6 +423,14 @@ namespace PetCalendarDesktop {
             var upcoming=fresh.Select(x=>x.startDate).Where(k=>String.CompareOrdinal(k,Rules.Key(DateTime.Today))>=0).OrderBy(k=>k,StringComparer.Ordinal).FirstOrDefault();
             JumpTo(upcoming??last);
             UndoToast("일정 "+fresh.Count+"개를 가져왔어요",System.IO.Path.GetFileName(file),()=>Commit(s=>{s.events=s.events.Where(x=>!ids.Contains(x.id)).ToArray();}),"가져온 일정을 지웠어요");
+        }
+        internal void ExportIcs(IWin32Window owner){
+            if(state.events.Length==0){Toast("내보낼 일정이 없어요");return;}
+            using(var dialog=new SaveFileDialog{FileName="펫캘린더-일정-"+Rules.Key(DateTime.Today)+".ics",Filter="iCalendar 파일 (*.ics)|*.ics",DefaultExt="ics",AddExtension=true,OverwritePrompt=true}){
+                if(dialog.ShowDialog(owner)!=DialogResult.OK)return;
+                try{File.WriteAllText(dialog.FileName,IcsExport.Write(state.events,DesktopTheme.CategoryName),new System.Text.UTF8Encoding(false));Toast("일정 "+state.events.Length+"개를 내보냈어요","구글 캘린더: 설정 → 가져오기 및 내보내기 → 가져오기에서 이 파일을 고르세요.");}
+                catch(Exception error){Toast("내보내지 못했어요",error.Message,"error");}
+            }
         }
         // ---------- Copy / paste ----------
         // Ctrl+C copies the schedule under the pointer (or the focused one, or the selected day's
@@ -438,6 +517,12 @@ namespace PetCalendarDesktop {
             if(modal)return;var dialog=new SettingsDialog(this,host);dialog.Show(null);if(section!=null)dialog.Reveal(section);
         }
         void ShowHelp(){if(modal)return;new HelpDialog(this).Show(null);}
+        // Header focus button: start, extend or end focus mode.
+        void ShowFocusMenu(Rectangle button){
+            if(modal||host==null)return;var menu=new ContextMenuStrip{ShowImageMargin=false,Font=DesktopTheme.UiFont(10+DesktopTheme.TextScale),BackColor=DesktopTheme.Card,ForeColor=DesktopTheme.Ink};
+            host.FillFocusMenu(menu.Items);menu.Closed+=delegate{BeginInvoke(new Action(menu.Dispose));};menu.Show(this,new Point(button.Right-menu.GetPreferredSize(Size.Empty).Width,button.Bottom+P(4)));
+        }
+        internal void FocusChanged(){Invalidate(Page(masthead));}
         // Header paw button: pick a species and it drops onto the desktop (turns pets on if needed).
         static readonly string[][] PetChoices={new[]{"cat","고양이"},new[]{"dog","포메라니안"},new[]{"redPanda","레서판다"},new[]{"capybara","카피바라"},new[]{"squirrel","다람쥐"},new[]{"alpaca","알파카"},new[]{"elephant","코끼리"},new[]{"random","랜덤"}};
         void ShowPetMenu(Rectangle button){

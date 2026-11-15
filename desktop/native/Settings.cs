@@ -32,7 +32,8 @@ namespace PetCalendarDesktop {
         readonly Btn toggleWidget=Css.Button("위젯 열기");readonly ThemeCheckBox widgetTopmost=Css.Check("항상 위에 표시"),widgetLocked=Css.Check("위젯 위치·크기 고정");
         readonly TextItem notificationDescription=Css.P(""),permissionStatus=Css.Hint("");readonly Btn enableNotifications=Css.Button("데스크톱 알림 켜기"),testNotification=Css.Button("알림 테스트");
         readonly ThemeCheckBox notificationSound=Css.Check("알림 소리");readonly SelectField defaultReminder=Css.Reminders();
-        readonly Btn exportBackup=Css.Button("백업 내보내기",BtnKind.Normal,11,"download"),importBackup=Css.Button("백업 복원",BtnKind.Normal,11,"upload"),importIcs=Css.Button("일정 파일 가져오기 (.ics)",BtnKind.Normal,11,"calendar");
+        readonly Btn exportBackup=Css.Button("백업 내보내기",BtnKind.Normal,11,"download"),importBackup=Css.Button("백업 복원",BtnKind.Normal,11,"upload"),importIcs=Css.Button("일정 파일 가져오기 (.ics)",BtnKind.Normal,11,"upload"),exportIcs=Css.Button("일정 파일로 내보내기",BtnKind.Normal,11,"download"),chooseBackupFolder=Css.Button("폴더 고르기",BtnKind.Normal,11),backupNow=Css.Button("지금 백업");
+        readonly SelectField backupInterval=Css.Select("off","끄기","daily","매일","weekly","매주");readonly TextItem backupStatus=Css.Hint("");
         readonly SelectField textScale=Css.Select("0","작게","1","보통","2","크게");readonly ThemeCheckBox boldText=Css.Check("글씨 굵게",12);readonly SelectField fontFamily=FontSelect();
         static SelectField FontSelect(){var f=new SelectField();foreach(var o in AppFonts.Options)f.Add(o.Key,o.Value);return f;}
         Dictionary<string,object> petsPreference,widgetPreference;bool petsSaving,petsRefreshPending,petSpeechDirty,widgetSaving,syncing;
@@ -67,8 +68,10 @@ namespace PetCalendarDesktop {
             notifyGroup.Add(notify);Body.Add(notifyGroup);
             // 데이터 · 백업
             dataGroup=new GroupItem("데이터 · 백업",false);var data=Section();
-            data.Add(Css.H3("소중한 기록, 안전하게"),Css.P("일정, 할 일, 캘린더 설정과 펫·위젯 설정을 함께 백업합니다."),new InlineItem(8,exportBackup,importBackup),Css.Hint("복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다."),
-                Css.H3("다른 캘린더에서 옮겨오기"),Css.P("구글 캘린더, 아웃룩, 애플 캘린더에서 내보낸 .ics 파일의 일정을 지금 일정에 더합니다."),new InlineItem(8,importIcs),Css.Hint("구글 캘린더: 설정 → 가져오기 및 내보내기 → 내보내기 (zip을 풀면 .ics). 이미 있는 같은 일정은 건너뜁니다."));
+            data.Add(Css.H3("소중한 기록, 안전하게"),Css.P("일정, 할 일, 캘린더 설정, 펫·위젯 설정, 스티커 메모, 펫 일기를 함께 백업합니다."),new InlineItem(8,exportBackup,importBackup),Css.Hint("복원하면 현재 기록을 교체합니다. 교체 전 일정과 할 일은 자동 백업에 남습니다."),
+                Css.H3("정기 백업"),Css.P("고른 폴더(예: 클라우드 드라이브 폴더)에 위 통합 백업 파일을 자동으로 만들어요. 최근 10개만 남겨요."),
+                new RowItem(8,new FieldItem("백업 주기",backupInterval){Top=17,Bottom=0},new ControlItem(chooseBackupFolder,false),new ControlItem(backupNow,false)){Columns=new[]{-1f,0f,0f},AlignEnd=true,Top=6},backupStatus,
+                Css.H3("다른 캘린더와 주고받기"),Css.P("구글 캘린더, 아웃룩, 애플 캘린더의 .ics 파일을 가져와 지금 일정에 더하거나, 내 일정을 .ics로 내보냅니다."),new InlineItem(8,importIcs,exportIcs),Css.Hint("구글 캘린더: 설정 → 가져오기 및 내보내기 → 내보내기 (zip을 풀면 .ics). 이미 있는 같은 일정은 건너뜁니다."));
             dataGroup.Add(data);Body.Add(dataGroup);
             // 화면
             screenGroup=new GroupItem("화면",false);var screen=Section();screen.Add(Css.H3("글씨"),new FieldItem("글씨 크기",textScale){Top=17,Bottom=0},new FieldItem("글꼴",fontFamily,"캘린더 창, 위젯, 펫 말풍선, 스티커 메모에 쓰는 글꼴이에요."){Top=17,Bottom=0},new CssCheck(boldText,12,16),Css.Hint("모든 글씨를 굵게 표시해요. 작은 글씨가 잘 안 보일 때 켜 보세요."));screenGroup.Add(screen);Body.Add(screenGroup);
@@ -101,7 +104,27 @@ namespace PetCalendarDesktop {
             textScale.ValueChanged+=async delegate{if(syncing)return;int value=int.Parse(textScale.Value);if(!await View.Commit(s=>{s.settings.textScale=value;}))Sync();};
             exportBackup.Click+=ExportBackup;importBackup.Click+=ImportBackup;
             importIcs.Click+=delegate{string file;using(var dialog=new OpenFileDialog{Filter="iCalendar 파일 (*.ics)|*.ics|모든 파일 (*.*)|*.*",CheckFileExists=true}){if(dialog.ShowDialog(this)!=DialogResult.OK)return;file=dialog.FileName;}View.ImportIcs(file);};
+            exportIcs.Click+=delegate{View.ExportIcs(this);};
+            backupInterval.ValueChanged+=delegate{if(syncing)return;View.prefs.Value.backupInterval=backupInterval.Value;View.prefs.Save();
+                if(backupInterval.Value!="off"&&String.IsNullOrEmpty(View.prefs.Value.backupFolder))ChooseBackupFolder();else if(View.AutoBackupDue())FireBackup(false);RenderBackupStatus();};
+            chooseBackupFolder.Click+=delegate{ChooseBackupFolder();};
+            backupNow.Click+=delegate{if(String.IsNullOrEmpty(View.prefs.Value.backupFolder)){ChooseBackupFolder();if(String.IsNullOrEmpty(View.prefs.Value.backupFolder))return;}FireBackup(true);};
+            RenderBackupStatus();
             Sync();RenderHotkey(View.state.settings.hotkey);RefreshHotkeyStatus();UpdateWidget(null);UpdatePets(null);
+        }
+        void ChooseBackupFolder(){
+            using(var dialog=new FolderBrowserDialog{Description="정기 백업 파일을 저장할 폴더를 고르세요.",ShowNewFolderButton=true,SelectedPath=View.prefs.Value.backupFolder??""}){
+                if(dialog.ShowDialog(this)!=DialogResult.OK){RenderBackupStatus();return;}
+                View.prefs.Value.backupFolder=dialog.SelectedPath;View.prefs.Save();
+            }
+            if(View.AutoBackupDue())FireBackup(false);RenderBackupStatus();
+        }
+        async void FireBackup(bool manual){await View.RunAutoBackup(manual);RenderBackupStatus();}
+        internal void RenderBackupStatus(){
+            var p=View.prefs.Value;syncing=true;try{backupInterval.Value=p.backupInterval;}finally{syncing=false;}
+            DateTime last;string when=DateTime.TryParse(p.lastAutoBackup,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out last)?last.ToLocalTime().ToString("M월 d일 HH:mm",CultureInfo.GetCultureInfo("ko-KR")):"아직 없음";
+            backupStatus.Set(String.IsNullOrEmpty(p.backupFolder)?"백업 폴더를 고르지 않았어요.":"폴더: "+p.backupFolder+"\n마지막 백업: "+when+(p.backupInterval=="off"?" · 정기 백업 꺼짐":""));
+            if(IsHandleCreated)Body.Reflow();
         }
         void SaveTitle(){string value=userTitle.Text.Trim();if(value.Length==0){Validation.Report(userTitle,"호칭을 적어 주세요.");return;}UpdatePets("configureBed",null,new Dictionary<string,object>{{"title",value}});View.Toast("호칭을 바꿨어요","‘가족’이 된 펫이 이제 ‘"+value+"’(이)라고 불러요.");}
         // "초코 · 친구 ♥ 72%" per pet, from the pets status.
@@ -199,7 +222,7 @@ namespace PetCalendarDesktop {
                     if(View.Saving)return;backup["expectedRevision"]=View.state.revision;
                     var response=await View.CallApi("POST","/api/backup",Codec.Json(backup),false);
                     if(response.status!=200){var o=Codec.Object(Codec.Json(response.body));throw new Exception(o!=null&&o.ContainsKey("error")?o["error"] as string:"백업을 복원하지 못했습니다.");}
-                    View.state=(CalendarState)response.body;View.Render();UpdateWidget(null);UpdatePets(null);View.Toast("백업을 복원했어요","일정, 할 일, 펫과 위젯 설정을 불러왔습니다.");
+                    View.state=(CalendarState)response.body;View.Render();UpdateWidget(null);UpdatePets(null);View.Toast("백업을 복원했어요",backup.ContainsKey("notes")?"일정, 할 일, 펫·위젯 설정, 스티커 메모, 펫 일기를 불러왔습니다.":"일정, 할 일, 펫과 위젯 설정을 불러왔습니다. (이 백업에는 메모와 일기가 없어 지금 것을 그대로 두었어요.)");
                 }else if(await View.Commit(s=>{s.events=imported.events;s.tasks=imported.tasks;s.settings=imported.settings;}))View.Toast("백업을 복원했어요","일정과 할 일, 설정을 불러왔습니다.");
             }catch(Exception error){View.Toast("백업 파일을 확인해 주세요",error.Message,"error",10000);}
         }

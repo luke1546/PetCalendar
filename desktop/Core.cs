@@ -59,7 +59,7 @@ namespace PetCalendarDesktop {
     public static class Rules {
         public static readonly CultureInfo Korean=CultureInfo.GetCultureInfo("ko-KR");
         static readonly string[] Categories={"work","meeting","deadline","personal"};
-        static readonly string[] Repeats={"none","daily","weekly","monthly"};
+        static readonly string[] Repeats={"none","daily","weekdays","weekly","biweekly","monthly","yearly"};
         public static DateTime Date(string key){return DateTime.ParseExact(key,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None);}
         public static string Key(DateTime date){return date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture);}
         public static bool IsDate(object value){DateTime date;var text=value as string;return text!=null && Regex.IsMatch(text,"^[1-9][0-9]{3}-[0-9]{2}-[0-9]{2}$") && DateTime.TryParseExact(text,"yyyy-MM-dd",CultureInfo.InvariantCulture,DateTimeStyles.None,out date);}
@@ -138,7 +138,7 @@ namespace PetCalendarDesktop {
             foreach(var t in state.tasks)t.title=t.title.Trim();
             return state;
         }
-        public static bool OccursOn(CalendarEvent e,string key){if((e.excludedDates??new string[0]).Contains(key)||String.CompareOrdinal(key,e.startDate)<0||(e.repeat!="none"&&!String.IsNullOrEmpty(e.repeatUntil)&&String.CompareOrdinal(key,e.repeatUntil)>0))return false;if(e.repeat=="none")return key==e.startDate;if(e.repeat=="daily")return true;DateTime d=Date(key);if(e.repeat=="weekly")return (d-Date(e.startDate)).Days%7==0;if(e.repeat.StartsWith("monthly:")){var parts=e.repeat.Split(':');int week=Int32.Parse(parts[1]),weekday=Int32.Parse(parts[2]);return (int)d.DayOfWeek==weekday&&(week==-1?d.Day+7>DateTime.DaysInMonth(d.Year,d.Month):(d.Day+6)/7==week);}return d.Day==Math.Min(Date(e.startDate).Day,DateTime.DaysInMonth(d.Year,d.Month));}
+        public static bool OccursOn(CalendarEvent e,string key){if((e.excludedDates??new string[0]).Contains(key)||String.CompareOrdinal(key,e.startDate)<0||(e.repeat!="none"&&!String.IsNullOrEmpty(e.repeatUntil)&&String.CompareOrdinal(key,e.repeatUntil)>0))return false;if(e.repeat=="none")return key==e.startDate;if(e.repeat=="daily")return true;DateTime d=Date(key);if(e.repeat=="weekdays")return d.DayOfWeek!=DayOfWeek.Saturday&&d.DayOfWeek!=DayOfWeek.Sunday;if(e.repeat=="weekly")return (d-Date(e.startDate)).Days%7==0;if(e.repeat=="biweekly")return (d-Date(e.startDate)).Days%14==0;if(e.repeat=="yearly"){var o=Date(e.startDate);return d.Month==o.Month&&d.Day==Math.Min(o.Day,DateTime.DaysInMonth(d.Year,d.Month));}if(e.repeat.StartsWith("monthly:")){var parts=e.repeat.Split(':');int week=Int32.Parse(parts[1]),weekday=Int32.Parse(parts[2]);return (int)d.DayOfWeek==weekday&&(week==-1?d.Day+7>DateTime.DaysInMonth(d.Year,d.Month):(d.Day+6)/7==week);}return d.Day==Math.Min(Date(e.startDate).Day,DateTime.DaysInMonth(d.Year,d.Month));}
         public static bool Done(CalendarEvent e,string date){return (e.completedDates??new string[0]).Contains(date);}
         public static List<Occurrence> Occurrences(IEnumerable<CalendarEvent> events,string from,string to,bool sorted=true) {
             var list=new List<Occurrence>();DateTime first=Date(from),last=Date(to);
@@ -147,7 +147,14 @@ namespace PetCalendarDesktop {
                 if(e.repeat=="none"){if(original<=last&&original.AddDays(span)>=first)list.Add(new Occurrence{@event=e,key=e.id+"@"+e.startDate,startDate=e.startDate,endDate=e.endDate});continue;}
                 DateTime start=first.Ticks/TimeSpan.TicksPerDay>=span?first.AddDays(-span):DateTime.MinValue;if(start<original)start=original;
                 DateTime finish=String.IsNullOrEmpty(e.repeatUntil)?last:Date(e.repeatUntil);if(finish>last)finish=last;
-                if(e.repeat=="weekly"){int offset=(start-original).Days%7;if(offset!=0)start=start.AddDays(7-offset);}
+                if(e.repeat=="weekly"||e.repeat=="biweekly"){int period=e.repeat=="weekly"?7:14;int offset=(start-original).Days%period;if(offset!=0)start=start.AddDays(period-offset);}
+                if(e.repeat=="yearly") {
+                    for(int year=start.Year;year<=finish.Year;year++) {
+                        var date=new DateTime(year,original.Month,Math.Min(original.Day,DateTime.DaysInMonth(year,original.Month)));
+                        if(date>=start&&date<=finish){string key=Key(date);if(!(e.excludedDates??new string[0]).Contains(key))list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(date.AddDays(span))});}
+                    }
+                    continue;
+                }
                 if(e.repeat.StartsWith("monthly")) {
                     var cursor=new DateTime(start.Year,start.Month,1);var parts=e.repeat.Split(':');
                     while(cursor<=finish) {
@@ -162,9 +169,10 @@ namespace PetCalendarDesktop {
                 }
                 for(DateTime day=start;day<=finish;) {
                     string key=Key(day);
-                    if(!(e.excludedDates??new string[0]).Contains(key))list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(day.AddDays(span))});
+                    bool weekend=day.DayOfWeek==DayOfWeek.Saturday||day.DayOfWeek==DayOfWeek.Sunday;
+                    if(!(e.repeat=="weekdays"&&weekend)&&!(e.excludedDates??new string[0]).Contains(key))list.Add(new Occurrence{@event=e,key=e.id+"@"+key,startDate=key,endDate=Key(day.AddDays(span))});
                     if(day>=DateTime.MaxValue.Date.AddDays(-32))break;
-                    day=day.AddDays(e.repeat=="weekly"?7:1);
+                    day=day.AddDays(e.repeat=="weekly"?7:e.repeat=="biweekly"?14:1);
                 }
             }
             if(!sorted)return list;
@@ -175,12 +183,40 @@ namespace PetCalendarDesktop {
             string start=e.startDate;
             if(e.repeat!="none") {
                 if(!String.IsNullOrEmpty(e.pinnedDate)&&OccursOn(e,e.pinnedDate))start=e.pinnedDate;
-                else {string from=String.CompareOrdinal(today,e.startDate)>0?today:e.startDate;bool found=false;for(int i=0;i<=62;i++){string key=AddDays(from,i);if(OccursOn(e,key)){start=key;found=true;break;}}if(!found&&!String.IsNullOrEmpty(e.repeatUntil))for(int i=0;i<=62;i++){string key=AddDays(e.repeatUntil,-i);if(OccursOn(e,key)){start=key;break;}}}
+                else {string from=String.CompareOrdinal(today,e.startDate)>0?today:e.startDate;bool found=false;for(int i=0;i<=(e.repeat=="yearly"?366:62);i++){string key=AddDays(from,i);if(OccursOn(e,key)){start=key;found=true;break;}}if(!found&&!String.IsNullOrEmpty(e.repeatUntil))for(int i=0;i<=(e.repeat=="yearly"?366:62);i++){string key=AddDays(e.repeatUntil,-i);if(OccursOn(e,key)){start=key;break;}}}
             }
             return new Occurrence{@event=e,key=e.id+"@"+start,startDate=start,endDate=AddDays(start,(Date(e.endDate)-Date(e.startDate)).Days)};
         }
         public static long Epoch(DateTime utc){return (utc.ToUniversalTime().Ticks-new DateTime(1970,1,1,0,0,0,DateTimeKind.Utc).Ticks)/TimeSpan.TicksPerMillisecond;}
         public static long? ReminderAt(Occurrence o){if(!o.@event.reminder.HasValue||Done(o.@event,o.startDate))return null;DateTime local=Date(o.startDate).Add(TimeSpan.Parse(String.IsNullOrEmpty(o.@event.startTime)?"09:00":o.@event.startTime,CultureInfo.InvariantCulture));var zone=TimeZoneInfo.Local;if(zone.IsInvalidTime(local)){var next=local;while(zone.IsInvalidTime(next))next=next.AddMinutes(1);var previous=local;while(zone.IsInvalidTime(previous))previous=previous.AddMinutes(-1);local=local.Add(zone.GetUtcOffset(next)-zone.GetUtcOffset(previous));}TimeSpan offset=zone.IsAmbiguousTime(local)?zone.GetAmbiguousTimeOffsets(local).Max():zone.GetUtcOffset(local);return Epoch(new DateTimeOffset(local,offset).UtcDateTime)-o.@event.reminder.Value*60000L;}
+    }
+    // A data file that could not be read is copied aside (name.broken-YYYYMMDD-HHMMSS.json)
+    // before the app starts over with an empty list and saves, so the original is never lost;
+    // the host tells the user where it went.
+    // Focus mode: for a set time the pets nap and stay quiet (no chatter, periodic summaries,
+    // greetings or toy); schedule alerts still come through. Kept in memory only.
+    public static class FocusMode {
+        static DateTime until=DateTime.MinValue;
+        public static event Action Changed;
+        public static bool Active{get{return DateTime.Now<until;}}
+        public static DateTime Until{get{return until;}}
+        public static void Start(TimeSpan length){until=DateTime.Now+length;Fire();}
+        public static void Extend(TimeSpan more){until=(Active?until:DateTime.Now)+more;Fire();}
+        public static void Stop(){until=DateTime.MinValue;Fire();}
+        public static string Left(){var left=until-DateTime.Now;if(left<=TimeSpan.Zero)return "0분";int minutes=(int)Math.Ceiling(left.TotalMinutes);return minutes>=60?(minutes/60)+"시간"+(minutes%60>0?" "+(minutes%60)+"분":""):minutes+"분";}
+        internal static void Fire(){var handler=Changed;if(handler!=null)handler();}
+    }
+    public static class DataRecovery {
+        public static readonly List<string> Notices=new List<string>();
+        public static string Preserve(string path,string label){
+            try{
+                if(!File.Exists(path))return null;
+                string copy=Path.Combine(Path.GetDirectoryName(path),Path.GetFileNameWithoutExtension(path)+".broken-"+DateTime.Now.ToString("yyyyMMdd-HHmmss",CultureInfo.InvariantCulture)+Path.GetExtension(path));
+                File.Copy(path,copy,true);
+                lock(Notices)Notices.Add(label+" 파일을 읽지 못해 원래 파일을 ‘"+Path.GetFileName(copy)+"’로 보관하고 새로 시작했어요.");
+                return copy;
+            }catch(Exception){return null;}
+        }
     }
     public sealed class StateStore {
         public readonly string DirectoryPath,FilePath;

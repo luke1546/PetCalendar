@@ -342,23 +342,26 @@ namespace PetCalendarDesktop {
         // dates are skipped in the series and a single copy is made for today.
         internal async void MoveToToday(List<Occurrence> items){
             if(saving||items.Count==0)return;string today=Rules.Key(DateTime.Today);
-            var bySeries=items.GroupBy(o=>o.@event.id).ToList();
-            bool ok=await Commit(s=>{
-                foreach(var group in bySeries){
-                    var series=s.events.FirstOrDefault(e=>e.id==group.Key);if(series==null)continue;
-                    var first=group.OrderBy(o=>o.startDate,StringComparer.Ordinal).First();int span=(Rules.Date(first.endDate)-Rules.Date(first.startDate)).Days;
-                    if(series.repeat=="none"){
-                        if(series.pinnedDate!="")series.pinnedDate=today;
-                        series.startDate=today;series.endDate=Rules.AddDays(today,span);
-                    }else{
-                        var copy=Codec.Read<CalendarEvent>(Codec.Json(series));copy.id=Guid.NewGuid().ToString();copy.startDate=today;copy.endDate=Rules.AddDays(today,span);
-                        copy.repeat="none";copy.repeatUntil="";copy.completedDates=new string[0];copy.excludedDates=new string[0];copy.pinned=false;copy.pinnedDate="";
-                        series.excludedDates=series.excludedDates.Concat(group.Select(o=>o.startDate)).Distinct().ToArray();
-                        s.events=s.events.Concat(new[]{copy}).ToArray();
-                    }
-                }
-            });
+            bool ok=await Commit(s=>MoveToTodayIn(s,items,today));
             if(ok){JumpTo(today);UndoToast(items.Count==1?"오늘로 옮겼어요":"일정 "+items.Count+"개를 오늘로 옮겼어요",items.Count==1?items[0].@event.title:"놓친 일정",()=>Task.FromResult(false),"옮기기를 되돌렸어요");}
+        }
+        // The change MoveToToday saves. A repeating series that already occurs today keeps its own today,
+        // so no copy is made (a copy would show the same schedule twice).
+        internal static void MoveToTodayIn(CalendarState s,List<Occurrence> items,string today){
+            foreach(var group in items.GroupBy(o=>o.@event.id).ToList()){
+                var series=s.events.FirstOrDefault(e=>e.id==group.Key);if(series==null)continue;
+                var first=group.OrderBy(o=>o.startDate,StringComparer.Ordinal).First();int span=(Rules.Date(first.endDate)-Rules.Date(first.startDate)).Days;
+                if(series.repeat=="none"){
+                    if(series.pinnedDate!="")series.pinnedDate=today;
+                    series.startDate=today;series.endDate=Rules.AddDays(today,span);
+                }else{
+                    series.excludedDates=series.excludedDates.Concat(group.Select(o=>o.startDate)).Distinct().ToArray();
+                    if(Rules.Occurrences(new[]{series},today,today).Count>0)continue;
+                    var copy=Codec.Read<CalendarEvent>(Codec.Json(series));copy.id=Guid.NewGuid().ToString();copy.startDate=today;copy.endDate=Rules.AddDays(today,span);
+                    copy.repeat="none";copy.repeatUntil="";copy.completedDates=new string[0];copy.excludedDates=new string[0];copy.pinned=false;copy.pinnedDate="";
+                    s.events=s.events.Concat(new[]{copy}).ToArray();
+                }
+            }
         }
         internal async void CompleteOccurrences(List<Occurrence> items){
             if(saving||items.Count==0)return;

@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -70,6 +70,22 @@ namespace PetCalendarDesktop {
                     Check(rows.Count==1&&rows[0].startDate==Rules.AddDays(today,3),"the D-day picker keeps a pinned occurrence still ahead of today when the calendar is set later");
                 }
             }finally{Directory.Delete(dir,true);}
+        }
+
+        // Moving a missed repeat to today: a series that already lands on today keeps that one occurrence (no copy),
+        // a series that does not gets one copy, and the moved dates stay out of the series either way.
+        static void OverdueRepeatToToday(){
+            string today="2026-11-16";
+            var daily=Event("daily","2026-11-10","daily");
+            var dailyState=new CalendarState{events=new[]{daily}};
+            CalendarView.MoveToTodayIn(dailyState,Rules.Occurrences(new[]{daily},"2026-11-14","2026-11-15"),today);
+            Check(dailyState.events.Length==1&&Rules.Occurrences(dailyState.events,today,today).Count==1,"a missed daily repeat moved to today does not double today's occurrence");
+            Check(Rules.Occurrences(dailyState.events,"2026-11-14","2026-11-15").Count==0&&Rules.Occurrences(dailyState.events,"2026-11-17","2026-11-17").Count==1,"the moved daily dates stay out of the series and later days keep repeating");
+            var weekly=Event("weekly","2026-11-10","weekly");
+            var weeklyState=new CalendarState{events=new[]{weekly}};
+            CalendarView.MoveToTodayIn(weeklyState,Rules.Occurrences(new[]{weekly},"2026-11-10","2026-11-10"),today);
+            Check(weeklyState.events.Length==2&&weeklyState.events.Any(e=>e.repeat=="none"&&e.startDate==today&&e.endDate==today),"a missed weekly repeat moved to a day it does not land on makes one copy for today");
+            Check(Rules.Occurrences(weeklyState.events,today,today).Count==1&&Rules.Occurrences(weeklyState.events,"2026-11-10","2026-11-10").Count==0&&Rules.Occurrences(weeklyState.events,"2026-11-17","2026-11-17").Count==1,"after the copy the weekly series keeps its later dates and today shows once");
         }
 
         // Only the left button picks a D-day row or expands "더 보기"; a right click on either must do nothing.

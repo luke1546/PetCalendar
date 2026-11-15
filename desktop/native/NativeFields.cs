@@ -164,7 +164,7 @@ namespace PetCalendarDesktop {
         }
     }
     sealed class TimePicker : Control {
-        readonly TimeField owner;int ampm,hour,minute;int[] offsets=new int[3];int hoverCol=-1,hoverRow=-1;public Action<string> Done;
+        readonly TimeField owner;int ampm,hour,minute;int[] offsets=new int[3];readonly WheelNotch[] wheels={new WheelNotch(),new WheelNotch(),new WheelNotch()};int hoverCol=-1,hoverRow=-1;public Action<string> Done;
         public TimePicker(TimeField field){owner=field;DoubleBuffered=true;SetStyle(ControlStyles.Selectable|ControlStyles.ResizeRedraw,true);var v=owner.Value;TimeSpan t;if(!TimeSpan.TryParseExact(v,"hh\\:mm",CultureInfo.InvariantCulture,out t))t=new TimeSpan(9,0,0);ampm=t.Hours<12?0:1;hour=t.Hours%12==0?12:t.Hours%12;minute=t.Minutes;}
         float Sc{get{return owner.DeviceDpi/96f;}}
         int Row{get{return (int)Math.Round(28*Sc);}}
@@ -193,7 +193,9 @@ namespace PetCalendarDesktop {
             int c,r;Hit(e.Location,out c,out r);if(c==0)ampm=r;else if(c==1)hour=r+1;else if(c==2)minute=r;Invalidate();
         }
         void Finish(){int h=hour%12+(ampm==1?12:0);if(Done!=null)Done(h.ToString("00")+":"+minute.ToString("00"));}
-        protected override void OnMouseWheel(MouseEventArgs e){int c,r;Hit(PointToClient(Cursor.Position),out c,out r);if(c<0)return;int max=Math.Max(0,Count(c)*Row-Column(c).Height);offsets[c]=Math.Max(0,Math.Min(max,offsets[c]-e.Delta/120*Row*2));Invalidate();}
+        protected override void OnMouseWheel(MouseEventArgs e){WheelAt(PointToClient(Cursor.Position),e.Delta);}
+        // Scrolls only the column under p, never the selection. Small deltas (touchpads) add up per column.
+        internal void WheelAt(Point p,int delta){int c,r;Hit(p,out c,out r);if(c<0)return;int notches=wheels[c].Take(delta);int max=Math.Max(0,Count(c)*Row-Column(c).Height);offsets[c]=Math.Max(0,Math.Min(max,offsets[c]-notches*Row*2));Invalidate();}
         protected override bool IsInputKey(Keys k){return k==Keys.Enter||base.IsInputKey(k);}
         protected override void OnKeyDown(KeyEventArgs e){if(e.KeyCode==Keys.Enter)Finish();}
     }

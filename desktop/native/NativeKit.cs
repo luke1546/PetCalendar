@@ -625,7 +625,7 @@ public static class Ui {
             var popup=new Popup(list);list.Picked=key=>{popup.Close();Choose(key);Focus();};popup.Show(this,new Point(0,Height+(int)(2*s)));list.Focus();
         }
         sealed class OptionList : Control {
-            readonly SelectField owner;int hover=-1,offset;public Action<string> Picked;
+            readonly SelectField owner;int hover=-1,offset;readonly WheelNotch wheel=new WheelNotch();public Action<string> Picked;
             public OptionList(SelectField field){owner=field;DoubleBuffered=true;SetStyle(ControlStyles.Selectable|ControlStyles.ResizeRedraw,true);hover=owner.Options.FindIndex(o=>o.Key==owner.value);}
             float Sc{get{return owner.DeviceDpi/96f;}}
             int Row{get{return (int)Math.Round(30*Sc);}}
@@ -642,7 +642,7 @@ public static class Ui {
             int At(Point p){int i=(p.Y+offset-(int)(4*Sc))/Row;return i>=0&&i<owner.Options.Count?i:-1;}
             protected override void OnMouseMove(MouseEventArgs e){int i=At(e.Location);if(i!=hover){hover=i;Invalidate();}}
             protected override void OnMouseUp(MouseEventArgs e){int i=At(e.Location);if(i>=0&&Picked!=null)Picked(owner.Options[i].Key);}
-            protected override void OnMouseWheel(MouseEventArgs e){int max=Math.Max(0,owner.Options.Count*Row+(int)(8*Sc)-Height);offset=Math.Max(0,Math.Min(max,offset-e.Delta/120*Row*2));Invalidate();}
+            protected override void OnMouseWheel(MouseEventArgs e){int max=Math.Max(0,owner.Options.Count*Row+(int)(8*Sc)-Height);offset=Math.Max(0,Math.Min(max,offset-wheel.Take(e.Delta)*Row*2));Invalidate();}
             protected override bool IsInputKey(Keys k){return k==Keys.Up||k==Keys.Down||k==Keys.Enter||base.IsInputKey(k);}
             protected override void OnKeyDown(KeyEventArgs e){if(e.KeyCode==Keys.Up&&hover>0)hover--;else if(e.KeyCode==Keys.Down&&hover<owner.Options.Count-1)hover++;else if(e.KeyCode==Keys.Enter&&hover>=0&&Picked!=null){Picked(owner.Options[hover].Key);return;}int top=hover*Row;if(top<offset)offset=top;if(top+Row>offset+Height-(int)(8*Sc))offset=top+Row-Height+(int)(8*Sc);Invalidate();}
         }

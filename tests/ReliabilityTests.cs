@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -201,6 +201,52 @@ namespace PetCalendarDesktop {
             var barOne=new ThemeScrollBar();barOne.SetMetrics(1000,200);barWheel.Invoke(barOne,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-120)});
             Check(bar.GlideTarget>0&&bar.GlideTarget==barOne.GlideTarget,"two -60 wheel turns on the scrollbar scroll as far as one -120 turn");
             Console.WriteLine("PASS small wheel turns add up in the agenda and the scrollbar");
+        }
+
+        static void PopupWheels(){
+            // Time and select popups: 120-unit turns and small touchpad deltas scroll the list, never the chosen value.
+            var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            Func<TimePicker> time=()=>new TimePicker(new TimeField()){Size=new Size(196,236)};
+            Func<TimePicker,int[]> offsets=p=>(int[])typeof(TimePicker).GetField("offsets",flags).GetValue(p);
+            Func<TimePicker,int,Point> hourAt=(p,row)=>{float s=p.DeviceDpi/96f;return new Point(p.Width/2,(int)(8*s)+(int)Math.Round(28*s)*row+1);};
+            var timeWheel=typeof(TimePicker).GetMethod("WheelAt",flags);
+            var hourHalves=time();Action<TimePicker,int> wheel=(p,delta)=>timeWheel.Invoke(p,new object[]{hourAt(p,3),delta});
+            wheel(hourHalves,-60);
+            Check(offsets(hourHalves)[1]==0,"one -60 turn in the time picker waits for a full notch");
+            wheel(hourHalves,-60);
+            var hourOne=time();wheel(hourOne,-120);
+            Check(offsets(hourOne)[1]>0&&offsets(hourHalves)[1]==offsets(hourOne)[1],"two -60 turns in the time picker scroll as far as one -120 turn");
+            string picked=null;var done=time();done.Done=v=>picked=v;
+            wheel(done,-60);wheel(done,-60);
+            Check(offsets(done)[1]>0,"two -60 wheel turns scroll the hour column of the time picker");
+            var keyDown=typeof(TimePicker).GetMethod("OnKeyDown",flags);
+            keyDown.Invoke(done,new object[]{new KeyEventArgs(Keys.Enter)});
+            Check(picked=="09:00","small wheel turns in the time picker leave the chosen time unchanged");
+            var top=time();wheel(top,120);
+            Check(offsets(top)[1]==0,"wheel turns above the first hour stay at the top of the time picker");
+            var bottomFar=time();var bottomNear=time();
+            for(int i=0;i<100;i++)wheel(bottomFar,-120);for(int i=0;i<40;i++)wheel(bottomNear,-120);
+            Check(offsets(bottomFar)[1]>0&&offsets(bottomFar)[1]==offsets(bottomNear)[1],"wheel turns past the last hour stop at the end of the time picker");
+
+            var select=new SelectField();for(int i=0;i<12;i++)select.Add("k"+i,"항목 "+i);
+            var listType=typeof(SelectField).GetNestedType("OptionList",BindingFlags.NonPublic);
+            string pickedOption=null;
+            Func<string> keyOf=()=>select.Value;
+            Func<object> list=()=>{var o=Activator.CreateInstance(listType,flags,null,new object[]{select},null);((Control)o).Size=new Size(200,120);listType.GetField("Picked",flags).SetValue(o,(Action<string>)(k=>pickedOption=k));return o;};
+            var listWheel=listType.GetMethod("OnMouseWheel",flags);
+            Func<object,int> listOffset=o=>(int)listType.GetField("offset",flags).GetValue(o);
+            var halves=list();listWheel.Invoke(halves,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            Check(listOffset(halves)==0,"one -60 turn in the select popup waits for a full notch");
+            listWheel.Invoke(halves,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            var whole=list();listWheel.Invoke(whole,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-120)});
+            Check(listOffset(whole)>0&&listOffset(halves)==listOffset(whole),"two -60 turns in the select popup scroll as far as one -120 turn");
+            var up=list();listWheel.Invoke(up,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,120)});
+            Check(listOffset(up)==0,"wheel turns above the first option stay at the top of the select popup");
+            var end=list();for(int i=0;i<100;i++)listWheel.Invoke(end,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            var endFew=list();for(int i=0;i<50;i++)listWheel.Invoke(endFew,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            Check(listOffset(end)==listOffset(endFew)&&listOffset(end)>0,"wheel turns past the last option stop at the end of the select popup");
+            Check(keyOf()=="k0"&&pickedOption==null,"wheel turns in the select popup neither change nor pick the selected option");
+            Console.WriteLine("PASS small wheel turns scroll the time and select popups without changing the selection");
         }
 
         static void Ics(){

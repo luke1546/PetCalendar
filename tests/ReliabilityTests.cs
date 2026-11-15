@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -137,6 +137,29 @@ namespace PetCalendarDesktop {
             Check(field.Value=="","a day typed as a lone 0 is not stored as 2026-01-00");
             type(new KeyPressEventArgs('5'));
             Check(field.Value=="2026-01-05","typing 05 into the day completes to 2026-01-05");
+        }
+
+        // R8: while the task due-date field has focus, Ctrl+C/V go to that field (not to schedule copy/paste),
+        // Ctrl+Z/Y still reach undo and redo, the title box keeps all four, and the calendar keeps its shortcuts.
+        static void TaskShortcuts(){
+            string dir=Temp();var store=new StateStore(dir);var flags=BindingFlags.Instance|BindingFlags.NonPublic|BindingFlags.Public;
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();form.Activate();
+                    var processKey=typeof(CalendarView).GetMethod("ProcessCmdKey",flags);
+                    Func<Keys,bool> shortcut=k=>{var msg=Message.Create(view.Handle,0x0100,(IntPtr)(int)(k&Keys.KeyCode),IntPtr.Zero);return (bool)processKey.Invoke(view,new object[]{msg,k});};
+                    var due=(Control)typeof(CalendarView).GetField("taskDue",flags).GetValue(view);
+                    var title=(Control)typeof(CalendarView).GetField("taskTitle",flags).GetValue(view);
+                    var keys=new[]{Keys.Control|Keys.C,Keys.Control|Keys.V,Keys.Control|Keys.Z,Keys.Control|Keys.Y};
+                    var undoKeys=new[]{Keys.Control|Keys.Z,Keys.Control|Keys.Y,Keys.Control|Keys.Shift|Keys.Z};
+                    due.Focus();Check(due.ContainsFocus,"the task due-date field can take focus in the test window");
+                    Check(!shortcut(Keys.Control|Keys.C)&&!shortcut(Keys.Control|Keys.V),"Ctrl+C/V in the task due-date field stay with the field instead of running schedule copy and paste");
+                    Check(undoKeys.All(shortcut),"Ctrl+Z/Y/Shift+Z in the task due-date field still run undo and redo as they do elsewhere");
+                    title.Focus();Check(title.ContainsFocus&&keys.All(k=>!shortcut(k)),"Ctrl+C/V/Z/Y in the task title box stay with the box");
+                    view.Focus();Check(!due.ContainsFocus&&!title.ContainsFocus&&shortcut(Keys.Control|Keys.C)&&shortcut(Keys.Control|Keys.V),"Ctrl+C and Ctrl+V still run schedule copy and paste outside the task text fields");
+                }
+            }finally{Directory.Delete(dir,true);}
+            Console.WriteLine("PASS R8 task due-date field keeps Ctrl+C/V while focused, Ctrl+Z/Y still undo and redo, and schedule shortcuts work elsewhere");
         }
 
         // Two "지금 백업" runs in the same minute keep both files, and the newest-10 rule counts the files that exist.

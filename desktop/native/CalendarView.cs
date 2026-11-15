@@ -825,11 +825,12 @@ namespace PetCalendarDesktop {
         protected override void OnLostFocus(EventArgs e){base.OnLostFocus(e);Invalidate();}
         protected override bool ProcessCmdKey(ref Message msg,Keys keyData){
             if(modal)return base.ProcessCmdKey(ref msg,keyData);
-            // Text boxes keep their own Ctrl+Z for typing.
+            // Text boxes keep their own Ctrl+C/V/Z for typing. The due-date field keeps Ctrl+C/V only; its Ctrl+Z/Y still undo and redo.
             bool typing=searchBox.ContainsFocus||taskTitle.ContainsFocus;
+            bool dueTyping=taskDue.ContainsFocus;
             if(keyData==(Keys.Control|Keys.F)){focusId=null;searchBox.Focus();searchBox.SelectAll();return true;}
-            if(!typing&&keyData==(Keys.Control|Keys.C)){CopyEvent();return true;}
-            if(!typing&&keyData==(Keys.Control|Keys.V)){PasteEvent();return true;}
+            if(!typing&&!dueTyping&&keyData==(Keys.Control|Keys.C)){CopyEvent();return true;}
+            if(!typing&&!dueTyping&&keyData==(Keys.Control|Keys.V)){PasteEvent();return true;}
             if(!typing&&keyData==(Keys.Control|Keys.Z)){UndoKey();return true;}
             if(!typing&&(keyData==(Keys.Control|Keys.Y)||keyData==(Keys.Control|Keys.Shift|Keys.Z))){RedoKey();return true;}
             if(keyData==Keys.Tab||keyData==(Keys.Tab|Keys.Shift)){if(Focused){MoveFocus(keyData==Keys.Tab?1:-1);return true;}}

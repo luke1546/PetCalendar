@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();DateTyping();ToolbarLayout();Backups();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();DateTyping();ToolbarLayout();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -109,6 +109,26 @@ namespace PetCalendarDesktop {
                 Check(kept.Length==10&&kept.Contains(first)&&kept.Contains(second)&&kept.Contains(third)&&!kept.Contains(Path.Combine(folder,prefix+"2026-10-10-0900.json")),"the newest ten unique backups are kept and the oldest is dropped");
             }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
             Console.WriteLine("PASS same-minute backups keep every file and the newest-10 rule holds");
+        }
+
+        // Touchpads send deltas under one notch: small turns add up like one full notch, and turning back cancels them.
+        static void WheelSteps(){
+            var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            var agendaWheel=typeof(WidgetAgenda).GetMethod("Wheel",flags);
+            Func<int,WidgetAgenda> agenda=delta=>{var a=new WidgetAgenda();a.Scrollbar.SetMetrics(1000,200);agendaWheel.Invoke(a,new object[]{a,new MouseEventArgs(MouseButtons.None,0,0,0,delta)});return a;};
+            var one=agenda(-120);var halves=agenda(-60);agendaWheel.Invoke(halves,new object[]{halves,new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            Check(one.Scrollbar.GlideTarget>0&&halves.Scrollbar.GlideTarget==one.Scrollbar.GlideTarget,"two -60 wheel turns in the agenda scroll as far as one -120 turn");
+            var back=agenda(-120);double down=back.Scrollbar.GlideTarget;
+            agendaWheel.Invoke(back,new object[]{back,new MouseEventArgs(MouseButtons.None,0,0,0,60)});
+            Check(back.Scrollbar.GlideTarget==down,"one +60 turn does not yet undo a -120 turn");
+            agendaWheel.Invoke(back,new object[]{back,new MouseEventArgs(MouseButtons.None,0,0,0,60)});
+            Check(back.Scrollbar.GlideTarget==0,"two +60 turns cancel the earlier -120 turn in the agenda");
+            var bar=new ThemeScrollBar();bar.SetMetrics(1000,200);
+            var barWheel=typeof(ThemeScrollBar).GetMethod("OnMouseWheel",flags);
+            barWheel.Invoke(bar,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});barWheel.Invoke(bar,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-60)});
+            var barOne=new ThemeScrollBar();barOne.SetMetrics(1000,200);barWheel.Invoke(barOne,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-120)});
+            Check(bar.GlideTarget>0&&bar.GlideTarget==barOne.GlideTarget,"two -60 wheel turns on the scrollbar scroll as far as one -120 turn");
+            Console.WriteLine("PASS small wheel turns add up in the agenda and the scrollbar");
         }
 
         static void Ics(){

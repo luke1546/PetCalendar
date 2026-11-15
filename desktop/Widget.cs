@@ -216,6 +216,7 @@ namespace PetCalendarDesktop {
         public readonly FlowLayoutPanel Items=new FlowLayoutPanel();
         public readonly ThemeScrollBar Scrollbar=new ThemeScrollBar();
         bool reflowing;
+        readonly WheelNotch wheel=new WheelNotch();
         int TotalHeight {get{return Items.Controls.Cast<Control>().Sum(c=>c.Height+c.Margin.Vertical);}}
         public int ContentWidth {get{return Math.Max(1,ClientSize.Width-(TotalHeight>ClientSize.Height?DesktopTheme.Px(this,18):0));}}
         public WidgetAgenda(){
@@ -226,7 +227,7 @@ namespace PetCalendarDesktop {
             Controls.Add(Items);Controls.Add(Scrollbar);Scrollbar.BringToFront();
         }
         void BindWheel(Control control){control.MouseWheel+=Wheel;foreach(Control child in control.Controls)BindWheel(child);control.ControlAdded+=delegate(object sender,ControlEventArgs e){BindWheel(e.Control);};}
-        void Wheel(object sender,MouseEventArgs e){if(e is HandledMouseEventArgs&&((HandledMouseEventArgs)e).Handled)return;Scrollbar.GlideBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
+        void Wheel(object sender,MouseEventArgs e){if(e is HandledMouseEventArgs&&((HandledMouseEventArgs)e).Handled)return;int notches=wheel.Take(e.Delta);if(notches!=0)Scrollbar.GlideBy(-notches*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
         protected override void OnMouseWheel(MouseEventArgs e){Wheel(this,e);}
         protected override void OnSizeChanged(EventArgs e){base.OnSizeChanged(e);Reflow();}
         public void Reflow(){if(reflowing||Items==null||Scrollbar==null)return;reflowing=true;try{
@@ -234,6 +235,12 @@ namespace PetCalendarDesktop {
             Scrollbar.Bounds=new Rectangle(Math.Max(0,ClientSize.Width-DesktopTheme.Px(this,12)),0,DesktopTheme.Px(this,12),ClientSize.Height);
             Items.SetBounds(0,-Scrollbar.Value,ContentWidth,Math.Max(1,total));
         }finally{reflowing=false;}}
+    }
+    // Turns wheel deltas into whole notches (120 each). Touchpads and high-resolution wheels send
+    // smaller deltas; the remainder is kept so they add up, and an opposite turn cancels it.
+    sealed class WheelNotch {
+        int rest;
+        public int Take(int delta){int total=rest+delta,notches=total/120;rest=total-notches*120;return notches;}
     }
     // Themed scrollbar + mouse wheel for a multiline TextBox (memo fields, sticky notes).
     // The native bar ignores the theme, and dialog wheel hooks used to swallow its wheel.
@@ -279,8 +286,9 @@ namespace PetCalendarDesktop {
         public int Maximum {get{return maximum;}}
         public int Value {get{return value;}set{int next=Math.Max(0,Math.Min(maximum,value));glide.Offset=next;if(this.value==next)return;this.value=next;Invalidate();if(ValueChanged!=null)ValueChanged();}}
         // Wheel scrolling glides like the calendar's lists; setting Value directly ends a glide.
-        readonly ScrollModel glide=new ScrollModel();
+        readonly ScrollModel glide=new ScrollModel();readonly WheelNotch wheel=new WheelNotch();
         public void GlideBy(int amount){glide.Content=maximum+viewport;glide.Viewport=viewport;glide.Offset=value;glide.GlideBy(amount,()=>Value=glide.Offset);}
+        internal double GlideTarget{get{return glide.GlideTarget;}}
         public ThemeScrollBar(){DoubleBuffered=true;SetStyle(ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;Cursor=Cursors.Hand;AccessibleRole=AccessibleRole.ScrollBar;BackColor=DesktopTheme.Paper;}
         public void SetMetrics(int content,int visible){total=Math.Max(1,content);viewport=Math.Max(1,visible);maximum=Math.Max(0,content-visible);Value=value;Invalidate();}
         public void ScrollBy(int amount){Value+=amount;}
@@ -296,7 +304,7 @@ namespace PetCalendarDesktop {
         protected override void OnMouseCaptureChanged(EventArgs e){base.OnMouseCaptureChanged(e);if(!Capture){dragging=false;Invalidate();}}
         protected override void OnMouseEnter(EventArgs e){hovered=true;Invalidate();base.OnMouseEnter(e);}
         protected override void OnMouseLeave(EventArgs e){hovered=false;Invalidate();base.OnMouseLeave(e);}
-        protected override void OnMouseWheel(MouseEventArgs e){GlideBy(-e.Delta/120*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
+        protected override void OnMouseWheel(MouseEventArgs e){int notches=wheel.Take(e.Delta);if(notches!=0)GlideBy(-notches*DesktopTheme.Px(this,48));if(e is HandledMouseEventArgs)((HandledMouseEventArgs)e).Handled=true;}
         protected override bool IsInputKey(Keys keys){return keys==Keys.Up||keys==Keys.Down||keys==Keys.PageUp||keys==Keys.PageDown||keys==Keys.Home||keys==Keys.End||base.IsInputKey(keys);}
         protected override void OnKeyDown(KeyEventArgs e){base.OnKeyDown(e);int step=DesktopTheme.Px(this,32);switch(e.KeyCode){case Keys.Up:ScrollBy(-step);break;case Keys.Down:ScrollBy(step);break;case Keys.PageUp:ScrollBy(-viewport);break;case Keys.PageDown:ScrollBy(viewport);break;case Keys.Home:Value=0;break;case Keys.End:Value=maximum;break;default:return;}e.Handled=true;e.SuppressKeyPress=true;}
         protected override void OnGotFocus(EventArgs e){base.OnGotFocus(e);Invalidate();}

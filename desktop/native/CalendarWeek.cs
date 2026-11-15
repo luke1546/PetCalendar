@@ -30,15 +30,23 @@ namespace PetCalendarDesktop {
         static bool Timed(Occurrence o){return o.@event.startTime!=""&&o.startDate==o.endDate;}
         static int Minutes(string hhmm){return int.Parse(hhmm.Substring(0,2),CultureInfo.InvariantCulture)*60+int.Parse(hhmm.Substring(3,2),CultureInfo.InvariantCulture);}
         static string Clock(int minutes){minutes=Math.Max(0,Math.Min(23*60+59,minutes));return (minutes/60).ToString("00")+":"+(minutes%60).ToString("00");}
+        // "2026년 11월 9일 – 15일"; a week across a year end names both years: "2026년 12월 27일 – 2027년 1월 2일".
         internal string WeekLabel(){
             var a=Rules.Date(WeekStart());var b=a.AddDays(6);
-            return a.Month==b.Month?a.Month+"월 "+a.Day+"일 – "+b.Day+"일":a.Month+"월 "+a.Day+"일 – "+b.Month+"월 "+b.Day+"일";
+            string end=b.Year!=a.Year?b.Year+"년 "+b.Month+"월 "+b.Day+"일":a.Month==b.Month?b.Day+"일":b.Month+"월 "+b.Day+"일";
+            return a.Year+"년 "+a.Month+"월 "+a.Day+"일 – "+end;
         }
-        // "11/9–15" or "10/27–11/2" for narrow toolbars.
-        internal string WeekLabelShort(){var a=Rules.Date(WeekStart());var b=a.AddDays(6);return a.Month+"/"+a.Day+"–"+(a.Month==b.Month?b.Day.ToString():b.Month+"/"+b.Day);}
-        string WeekCount(){
+        // "2026 11/9–15" or "2026 10/27–11/2" for narrow toolbars; the year stays so the week can be told apart.
+        internal string WeekLabelShort(){
+            var a=Rules.Date(WeekStart());var b=a.AddDays(6);
+            string end=b.Year!=a.Year?b.Year+" "+b.Month+"/"+b.Day:a.Month==b.Month?b.Day.ToString():b.Month+"/"+b.Day;
+            return a.Year+" "+a.Month+"/"+a.Day+"–"+end;
+        }
+        internal string WeekCount(){
             var index=WeekIndex();int count=index.Values.SelectMany(l=>l.Select(o=>o.@event.id)).Distinct().Count();
-            var a=Rules.Date(WeekStart());return a.ToString("M/d",CultureInfo.InvariantCulture)+" – "+a.AddDays(6).ToString("M/d",CultureInfo.InvariantCulture)+" · "+count+"개 일정";
+            var a=Rules.Date(WeekStart());var b=a.AddDays(6);
+            string end=b.Year!=a.Year?b.Year+" "+b.ToString("M/d",CultureInfo.InvariantCulture):b.ToString("M/d",CultureInfo.InvariantCulture);
+            return a.Year+" "+a.ToString("M/d",CultureInfo.InvariantCulture)+" – "+end+" · "+count+"개 일정";
         }
         internal Dictionary<string,List<Occurrence>> WeekIndex(){
             string from=WeekStart(),to=Rules.AddDays(from,6),token=from+"|"+filter+"|"+search;

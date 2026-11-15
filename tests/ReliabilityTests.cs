@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();DateTyping();ToolbarLayout();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();DateTyping();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -71,6 +71,27 @@ namespace PetCalendarDesktop {
                 }
             }finally{DesktopTheme.TextScale=scale;DesktopTheme.BoldText=bold;Directory.Delete(dir,true);}
             Console.WriteLine("PASS R6 toolbar layout checks in both view modes, normal and large text");
+        }
+
+        // R7: the week view names the year in its title, its short title and its bottom count, and a week across a
+        // year end shows both years, so a December/January week cannot be mistaken for the other year's week.
+        static void WeekYear(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    view.SetWeekView(true);
+                    view.selected="2026-12-30";
+                    Check(view.WeekLabel()=="2026년 12월 27일 – 2027년 1월 2일","the week title names both years when the week crosses a year end");
+                    Check(view.WeekLabelShort()=="2026 12/27–2027 1/2","the short week title keeps both years when the week crosses a year end");
+                    Check(view.WeekCount().StartsWith("2026 12/27 – 2027 1/2 · ",StringComparison.Ordinal),"the bottom count names both years when the week crosses a year end");
+                    view.selected="2026-11-16";
+                    Check(view.WeekLabel()=="2026년 11월 15일 – 21일","the week title names the year inside one month");
+                    Check(view.WeekLabelShort()=="2026 11/15–21","the short week title names the year inside one month");
+                    Check(view.WeekCount().StartsWith("2026 11/15 – 11/21 · ",StringComparison.Ordinal),"the bottom count names the year inside one month");
+                }
+            }finally{Directory.Delete(dir,true);}
+            Console.WriteLine("PASS R7 week view titles and counts show the year");
         }
 
         static void DateTyping(){

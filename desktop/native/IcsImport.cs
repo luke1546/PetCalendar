@@ -9,7 +9,8 @@ namespace PetCalendarDesktop {
     // this app's schedules. Supported: all-day and timed events (UTC, local or TZID times),
     // multi-day spans, DESCRIPTION as the memo, daily/weekly/monthly RRULEs with UNTIL or
     // COUNT, "nth weekday" monthly rules and EXDATE. Rules the app cannot express (every 2
-    // weeks, several weekdays, yearly) keep only the first date and are counted as simplified.
+    // weeks, several weekdays, yearly, monthly on the 29th-31st) keep only the first date and
+    // are counted as simplified.
     public static class IcsImport {
         public sealed class Result {
             public List<CalendarEvent> Events=new List<CalendarEvent>();
@@ -145,7 +146,8 @@ namespace PetCalendarDesktop {
                 else if(startDay&&every==2)repeat="biweekly";
             }
             else if(freq=="MONTHLY"&&every==1&&byMonth==null){
-                if(byDay==null){if(bySetPos==null&&(byMonthDay==null||byMonthDay==dayNumber))repeat="monthly";}
+                // The 29th-31st skip the months that lack them; the app's monthly clamps to the last day instead, so they are not mapped.
+                if(byDay==null){if(bySetPos==null&&(byMonthDay==null||byMonthDay==dayNumber)&&start.Day<=28)repeat="monthly";}
                 else if(byMonthDay==null){
                     // "2TU" (2nd Tuesday) or BYDAY=TU with BYSETPOS=2; -1 is the last one.
                     var m=System.Text.RegularExpressions.Regex.Match(byDay,@"^([+-]?\d)?([A-Z]{2})$");

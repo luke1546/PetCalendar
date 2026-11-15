@@ -194,6 +194,18 @@ namespace PetCalendarDesktop {
                 e=r.Events.Single();
                 Check(e.repeat=="none"&&e.repeatUntil==""&&r.Simplified==1,"COUNT='"+bad+"' is reported as simplified, not an endless repeat");
             }
+            // BYMONTHDAY=31 from Jan 31 skips February and April; the app's monthly would clamp to Feb 28, so the rule is kept as its first date.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260131\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=31;COUNT=3\r\nSUMMARY:말일 반복\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            e=r.Events.Single();
+            Check(e.repeat=="none"&&e.startDate=="2026-01-31"&&r.Simplified==1,"BYMONTHDAY=31 is not widened into a clamped monthly series");
+            var first=Rules.Occurrences(new[]{e},"2026-01-01","2026-12-31",false).Select(o=>o.startDate).ToList();
+            Check(first.Count==1&&first[0]=="2026-01-31","BYMONTHDAY=31 keeps only the first date, not Feb 28 or Mar 31");
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260131\r\nRRULE:FREQ=MONTHLY;COUNT=3\r\nSUMMARY:말일 반복2\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            Check(r.Events.Single().repeat=="none"&&r.Simplified==1,"a 31st monthly rule without BYMONTHDAY is not clamped either");
+            // Days 1-28 are unchanged: COUNT=3 from Jan 15 ends on Mar 15.
+            r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260115\r\nRRULE:FREQ=MONTHLY;BYMONTHDAY=15;COUNT=3\r\nSUMMARY:15일 반복\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+            e=r.Events.Single();
+            Check(e.repeat=="monthly"&&e.repeatUntil=="2026-03-15"&&r.Simplified==0,"monthly BYMONTHDAY=15 COUNT=3 still ends on 2026-03-15 (until "+e.repeatUntil+")");
         }
 
         static async Task Saves(){

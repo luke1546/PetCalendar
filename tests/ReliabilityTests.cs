@@ -40,6 +40,34 @@ namespace PetCalendarDesktop {
             Check(Rules.DdayOccurrence(ended,"2026-11-15").startDate=="2026-06-01","an ended series counts down to its last date");
             var allGone=Event("gone","2026-01-01","yearly","2027-12-31",new[]{"2026-01-01","2027-01-01"});
             Check(Rules.DdayOccurrence(allGone,"2026-11-15").startDate=="2026-01-01","a series with no dates left keeps its start date");
+            // A pinned occurrence that has passed hands D-day to the next real date; one still ahead stays pinned.
+            var passed=Event("passed","2026-11-01","daily");passed.pinnedDate="2026-11-15";
+            Check(Rules.DdayOccurrence(passed,"2026-11-16").startDate=="2026-11-16","a pinned occurrence that has passed moves D-day to the next date");
+            var ahead=Event("ahead","2026-11-01","daily");ahead.pinnedDate="2026-11-20";
+            Check(Rules.DdayOccurrence(ahead,"2026-11-16").startDate=="2026-11-20","a pinned occurrence still ahead keeps D-day");
+            var skipped=Event("skipped","2026-11-02","weekly",excluded:new[]{"2026-11-16"});skipped.pinnedDate="2026-11-09";
+            Check(Rules.DdayOccurrence(skipped,"2026-11-16").startDate=="2026-11-23","a passed pinned occurrence moves past an excluded date to the next one");
+            var endedPinned=Event("endedPinned","2026-11-01","daily","2026-11-14");endedPinned.pinnedDate="2026-11-10";
+            Check(Rules.DdayOccurrence(endedPinned,"2026-11-16").startDate=="2026-11-14","a passed pinned occurrence of an ended series counts down to its last date");
+            DdayChoiceFollowsToday();
+        }
+
+        // The D-day picker judges pinned dates by the real today, not by the date selected in the calendar:
+        // a pinned occurrence still ahead of today stays the row even when the calendar is set far past it.
+        static void DdayChoiceFollowsToday(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    string today=Rules.Key(DateTime.Today);
+                    var daily=Event("picker","2000-01-01","daily");daily.pinned=true;daily.pinnedDate=Rules.AddDays(today,3);
+                    view.state.events=new[]{daily};
+                    view.selected=Rules.AddDays(today,30);
+                    var list=new ChoiceList(view);list.Rebuild();
+                    var rows=(List<Occurrence>)typeof(ChoiceList).GetField("rows",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(list);
+                    Check(rows.Count==1&&rows[0].startDate==Rules.AddDays(today,3),"the D-day picker keeps a pinned occurrence still ahead of today when the calendar is set later");
+                }
+            }finally{Directory.Delete(dir,true);}
         }
 
         // Typing into an existing date's month goes through the real key handlers, as a keyboard would.

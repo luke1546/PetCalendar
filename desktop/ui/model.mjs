@@ -203,7 +203,7 @@ function lastOccurrence(event) {
 export function ddayOccurrence(event, today = dateKey()) {
   let startDate=event.startDate;
   if(event.repeat!=='none') {
-    if(event.pinnedDate && occursOn(event,event.pinnedDate))startDate=event.pinnedDate;
+    if(event.pinnedDate && event.pinnedDate>=today && occursOn(event,event.pinnedDate))startDate=event.pinnedDate;
     else {
       const from=today>event.startDate?today:event.startDate;
       const next=nextOccurrence(event,from);

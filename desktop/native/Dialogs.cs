@@ -264,7 +264,7 @@ namespace PetCalendarDesktop {
         public int ViewHeight(){return view.ViewportScreen().Height;}
         public void Rebuild(){
             string q=Query.Trim().ToLower(Rules.Korean),today=Rules.Key(DateTime.Today);var target=view.deadlineTarget;
-            rows=view.state.events.Where(e=>q.Length==0||(e.title+" "+e.note).ToLower(Rules.Korean).Contains(q)).Select(e=>Rules.DdayOccurrence(e,view.selected)).ToList();
+            rows=view.state.events.Where(e=>q.Length==0||(e.title+" "+e.note).ToLower(Rules.Korean).Contains(q)).Select(e=>Rules.DdayOccurrence(e,today)).ToList();
             rows.Sort((a,b)=>{
                 int c=(target!=null&&b.@event.id==target.@event.id).CompareTo(target!=null&&a.@event.id==target.@event.id);if(c!=0)return c;
                 bool pa=String.CompareOrdinal(a.startDate,today)<0,pb=String.CompareOrdinal(b.startDate,today)<0;c=pa.CompareTo(pb);if(c!=0)return c;

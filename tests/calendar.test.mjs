@@ -52,10 +52,10 @@ test('D-day는 사용자가 고른 일정만 표시하고 선택하지 않으면
   assert.equal(dday(selectedDday([e],'2026-02-01').startDate,'2026-02-01'),'D+1');
 });
 
-test('반복 일정에서 고른 회차는 날짜가 지나거나 완료해도 선택을 유지한다',()=>{
+test('반복 일정에서 고른 회차는 날짜가 지나기 전까지 유지하고, 지나면 다음 회차로 넘어간다',()=>{
   const e=event({repeat:'monthly',pinned:true,pinnedDate:'2026-02-28',completedDates:['2026-02-28']});
   assert.equal(selectedDday([e],'2026-01-31').startDate,'2026-02-28');
-  assert.equal(selectedDday([e],'2026-03-10').startDate,'2026-02-28');
+  assert.equal(selectedDday([e],'2026-03-10').startDate,'2026-03-31');
   assert.equal(ddayOccurrence({...e,pinnedDate:''},'2026-02-01').startDate,'2026-02-28');
   assert.equal(ddayOccurrence({...e,pinnedDate:'2026-02-27'},'2026-02-01').startDate,'2026-02-28');
 });
@@ -67,12 +67,13 @@ test('D-day 선택 날짜는 백업에 보존하고 오래된 파일에는 기�
   assert.throws(()=>validateState({...defaultState(),events:[event({pinnedDate:'2026-02-30'})]}),/D-day 날짜/);
 });
 
-test('반복 일정은 완료한 회차의 알림만 제외하고 D-day 선택은 유지한다',()=>{
+test('반복 일정은 완료한 회차의 알림만 제외하고 D-day 선택은 지나기 전까지 유지한다',()=>{
   const e=event({repeat:'weekly',pinned:true,pinnedDate:'2026-01-31',completedDates:['2026-01-31']});
   const list=occurrences([e],'2026-01-31','2026-02-07');
   assert.equal(isEventDone(e,'2026-01-31'),true);assert.equal(isEventDone(e,'2026-02-07'),false);
   assert.equal(reminderTime(list[0]),null);assert.notEqual(reminderTime(list[1]),null);
-  assert.equal(selectedDday([e],'2026-02-01').startDate,'2026-01-31');
+  assert.equal(selectedDday([e],'2026-01-31').startDate,'2026-01-31');
+  assert.equal(selectedDday([e],'2026-02-01').startDate,'2026-02-07');
 });
 test('종일 알림은 현지 오전 9시, 알림 없음은 null이다',()=>{
   const list=occurrences([event({startTime:'',endTime:'',reminder:30})],'2026-01-31','2026-01-31');

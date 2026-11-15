@@ -179,13 +179,13 @@ namespace PetCalendarDesktop {
             return list.OrderBy(o=>o.startDate,StringComparer.Ordinal).ThenBy(o=>o.@event.startTime,StringComparer.Ordinal).ThenBy(o=>o.@event.title,StringComparer.Create(Korean,false)).ToList();
         }
         public static string Dday(string key,string today){int days=(Date(key)-Date(today)).Days;return days==0?"D-day":days>0?"D−"+days:"D+"+(-days);}
-        // A repeating schedule's D-day date: the pinned date when it still occurs, else the first
-        // date on or after today, else (a series that has ended) its last date. Dates are found
-        // through Occurrences, so excluded dates and leap years are handled like everywhere else.
+        // A repeating schedule's D-day date: the pinned date while it is today or later and still occurs,
+        // else the first date on or after today, else (a series that has ended) its last date. Dates are
+        // found through Occurrences, so excluded dates and leap years are handled like everywhere else.
         public static Occurrence DdayOccurrence(CalendarEvent e,string today) {
             string start=e.startDate;
             if(e.repeat!="none") {
-                if(!String.IsNullOrEmpty(e.pinnedDate)&&OccursOn(e,e.pinnedDate))start=e.pinnedDate;
+                if(!String.IsNullOrEmpty(e.pinnedDate)&&String.CompareOrdinal(e.pinnedDate,today)>=0&&OccursOn(e,e.pinnedDate))start=e.pinnedDate;
                 else {
                     string from=String.CompareOrdinal(today,e.startDate)>0?today:e.startDate;
                     string next=NextOccurrence(e,from);

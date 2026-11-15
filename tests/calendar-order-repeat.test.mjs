@@ -14,7 +14,7 @@ test('매월 셋째 금요일은 매달 날짜가 바뀌며 종료일·완료·D
  const list=occurrences([e],'2026-01-01','2026-06-30');assert.deepEqual(list.map(o=>o.startDate),['2026-01-16','2026-02-20','2026-03-20','2026-04-17']);
  assert.equal(ddayOccurrence(e,'2026-01-17').startDate,'2026-02-20');
  assert.equal(reminderTime(list[1]),new Date('2026-02-20T16:50:00').getTime());e.completedDates=['2026-02-20'];assert.equal(reminderTime(list[1]),null);assert.notEqual(reminderTime(list[2]),null);
- e.pinnedDate='2026-02-20';assert.equal(ddayOccurrence(e,'2026-04-01').startDate,'2026-02-20');
+ e.pinnedDate='2026-02-20';assert.equal(ddayOccurrence(e,'2026-02-01').startDate,'2026-02-20');assert.equal(ddayOccurrence(e,'2026-04-01').startDate,'2026-04-17');
 });
 test('마지막 요일·윤년·시작일 이후 적용 및 잘못된 규칙 거부',()=>{
  const e=event('last',{startDate:'2024-01-29',endDate:'2024-01-29',repeat:'monthly:-1:5'});

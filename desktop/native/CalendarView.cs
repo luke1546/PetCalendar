@@ -50,7 +50,7 @@ namespace PetCalendarDesktop {
         }
     }
     sealed class Hit {
-        public string Id;public Rectangle Rect;public Action Click,DoubleClick;public string Tip;public bool Focusable=true;public Rectangle Repaint;
+        public string Id;public Rectangle Rect,Full;public Action Click,DoubleClick;public string Tip;public bool Focusable=true;public Rectangle Repaint;
         public Cursor Cursor;public Func<object> Drag;public string DropDate;public ScrollModel Scroll;
     }
     public sealed partial class CalendarView : Control {
@@ -77,6 +77,7 @@ namespace PetCalendarDesktop {
         // Layout rectangles in page coordinates.
         Rectangle shell,masthead,summary,banner,workspace,calendarPanel,sidebar,dayPanel,taskPanel,notifCard,footer,gridRect,searchRect,bottomRect,weekdaysRect,toolbarRect,filterRect,searchBoxRect,dayList,taskList,taskEntry,taskBottom,progressRect;
         int rows,pageHeight;
+        ToolbarPlan toolbar;Rectangle toolbarTitle,bottomHintBox,bottomCountBox;
         public event Action<string> WindowAction;
         internal Func<string,string,string,string,bool,System.Threading.Tasks.Task<ApiResponse>> ApiCall;
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
@@ -142,7 +143,7 @@ namespace PetCalendarDesktop {
             var range=RangeForMonth();rows=range.Value/7;
             int sideW=m.Single?shell.Width:P(m.SideW),gap=P(m.WsGap);
             int calW=m.Single?shell.Width:shell.Width-sideW-gap;
-            int toolbarH=P(m.TbT)+(int)Math.Ceiling(Math.Max(38*s,Css(m.MonthH2)*1.33f*s))+P(m.TbB);
+            toolbar=PlanToolbar(calW-P(2));int toolbarH=ToolbarHeight(toolbar.TwoRows);
             int filterH=(int)Math.Ceiling(Math.Max(30*s,LH(11)+16*s))+P(m.FtB);
             int weekH=(int)Math.Ceiling(LH(11,700))+2*P(m.WkY)+P(2);
             int bottomH=(int)Math.Ceiling(LH(11))+2*P(m.BottomY)+P(1);
@@ -184,6 +185,7 @@ namespace PetCalendarDesktop {
         void LayoutCalendarPanel(int toolbarH,int filterH,int weekH,int gridH,int searchH,int bottomH){
             var p=calendarPanel;int y=p.Y+P(1);
             toolbarRect=new Rectangle(p.X+P(1),y,p.Width-P(2),toolbarH);y+=toolbarH;
+            toolbarTitle=new Rectangle(toolbarRect.X+P(m.TbX),toolbarRect.Y+P(m.TbT)+ToolbarTitleRowH()/2-toolbar.TitleH/2,toolbar.TitleW,toolbar.TitleH);
             filterRect=new Rectangle(p.X+P(1),y,p.Width-P(2),filterH);y+=filterH;
             int searchH0=(int)Math.Ceiling(LH(11)+14*s+2*s);int sw=P(m.SearchW);
             searchBoxRect=new Rectangle(filterRect.Right-P(m.FtX)-sw,filterRect.Y+(filterH-P(m.FtB)-searchH0)/2,sw,searchH0);
@@ -192,6 +194,45 @@ namespace PetCalendarDesktop {
             searchRect=searchH>0?new Rectangle(p.X+P(1),y,p.Width-P(2),searchH):Rectangle.Empty;y+=searchH;
             bottomRect=new Rectangle(p.X+P(1),y,p.Width-P(2),bottomH);
             searchScroll.Bounds=searchRect;searchScroll.Viewport=searchRect.Height;
+        }
+        // The month title and the calendar buttons share the first row while both fit. When the title
+        // would drop below MinTitleCss beside them, the buttons move to a second row under the title.
+        sealed class ToolbarPlan{public string Label,English;public float TitleCss;public int TitleW,TitleH,Add,AddSide,AddTextW,KbdW,Today,View,Controls;public bool TwoRows,Compact;}
+        const float MinTitleCss=18;
+        int ToolbarTitleRowH(){return (int)Math.Ceiling(Math.Max(38*s,Css(m.MonthH2)*1.33f*s));}
+        int ToolbarHeight(bool twoRows){return P(m.TbT)+ToolbarTitleRowH()+(twoRows?P(8)+P(38):0)+P(m.TbB);}
+        // Layout and paint both read this plan, so the rectangles they use always agree.
+        ToolbarPlan PlanToolbar(int width){
+            var plan=new ToolbarPlan();var parts=month.Split('-');int year=int.Parse(parts[0]),mon=int.Parse(parts[1]);
+            string fullLabel=weekView?WeekLabel():year+"년 "+mon+"월",label=fullLabel;float css=m.MonthH2;
+            int x=P(m.TbX),right=width-P(m.TbX);
+            var addFont=F(13,700,"일정 추가");plan.AddTextW=(int)Math.Ceiling(Ui.Advance("일정 추가",addFont));plan.KbdW=m.AddKbd?KbdWidth("N",10):0;
+            // The label is centred in the button; the plus icon and the N badge sit on either side of it, with equal side padding.
+            int addIconSide=P(3)+P(20)+P(7);int addBadgeSide=m.AddKbd?P(7)+plan.KbdW:0;plan.AddSide=P(m.AddPadX)+Math.Max(addIconSide,addBadgeSide);
+            int fullAdd=plan.AddSide*2+plan.AddTextW,compactAdd=P(38);
+            plan.Today=Ui.Width("오늘",F(12,700,"오늘"))+P(27);plan.View=ViewSwitchWidth();
+            Func<int,int> controls=aw=>aw+P(2)+P(m.AddMargin)+P(6)+P(36)+P(6)+plan.Today+P(6)+P(36)+P(10)+plan.View;
+            // Room left for the title on the first row, beside the buttons.
+            Func<int,int> room=aw=>right-controls(aw)-P(12)-x;
+            Func<string,float,float> titleWidth=(text,size)=>Ui.SpacedWidth(text,F(size,700,text),-s);
+            int add=fullAdd;bool compact=false;float titleW=titleWidth(label,css);
+            if(titleW>room(add)){add=compactAdd;compact=true;}
+            if(weekView&&titleW>room(add)){string shortLabel=WeekLabelShort();float shortW=titleWidth(shortLabel,css);if(shortW<=room(add)){label=shortLabel;titleW=shortW;}}
+            while(titleW>room(add)&&css>MinTitleCss){css--;titleW=titleWidth(label,css);}
+            if(titleW>room(add)){
+                // Two rows: the title takes the full width and the buttons sit under it.
+                plan.TwoRows=true;add=controls(fullAdd)<=right-x?fullAdd:compactAdd;compact=add==compactAdd;
+                label=fullLabel;css=m.MonthH2;titleW=titleWidth(label,css);
+                while(titleW>right-x&&css>MinTitleCss){css--;titleW=titleWidth(label,css);}
+            }
+            plan.Label=label;plan.TitleCss=css;plan.TitleW=(int)Math.Ceiling(titleW);plan.TitleH=(int)Math.Ceiling(F(css,700,label).GetHeight());
+            plan.Add=add;plan.Compact=compact;plan.Controls=controls(add);
+            if(m.English&&!weekView){
+                var eng=new DateTime(year,mon,1).ToString("MMMM",CultureInfo.GetCultureInfo("en-US")).ToUpperInvariant();float engW=Ui.SpacedWidth(eng,F(10,400,null,"mono"),s);
+                // The English month follows the title only where it leaves room for the buttons on that row.
+                if(x+plan.TitleW+P(m.MonthGap)+engW+P(12)<=(plan.TwoRows?right:right-plan.Controls))plan.English=eng;
+            }
+            return plan;
         }
         int SummaryContent(){float left=LH(9,700)+6*s+LH(m.H3,700);float right=Css(m.Stat)*s;return (int)Math.Ceiling(Math.Max(left,right));}
         int NotificationHeight(int width){
@@ -238,9 +279,9 @@ namespace PetCalendarDesktop {
         void Pop(Graphics g){var f=frames.Pop();ty=f.Key;clip=f.Value;g.ResetTransform();g.TranslateTransform(-bx,-by);g.TranslateTransform(0,ty);g.SetClip(clip);}
         void Apply(Graphics g){g.ResetTransform();g.TranslateTransform(-bx,-by);g.SetClip(clip);g.TranslateTransform(0,ty);}
         Hit AddHit(string id,Rectangle r,Action click,string tip=null,Rectangle? repaint=null){
-            var c=r;c.Offset(0,ty);c.Intersect(clip);if(c.Width<=0||c.Height<=0)return null;
+            var c=r;c.Offset(0,ty);var full=c;c.Intersect(clip);if(c.Width<=0||c.Height<=0)return null;
             var rp=repaint??r;rp.Offset(0,ty);
-            var h=new Hit{Id=id,Rect=c,Click=click,Tip=tip,Repaint=rp};building.Add(h);return h;
+            var h=new Hit{Id=id,Rect=c,Full=full,Click=click,Tip=tip,Repaint=rp};building.Add(h);return h;
         }
         bool Hover(string id){return hoverId==id&&!modal;}
         bool Pressed(string id){return pressId==id&&hoverId==id;}
@@ -404,41 +445,27 @@ namespace PetCalendarDesktop {
         void Panel(Graphics g,Rectangle r){var box=new RectangleF(r.X,r.Y,r.Width,r.Height);var sh=box;sh.Offset(2*s,2*s);Ui.Fill(g,sh,16*s,Ui.C("#d8c9ae"));Ui.Box(g,box,16*s,DesktopTheme.Card,DesktopTheme.Frame,s);}
         void PaintCalendarPanel(Graphics g){
             var p=calendarPanel;Panel(g,p);
-            // Toolbar
-            var tb=toolbarRect;int x=tb.X+P(m.TbX);int cy=tb.Y+P(m.TbT)+(tb.Height-P(m.TbT)-P(m.TbB))/2;
-            var parts=month.Split('-');int year=int.Parse(parts[0]),mon=int.Parse(parts[1]);string label=weekView?WeekLabel():year+"년 "+mon+"월";
-            int right=tb.Right-P(m.TbX);
-            var addFont=F(13,700,"일정 추가");int addTw=(int)Math.Ceiling(Ui.Advance("일정 추가",addFont));int addKbdW=m.AddKbd?KbdWidth("N",10):0;
-            // The label is centred in the button; the plus icon and the N badge sit on either side of it, with equal side padding.
-            int addIconSide=P(3)+P(20)+P(7);int addBadgeSide=m.AddKbd?P(7)+addKbdW:0;int addSide=P(m.AddPadX)+Math.Max(addIconSide,addBadgeSide);
-            int addW=addSide*2+addTw;
-            var tf=F(12,700,"오늘");int todayW=Ui.Width("오늘",tf)+P(27);int vw=ViewSwitchWidth();
-            Func<int,int> controls=aw=>aw+P(2)+P(m.AddMargin)+P(6)+P(36)+P(6)+todayW+P(6)+P(36)+P(10)+vw;
-            // Narrow calendars (small windows, large text): the add button drops its label and the
-            // week title shortens, so the title never runs under the buttons.
-            var h2=F(m.MonthH2,700,label);float titleW=Ui.SpacedWidth(label,h2,-s);bool compactAdd=false;
-            if(x+titleW+P(12)>right-controls(addW)){compactAdd=true;addW=P(38);}
-            if(weekView&&x+titleW+P(12)>right-controls(addW)){label=WeekLabelShort();h2=F(m.MonthH2,700,label);titleW=Ui.SpacedWidth(label,h2,-s);}
-            int titleRoom=right-controls(addW)-P(12)-x;
-            if(titleW>titleRoom&&titleRoom>0){for(float css=m.MonthH2-1;css>=14&&titleW>titleRoom;css--){h2=F(css,700,label);titleW=Ui.SpacedWidth(label,h2,-s);}}
-            int h2h=(int)Math.Ceiling(h2.GetHeight());Ui.Spaced(g,label,h2,x,cy-h2h/2,h2h,DesktopTheme.Ink,-1f*s);
-            if(m.English&&!weekView){string eng=new DateTime(year,mon,1).ToString("MMMM",CultureInfo.GetCultureInfo("en-US")).ToUpperInvariant();var ef=F(10,400,null,"mono");
-                if(x+titleW+P(m.MonthGap)+Ui.SpacedWidth(eng,ef,s)+P(12)<=right-controls(addW)){float baseline=cy-h2h/2f+Ui.Ascent(h2);int eh=(int)Math.Ceiling(ef.GetHeight());Ui.Spaced(g,eng,ef,x+titleW+P(m.MonthGap),(int)(baseline-Ui.Ascent(ef)),eh,DesktopTheme.Muted,1f*s);}}
+            // Toolbar: the title is on the first row; the buttons share it or take a second row (see PlanToolbar).
+            var tb=toolbarRect;var t=toolbar;int x=tb.X+P(m.TbX),right=tb.Right-P(m.TbX);
+            int titleCy=tb.Y+P(m.TbT)+ToolbarTitleRowH()/2;int cy=t.TwoRows?tb.Y+P(m.TbT)+ToolbarTitleRowH()+P(8)+P(19):titleCy;
+            var h2=F(t.TitleCss,700,t.Label);int h2h=(int)Math.Ceiling(h2.GetHeight());Ui.Spaced(g,t.Label,h2,x,titleCy-h2h/2,h2h,DesktopTheme.Ink,-1f*s);
+            if(t.English!=null){float baseline=titleCy-h2h/2f+Ui.Ascent(h2);var ef=F(10,400,null,"mono");int eh=(int)Math.Ceiling(ef.GetHeight());Ui.Spaced(g,t.English,ef,x+t.TitleW+P(m.MonthGap),(int)(baseline-Ui.Ascent(ef)),eh,DesktopTheme.Muted,1f*s);}
             // Add event (primary)
+            var addFont=F(13,700,"일정 추가");int addW=t.Add;
             var add=new Rectangle(right-addW-P(2),cy-P(19),addW,P(38));
             ButtonBox(g,"add-event",add,true);var addBox=add;if(Hover("add-event")&&!Pressed("add-event"))addBox.Offset(-P(1),-P(1));if(Pressed("add-event"))addBox.Offset(P(2),P(2));
-            if(compactAdd)Ui.Icon(g,"plus",new RectangleF(addBox.X+(addBox.Width-20*s)/2,addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
+            if(t.Compact)Ui.Icon(g,"plus",new RectangleF(addBox.X+(addBox.Width-20*s)/2,addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
             else{
-                int addTextX=addBox.X+addSide;Ui.Icon(g,"plus",new RectangleF(addBox.X+P(m.AddPadX)-P(5),addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
+                int addTextX=addBox.X+t.AddSide;Ui.Icon(g,"plus",new RectangleF(addBox.X+P(m.AddPadX)-P(5),addBox.Y+(addBox.Height-20*s)/2,20*s,20*s),DesktopTheme.Ink);
                 // Typographic drawing so the glyphs fill exactly the advance width that the layout centres.
                 using(var labelBrush=new SolidBrush(DesktopTheme.Ink))g.DrawString("일정 추가",addFont,labelBrush,addTextX,addBox.Y+(addBox.Height-addFont.GetHeight())/2f,StringFormat.GenericTypographic);
-                if(m.AddKbd){int kw=addKbdW,kh=Math.Max(P(19),(int)Math.Ceiling(F(10,400,null,"mono").GetHeight()+4*s));Kbd(g,"N",new Rectangle(addBox.X+addW-P(m.AddPadX)-kw,addBox.Y+(addBox.Height-kh)/2,kw,kh),10,true);}
+                if(m.AddKbd){int kw=t.KbdW,kh=Math.Max(P(19),(int)Math.Ceiling(F(10,400,null,"mono").GetHeight()+4*s));Kbd(g,"N",new Rectangle(addBox.X+addW-P(m.AddPadX)-kw,addBox.Y+(addBox.Height-kh)/2,kw,kh),10,true);}
             }
-            AddHit("add-event",add,()=>OpenEvent(null,selected,false),compactAdd?"일정 추가 (N)":null);FocusRing(g,"add-event",add,9*s);
+            AddHit("add-event",add,()=>OpenEvent(null,selected,false),t.Compact?"일정 추가 (N)":null);FocusRing(g,"add-event",add,9*s);
             int bx=add.X-P(m.AddMargin)-P(6)-P(36);var next=new Rectangle(bx,cy-P(18),P(36),P(36));ButtonBox(g,"next-month",next,false);Ui.Icon(g,"right",new RectangleF(next.X+8*s,next.Y+8*s,20*s,20*s),DesktopTheme.Ink);AddHit("next-month",next,()=>PageMove(1),weekView?"다음 주":"다음 달");FocusRing(g,"next-month",next,9*s);
-            bx-=P(6)+todayW;var today=new Rectangle(bx,cy-P(18),todayW,P(36));ButtonBox(g,"go-today",today,false);var tbx=today;if(Pressed("go-today"))tbx.Offset(P(1),P(1));Ui.Text(g,"오늘",tf,tbx,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);AddHit("go-today",today,()=>JumpTo(Rules.Key(DateTime.Today)));FocusRing(g,"go-today",today,9*s);
+            var tf=F(12,700,"오늘");bx-=P(6)+t.Today;var today=new Rectangle(bx,cy-P(18),t.Today,P(36));ButtonBox(g,"go-today",today,false);var tbx=today;if(Pressed("go-today"))tbx.Offset(P(1),P(1));Ui.Text(g,"오늘",tf,tbx,DesktopTheme.Ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);AddHit("go-today",today,()=>JumpTo(Rules.Key(DateTime.Today)));FocusRing(g,"go-today",today,9*s);
             bx-=P(6)+P(36);var prev=new Rectangle(bx,cy-P(18),P(36),P(36));ButtonBox(g,"prev-month",prev,false);Ui.Icon(g,"left",new RectangleF(prev.X+8*s,prev.Y+8*s,20*s,20*s),DesktopTheme.Ink);AddHit("prev-month",prev,()=>PageMove(-1),weekView?"이전 주":"이전 달");FocusRing(g,"prev-month",prev,9*s);
-            bx-=P(10)+vw;PaintViewSwitch(g,new Rectangle(bx,cy-P(18),vw,P(36)));
+            bx-=P(10)+t.View;PaintViewSwitch(g,new Rectangle(bx,cy-P(18),t.View,P(36)));
             // Filters
             var fr=filterRect;int fy=fr.Y,fh=fr.Height-P(m.FtB);int chipH=Math.Max(P(30),(int)Math.Ceiling(LH(11)+12*s+2*s));int fx=fr.X+P(m.FtX);
             var chips=new List<KeyValuePair<string,string>>{new KeyValuePair<string,string>("all","전체")};foreach(var c in AllCategories())chips.Add(new KeyValuePair<string,string>(c,DesktopTheme.CategoryName(c)));
@@ -466,7 +493,9 @@ namespace PetCalendarDesktop {
             string count=weekView?WeekCount():VisibleCount();var mf=F(9,400,null,"mono");int mw=Ui.Width(count,mf);
             // The hint uses what the schedule count leaves, shortened with "…", and disappears when too little is left.
             int hintW=br.Right-P(m.BottomX)-mw-P(16)-(bx0+P(10));
-            if(hintW>=P(90))Ui.Text(g,weekView?"빈 시간을 누르거나 위아래로 끌어 일정 추가 · 날짜는 끌어서 옮기기":"날짜 선택 · 한 번 더 누르면 일정 추가 · 여러 날짜를 끌면 기간 일정",bf,new Rectangle(bx0+P(10),br.Y+P(1),hintW,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);Ui.Text(g,count,mf,new Rectangle(br.Right-P(m.BottomX)-mw-2,br.Y+P(1),mw+2,br.Height-P(1)),Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.Right);
+            bottomHintBox=hintW>=P(90)?new Rectangle(bx0+P(10),br.Y+P(1),hintW,br.Height-P(1)):Rectangle.Empty;bottomCountBox=new Rectangle(br.Right-P(m.BottomX)-mw-2,br.Y+P(1),mw+2,br.Height-P(1));
+            if(!bottomHintBox.IsEmpty)Ui.Text(g,weekView?"빈 시간을 누르거나 위아래로 끌어 일정 추가 · 날짜는 끌어서 옮기기":"날짜 선택 · 한 번 더 누르면 일정 추가 · 여러 날짜를 끌면 기간 일정",bf,bottomHintBox,Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis);
+            Ui.Text(g,count,mf,bottomCountBox,Ui.C("#99886c"),TextFormatFlags.VerticalCenter|TextFormatFlags.Right);
         }
         int[] RowHeights(){if(!m.Fit)return GridRowHeights(gridRect.Width);var h=new int[rows];for(int r=0;r<rows;r++)h[r]=gridRect.Height*(r+1)/rows-gridRect.Height*r/rows;return h;}
         int Density(int rowHeight){float h=rowHeight/s;return m.Fit?(h<76?0:h<100?1:h<125?2:3):3;}

@@ -17,6 +17,13 @@ namespace PetCalendarDesktop {
                 dialogs=DialogForm.Open.Select(d=>d is EventDialog?((EventDialog)d).Describe():(object)new{kind=d.GetType().Name,heading=d.Heading}).ToArray(),
                 events=state.events.Length,tasks=state.tasks.Length};
         }
+        // Layout checks (ReliabilityTests): where the toolbar title, its buttons and the bottom bar texts are, in client coordinates.
+        internal bool ToolbarTwoRows{get{return toolbar.TwoRows;}}
+        internal Rectangle ToolbarBox{get{return Page(toolbarRect);}}
+        internal Rectangle ToolbarTitleBox{get{return Page(toolbarTitle);}}
+        internal Rectangle BottomHintBox{get{return bottomHintBox.IsEmpty?bottomHintBox:Page(bottomHintBox);}}
+        internal Rectangle BottomCountBox{get{return Page(bottomCountBox);}}
+        internal List<Hit> ToolbarHits(){var ids=new HashSet<string>{"add-event","prev-month","next-month","go-today","view-month","view-week"};return hits.Where(h=>ids.Contains(h.Id)).ToList();}
         internal object Bench(){
             var result=new Dictionary<string,object>();
             Func<int,Action<int>,object> time=(n,step)=>{

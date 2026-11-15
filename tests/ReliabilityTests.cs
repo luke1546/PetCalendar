@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -11,6 +12,7 @@ namespace PetCalendarDesktop {
     // R1 a committed save is reported as saved, R3 alarms survive a locked ledger,
     // R4 D-day finds the real next date, R5 .ics COUNT is kept exactly,
     // and a month typed one digit at a time ("0" then "1") never throws or stores a partial date.
+    // R6 the month title, toolbar buttons and bottom-bar texts never overlap in small windows or with large text.
     internal static class ReliabilityTests {
         static int count;
         static void Check(bool value,string message){if(!value)throw new Exception(message);Console.WriteLine("PASS "+message);count++;}
@@ -23,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();DateTyping();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();DateTyping();ToolbarLayout();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -41,6 +43,36 @@ namespace PetCalendarDesktop {
         }
 
         // Typing into an existing date's month goes through the real key handlers, as a keyboard would.
+        // R6: at 800×600 and with large text, the month title shares no pixels with the toolbar buttons or the bottom
+        // count, the bottom hint is dropped before it can reach the count, and the buttons still work after the layout changes.
+        static void ToolbarLayout(){
+            string dir=Temp();var store=new StateStore(dir);var scale=DesktopTheme.TextScale;var bold=DesktopTheme.BoldText;
+            try{
+                // 800×600 is the host's MinimumSize (Host.cs), so it is the narrowest window the layout has to support.
+                foreach(var size in new[]{new Size(800,600),new Size(1280,800)})foreach(var large in new[]{false,true})foreach(var week in new[]{false,true}){
+                    DesktopTheme.TextScale=large?2:0;DesktopTheme.BoldText=large;
+                    string where=size.Width+"x"+size.Height+(large?" large text":"")+(week?" week view":" month view");
+                    using(var form=new Form{ClientSize=size}){
+                        var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                        view.SetWeekView(week);view.Update();Application.DoEvents();view.Update();
+                        var bounds=new Rectangle(0,0,view.Width,view.Height);var toolbar=view.ToolbarBox;var title=view.ToolbarTitleBox;var buttons=view.ToolbarHits();
+                        Check(buttons.Count==6,"all six toolbar buttons are laid out ("+where+")");
+                        // Full is the unclipped rect, so a button pushed past the toolbar is caught instead of being cut down to fit.
+                        var clashing=buttons.Where(b=>title.IntersectsWith(b.Full)||!toolbar.Contains(b.Full)).Select(b=>b.Id).ToList();
+                        Check(clashing.Count==0&&bounds.Contains(title),"the month title and toolbar buttons do not overlap or leave the toolbar ("+where+", two rows: "+view.ToolbarTwoRows+(clashing.Count>0?"; "+string.Join(",",clashing):"")+")");
+                        Check(buttons.All(b=>b.Focusable&&b.Click!=null),"toolbar buttons stay in the keyboard tab order ("+where+")");
+                        var hint=view.BottomHintBox;var count=view.BottomCountBox;
+                        Check(bounds.Contains(count)&&(hint.IsEmpty||!hint.IntersectsWith(count)),"the bottom hint never overlaps the schedule count ("+where+")");
+                        var before=view.selected;buttons.Single(b=>b.Id=="next-month").Click();
+                        Check(view.selected!=before,"the next button still moves the calendar ("+where+")");
+                        buttons.Single(b=>b.Id=="view-week").Click();
+                        Check(view.weekView,"the week button still switches the view ("+where+")");
+                    }
+                }
+            }finally{DesktopTheme.TextScale=scale;DesktopTheme.BoldText=bold;Directory.Delete(dir,true);}
+            Console.WriteLine("PASS R6 toolbar layout checks in both view modes, normal and large text");
+        }
+
         static void DateTyping(){
             var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
             var keyDown=typeof(DateField).GetMethod("OnKeyDown",flags);var keyPress=typeof(DateField).GetMethod("OnKeyPress",flags);

@@ -115,7 +115,7 @@ namespace PetCalendarDesktop {
         void ChooseBackupFolder(){
             using(var dialog=new FolderBrowserDialog{Description="정기 백업 파일을 저장할 폴더를 고르세요.",ShowNewFolderButton=true,SelectedPath=View.prefs.Value.backupFolder??""}){
                 if(dialog.ShowDialog(this)!=DialogResult.OK){RenderBackupStatus();return;}
-                View.prefs.Value.backupFolder=dialog.SelectedPath;View.prefs.Save();
+                View.SetBackupFolder(dialog.SelectedPath);
             }
             if(View.AutoBackupDue())FireBackup(false);RenderBackupStatus();
         }

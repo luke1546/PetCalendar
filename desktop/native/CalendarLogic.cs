@@ -369,15 +369,29 @@ namespace PetCalendarDesktop {
         // With a folder and an interval set (this PC only, in ui-state.json), the whole-app backup
         // is written there once a day or week while the app runs; the newest 10 files are kept.
         internal const string AutoBackupPrefix="펫캘린더-자동백업-";
-        DateTime nextBackupCheck=DateTime.Now.AddSeconds(20);bool backupRunning;string lastBackupError;
+        DateTime nextBackupCheck=DateTime.Now.AddSeconds(20);bool backupRunning,backupQueued;string lastBackupError;
         void AutoBackupTick(){if(DateTime.Now<nextBackupCheck)return;nextBackupCheck=DateTime.Now.AddMinutes(5);if(AutoBackupDue())RunAutoBackup(false);}
         internal bool AutoBackupDue(){
             var p=prefs.Value;if(p.backupInterval=="off"||String.IsNullOrEmpty(p.backupFolder))return false;
             DateTime last;if(!DateTime.TryParse(p.lastAutoBackup,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out last))return true;
             return DateTime.Now-last.ToLocalTime()>=(p.backupInterval=="weekly"?TimeSpan.FromDays(7):TimeSpan.FromDays(1));
         }
+        // A new folder starts its own schedule: the last backup time belonged to the old folder, so the next check runs at once.
+        // Choosing the same folder again changes nothing.
+        internal bool SetBackupFolder(string folder){
+            var p=prefs.Value;if(String.Equals(p.backupFolder,folder,StringComparison.OrdinalIgnoreCase))return false;
+            p.backupFolder=folder;p.lastAutoBackup="";prefs.Save();return true;
+        }
+        // A backup asked for while another is running (for example right after a folder change) is queued, and runs once
+        // the current one ends, if the schedule still says it is due. Only one queued run is kept, so nothing runs twice.
         internal async Task<string> RunAutoBackup(bool manual){
-            if(backupRunning)return null;backupRunning=true;
+            if(backupRunning){backupQueued=true;return null;}
+            string file=await WriteAutoBackup(manual);
+            if(backupQueued){backupQueued=false;if(AutoBackupDue())await RunAutoBackup(false);}
+            return file;
+        }
+        async Task<string> WriteAutoBackup(bool manual){
+            backupRunning=true;
             try{
                 string folder=prefs.Value.backupFolder;if(String.IsNullOrEmpty(folder))throw new AppError(400,"백업 폴더를 먼저 골라 주세요.");
                 var backup=await Api("GET","/api/backup");
@@ -386,7 +400,9 @@ namespace PetCalendarDesktop {
                 File.WriteAllText(file+".tmp",JsonPretty.Write(backup),new System.Text.UTF8Encoding(false));
                 File.Move(file+".tmp",file);
                 foreach(var old in new DirectoryInfo(folder).GetFiles(AutoBackupPrefix+"*.json").OrderByDescending(f=>f.Name,StringComparer.Ordinal).Skip(10)){try{old.Delete();}catch(Exception){}}
-                prefs.Value.lastAutoBackup=DateTime.UtcNow.ToString("o",CultureInfo.InvariantCulture);prefs.Save();lastBackupError=null;
+                // If the folder was changed while this backup was running, the new folder still has no backup, so its schedule is left alone.
+                if(String.Equals(prefs.Value.backupFolder,folder,StringComparison.OrdinalIgnoreCase)){prefs.Value.lastAutoBackup=DateTime.UtcNow.ToString("o",CultureInfo.InvariantCulture);prefs.Save();}
+                lastBackupError=null;
                 if(manual)Toast("백업 파일을 만들었어요",Path.GetFileName(file));
                 foreach(var d in DialogForm.Open.OfType<SettingsDialog>())d.RenderBackupStatus();
                 return file;

@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -274,6 +274,53 @@ namespace PetCalendarDesktop {
                 Check(kept.Length==10&&kept.Contains(first)&&kept.Contains(second)&&kept.Contains(third)&&!kept.Contains(Path.Combine(folder,prefix+"2026-10-10-0900.json")),"the newest ten unique backups are kept and the oldest is dropped");
             }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
             Console.WriteLine("PASS same-minute backups keep every file and the newest-10 rule holds");
+        }
+
+        // Picking a new backup folder backs up there at once, even when the old folder was backed up a moment ago.
+        // Picking the same folder keeps the schedule, and a failed backup does not count as done.
+        static void BackupFolderChange(){
+            string dir=Temp();string oldFolder=Path.Combine(dir,"old"),newFolder=Path.Combine(dir,"new");var store=new StateStore(dir);
+            try{
+                // Shown in a form, as the other checks do, so a failed backup's toast has a window to appear in.
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    view.prefs.Value.backupFolder=oldFolder;view.prefs.Value.backupInterval="weekly";
+                    view.ApiCall=(m,p,b,v,f)=>Task.FromResult(new ApiResponse(200,new Dictionary<string,object>{{"version",1}}));
+                    Check(view.RunAutoBackup(false).GetAwaiter().GetResult()!=null&&!view.AutoBackupDue(),"a weekly backup in the old folder starts the schedule");
+                    Check(view.SetBackupFolder(newFolder)&&view.prefs.Value.lastAutoBackup==""&&view.AutoBackupDue(),"a new backup folder makes the next backup due at once");
+                    string made=view.RunAutoBackup(false).GetAwaiter().GetResult();
+                    Check(made!=null&&Path.GetDirectoryName(made)==newFolder&&Directory.GetFiles(newFolder,CalendarView.AutoBackupPrefix+"*.json").Length==1,"the first backup goes to the new folder");
+                    Check(!view.SetBackupFolder(newFolder.ToUpperInvariant())&&view.prefs.Value.lastAutoBackup!=""&&!view.AutoBackupDue(),"choosing the same folder again keeps the schedule");
+                    string failing=Path.Combine(dir,"not-a-folder");File.WriteAllText(failing,"blocks the folder");
+                    view.SetBackupFolder(failing);
+                    // The failure's toast needs a real desktop window, which this check does not look at; the saved state is what it checks.
+                    Toasts.Attach(null);
+                    Check(view.RunAutoBackup(false).GetAwaiter().GetResult()==null&&view.prefs.Value.lastAutoBackup==""&&view.AutoBackupDue(),"a failed backup to the new folder does not count as done");
+                }
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+            Console.WriteLine("PASS a new backup folder starts its own schedule and the same folder keeps it");
+        }
+
+        // A folder changed while a backup is running gets its first backup right after that one ends: the running backup
+        // stays in the old folder, and the new folder is backed up once, without waiting for the next periodic check.
+        static void BackupQueuedAfterFolderChange(){
+            string dir=Temp();string oldFolder=Path.Combine(dir,"old"),newFolder=Path.Combine(dir,"new");var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    view.prefs.Value.backupFolder=oldFolder;view.prefs.Value.backupInterval="weekly";
+                    var gate=new TaskCompletionSource<ApiResponse>();int calls=0;
+                    view.ApiCall=(m,p,b,v,f)=>{calls++;return calls==1?gate.Task:Task.FromResult(new ApiResponse(200,new Dictionary<string,object>{{"version",1}}));};
+                    Task<string> running=view.RunAutoBackup(false);
+                    view.SetBackupFolder(newFolder);
+                    Check(view.RunAutoBackup(false).GetAwaiter().GetResult()==null&&calls==1,"a backup asked for while one runs returns at once and does not start a second run");
+                    gate.SetResult(new ApiResponse(200,new Dictionary<string,object>{{"version",1}}));
+                    Check(running.GetAwaiter().GetResult()!=null,"the running backup finishes in the old folder");
+                    Check(calls==2&&Directory.GetFiles(oldFolder,CalendarView.AutoBackupPrefix+"*.json").Length==1&&Directory.GetFiles(newFolder,CalendarView.AutoBackupPrefix+"*.json").Length==1,"the new folder gets exactly one backup after the running one ends");
+                    Check(view.prefs.Value.lastAutoBackup!=""&&!view.AutoBackupDue(),"the new folder's schedule starts from its own backup");
+                }
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+            Console.WriteLine("PASS a folder changed during a backup is backed up once after it ends");
         }
 
         // A widget backup larger than the monitor, or placed off it, is fitted into the working area when restored, and the fitted value is saved again.

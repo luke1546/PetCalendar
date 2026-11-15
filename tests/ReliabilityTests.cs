@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();DateTyping();ToolbarLayout();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();DateTyping();ToolbarLayout();Backups();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -88,6 +88,27 @@ namespace PetCalendarDesktop {
             Check(field.Value=="","a day typed as a lone 0 is not stored as 2026-01-00");
             type(new KeyPressEventArgs('5'));
             Check(field.Value=="2026-01-05","typing 05 into the day completes to 2026-01-05");
+        }
+
+        // Two "지금 백업" runs in the same minute keep both files, and the newest-10 rule counts the files that exist.
+        static void Backups(){
+            string dir=Temp();string folder=Path.Combine(dir,"backups");var store=new StateStore(dir);
+            try{
+                var view=new CalendarView(null,store,new UiPrefs(dir,true));view.prefs.Value.backupFolder=folder;
+                int calls=0;view.ApiCall=(m,p,b,v,f)=>Task.FromResult(new ApiResponse(200,new Dictionary<string,object>{{"version",1},{"run",++calls}}));
+                string prefix=CalendarView.AutoBackupPrefix;Func<string,int,bool> holdsRun=(path,run)=>System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(path),"\"run\"\\s*:\\s*"+run+"\\b");
+                string first=view.RunAutoBackup(false).GetAwaiter().GetResult();
+                string second=view.RunAutoBackup(false).GetAwaiter().GetResult();
+                var made=Directory.GetFiles(folder,prefix+"*.json");
+                Check(first!=null&&second!=null&&first!=second&&made.Length==2,"two backups in the same minute are two files");
+                Check(holdsRun(first,1)&&holdsRun(second,2),"each file keeps the snapshot taken when it was made");
+                // Ten older backups already present: the next run keeps the newest ten and drops the oldest.
+                for(int i=0;i<10;i++)File.WriteAllText(Path.Combine(folder,prefix+"2026-10-"+(10+i).ToString("D2")+"-0900.json"),"{}");
+                string third=view.RunAutoBackup(false).GetAwaiter().GetResult();
+                var kept=Directory.GetFiles(folder,prefix+"*.json");
+                Check(kept.Length==10&&kept.Contains(first)&&kept.Contains(second)&&kept.Contains(third)&&!kept.Contains(Path.Combine(folder,prefix+"2026-10-10-0900.json")),"the newest ten unique backups are kept and the oldest is dropped");
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+            Console.WriteLine("PASS same-minute backups keep every file and the newest-10 rule holds");
         }
 
         static void Ics(){

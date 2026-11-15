@@ -382,9 +382,9 @@ namespace PetCalendarDesktop {
                 string folder=prefs.Value.backupFolder;if(String.IsNullOrEmpty(folder))throw new AppError(400,"백업 폴더를 먼저 골라 주세요.");
                 var backup=await Api("GET","/api/backup");
                 Directory.CreateDirectory(folder);
-                string file=Path.Combine(folder,AutoBackupPrefix+DateTime.Now.ToString("yyyy-MM-dd-HHmm",CultureInfo.InvariantCulture)+".json");
+                string file=NewBackupPath(folder);
                 File.WriteAllText(file+".tmp",JsonPretty.Write(backup),new System.Text.UTF8Encoding(false));
-                if(File.Exists(file))File.Delete(file);File.Move(file+".tmp",file);
+                File.Move(file+".tmp",file);
                 foreach(var old in new DirectoryInfo(folder).GetFiles(AutoBackupPrefix+"*.json").OrderByDescending(f=>f.Name,StringComparer.Ordinal).Skip(10)){try{old.Delete();}catch(Exception){}}
                 prefs.Value.lastAutoBackup=DateTime.UtcNow.ToString("o",CultureInfo.InvariantCulture);prefs.Save();lastBackupError=null;
                 if(manual)Toast("백업 파일을 만들었어요",Path.GetFileName(file));
@@ -395,6 +395,15 @@ namespace PetCalendarDesktop {
                 if(manual||lastBackupError!=error.Message)Toast("정기 백업을 만들지 못했어요",error.Message,"error",10000);
                 lastBackupError=error.Message;return null;
             }finally{backupRunning=false;}
+        }
+        // The stamp goes down to the millisecond, so a second backup in the same minute gets its own file and
+        // the first one stays. Names still sort by time, which the newest-10 rule relies on.
+        internal static string NewBackupPath(string folder){
+            while(true){
+                string path=Path.Combine(folder,AutoBackupPrefix+DateTime.Now.ToString("yyyy-MM-dd-HHmmssfff",CultureInfo.InvariantCulture)+".json");
+                if(!File.Exists(path)&&!File.Exists(path+".tmp"))return path;
+                System.Threading.Thread.Sleep(1);
+            }
         }
         // ---------- .ics import ----------
         // Adds the schedules of an iCalendar export; ones already here (same title, date and

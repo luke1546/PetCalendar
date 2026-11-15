@@ -301,19 +301,22 @@ namespace PetCalendarDesktop {
         // Keyboard: the highlighted row moves with Up/Down (scrolled into view), and Enter chooses it like a click.
         int RowTop(int index,int width){int y=(int)(4*Sc);for(int i=0;i<index;i++)y+=RowHeight(rows[i],width)+(int)(7*Sc);return y;}
         void MoveKey(int index){keyIndex=index;int width=scroll.Visible?Width-(int)(12*Sc):Width;int top=RowTop(index,width)-Offset;int bottom=top+RowHeight(rows[index],width);if(top<0)Offset+=top;else if(bottom>Height)Offset+=bottom-Height;Invalidate();}
+        // A row is shown while any part of it is inside the list; the highlight ring is drawn under the same rule.
+        bool RowShown(int index){int width=scroll.Visible?Width-(int)(12*Sc):Width;int top=RowTop(index,width)-Offset;return top+RowHeight(rows[index],width)>0&&top<Height;}
         protected override bool IsInputKey(Keys k){return k==Keys.Up||k==Keys.Down||k==Keys.Enter||base.IsInputKey(k);}
         protected override void OnKeyDown(KeyEventArgs e){
             base.OnKeyDown(e);int visible=Math.Min(rows.Count,view.limits["dday"]);
             if(e.KeyCode==Keys.Up&&keyIndex>0){MoveKey(keyIndex-1);e.Handled=true;}
             else if(e.KeyCode==Keys.Down&&keyIndex<rows.Count-1){if(keyIndex+1>=visible)ShowMore();MoveKey(keyIndex+1);e.Handled=true;}
-            else if(e.KeyCode==Keys.Enter&&keyIndex>=0&&keyIndex<visible){var o=rows[keyIndex];view.ChooseDday(o.@event.id,o.startDate,false);e.Handled=e.SuppressKeyPress=true;}
+            else if(e.KeyCode==Keys.Enter&&keyIndex>=0&&keyIndex<visible&&RowShown(keyIndex)){var o=rows[keyIndex];view.ChooseDday(o.@event.id,o.startDate,false);e.Handled=e.SuppressKeyPress=true;}
         }
         protected override void OnGotFocus(EventArgs e){if(keyIndex<0&&rows.Count>0)keyIndex=0;Invalidate();base.OnGotFocus(e);}
         protected override void OnLostFocus(EventArgs e){Invalidate();base.OnLostFocus(e);}
         protected override void OnMouseMove(MouseEventArgs e){bool more;int i=At(e.Location,out more);if(i!=hover||more!=hoverMore){hover=i;hoverMore=more;Invalidate();}Cursor=i>=0||more?Cursors.Hand:Cursors.Default;}
         protected override void OnMouseLeave(EventArgs e){hover=-1;hoverMore=false;Invalidate();}
         protected override void OnMouseUp(MouseEventArgs e){if(e.Button!=MouseButtons.Left)return;bool more;int i=At(e.Location,out more);if(more){ShowMore();return;}if(i>=0){var o=rows[i];view.ChooseDday(o.@event.id,o.startDate,false);}}
-        protected override void OnMouseWheel(MouseEventArgs e){scroll.Offset=Offset;scroll.Wheel(e.Delta,Sc,()=>{Offset=scroll.Offset;Invalidate();});var h=e as HandledMouseEventArgs;if(h!=null)h.Handled=true;}
+        // A wheel scroll that carries the highlighted row out of view clears the highlight, so no hidden row stays selected.
+        protected override void OnMouseWheel(MouseEventArgs e){scroll.Offset=Offset;scroll.Wheel(e.Delta,Sc,()=>{Offset=scroll.Offset;if(keyIndex>=0&&!RowShown(keyIndex))keyIndex=-1;Invalidate();});var h=e as HandledMouseEventArgs;if(h!=null)h.Handled=true;}
     }
     // ---------------- Day list ("+N개 더 보기") ----------------
     // Every schedule of one date in a popup, like the event editor: tick to complete,

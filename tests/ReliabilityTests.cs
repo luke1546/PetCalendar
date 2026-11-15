@@ -53,6 +53,7 @@ namespace PetCalendarDesktop {
             DdayChoiceFollowsToday();
             DdayChoiceClicks();
             DdayChoiceKeyboard();
+            DdayChoiceWheel();
         }
 
         // The D-day picker judges pinned dates by the real today, not by the date selected in the calendar:
@@ -97,6 +98,50 @@ namespace PetCalendarDesktop {
                     Check(highlighted()==1&&!view.Saving,"the Up key moves the D-day highlight back without choosing");
                     press(Keys.Enter);
                     Check(view.Saving&&view.state.events.Any(e=>e.pinned&&e.id=="key2"),"Enter chooses the highlighted D-day schedule like a click");
+                }
+            }finally{Directory.Delete(dir,true);}
+        }
+
+        // Wheel scrolling moves the list, not the highlight: a highlighted row scrolled out of view is cleared, and Enter never picks a row that is not shown.
+        static void DdayChoiceWheel(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    view.ApiCall=(method,path,body,version,force)=>new TaskCompletionSource<ApiResponse>().Task;
+                    string today=Rules.Key(DateTime.Today);
+                    view.state.events=Enumerable.Range(1,6).Select(i=>Event("wheel"+i,Rules.AddDays(today,i))).ToArray();
+                    view.limits["dday"]=6;
+                    var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+                    var keyDown=typeof(ChoiceList).GetMethod("OnKeyDown",flags);
+                    var keyIndex=typeof(ChoiceList).GetField("keyIndex",flags);
+                    var scroll=typeof(ChoiceList).GetField("scroll",flags);
+                    var wheel=typeof(ChoiceList).GetMethod("OnMouseWheel",flags);
+                    // A short list is painted once so the scrollbar knows the content height; the window is shorter than the rows.
+                    Func<ChoiceList> makeList=()=>{
+                        var l=new ChoiceList(view){Size=new Size(400,300)};l.Rebuild();
+                        var paint=typeof(ChoiceList).GetMethod("OnPaint",flags);
+                        using(var bmp=new Bitmap(400,300))using(var g=Graphics.FromImage(bmp))paint.Invoke(l,new object[]{new PaintEventArgs(g,new Rectangle(0,0,400,300))});
+                        return l;};
+                    Action<ChoiceList,int> pressDown=(l,times)=>{for(int i=0;i<times;i++)keyDown.Invoke(l,new object[]{new KeyEventArgs(Keys.Down)});};
+                    Action<ChoiceList> pressEnter=l=>keyDown.Invoke(l,new object[]{new KeyEventArgs(Keys.Enter)});
+
+                    var hidden=makeList();pressDown(hidden,3);
+                    Check((int)keyIndex.GetValue(hidden)==2,"the D-day picker highlights the third schedule before the wheel scrolls");
+                    hidden.Offset=400;
+                    pressEnter(hidden);
+                    Check(!view.Saving&&!view.state.events.Any(e=>e.pinned),"Enter does not choose a highlighted D-day row that is scrolled out of view");
+
+                    // The first row is the one that leaves the window completely when the list goes to its end.
+                    var scrolled=makeList();pressDown(scrolled,1);
+                    Check((int)keyIndex.GetValue(scrolled)==0,"the D-day picker highlights the first schedule before the wheel scrolls to the end");
+                    var model=(ScrollModel)scroll.GetValue(scrolled);
+                    wheel.Invoke(scrolled,new object[]{new MouseEventArgs(MouseButtons.None,0,0,0,-1200)});
+                    Pump(()=>scrolled.Offset==model.Max,3000);
+                    Check(model.Max>0&&scrolled.Offset==model.Max,"the wheel scrolls the D-day list to its end");
+                    Check((int)keyIndex.GetValue(scrolled)==-1,"a wheel scroll that moves the highlighted D-day row out of view clears the highlight");
+                    pressEnter(scrolled);
+                    Check(!view.Saving&&!view.state.events.Any(e=>e.pinned),"Enter after a wheel scroll does not choose a D-day row that is no longer shown");
                 }
             }finally{Directory.Delete(dir,true);}
         }

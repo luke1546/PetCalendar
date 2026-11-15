@@ -15,3 +15,5 @@
 - 이 설정 요청은 릴리스, push, 자동 병합을 포함하지 않는다.
 - 작업 보고에 원인, 변경 파일, 결과, 실행한 검증과 실패/제한을 포함한다.
 - 읽기 전용 또는 연동 검증을 요청받으면 파일을 수정하지 않는다.
+
+Windows PowerShell은 서비스 PATH에 없을 수 있다. 커스텀 명령에는 /mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe 절대 경로를 사용한다.

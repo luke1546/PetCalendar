@@ -14,16 +14,20 @@ namespace PetCalendarDesktop {
     // reopened when the app starts. × only closes a note (its text is kept and it can be
     // reopened from the widget's + menu); the trash button deletes it for good.
     internal sealed class StickyNotes : IDisposable {
-        readonly string path;readonly Action<Exception> log;
+        readonly string path,pendingPath;readonly Action<Exception> log;
         readonly List<StickyNote> notes;readonly Dictionary<string,StickyNoteWindow> windows=new Dictionary<string,StickyNoteWindow>();
         readonly Timer saveTimer=new Timer{Interval=500};
+        // A failed write is retried by itself, waiting 1 s, then 2 s … up to 30 s, until the file is free again.
+        readonly Timer retryTimer=new Timer();int retryDelay=1000;bool unsaved;
         // A line of a note sent to the calendar: a new schedule, or a task (true when it was added).
         internal event Action<string> EventFromLine;internal Func<string,System.Threading.Tasks.Task<bool>> TaskFromLine;
         internal StickyNotes(string dataDir,Action<Exception> error){
-            path=Path.Combine(dataDir,"sticky-notes.json");log=error;
+            path=Path.Combine(dataDir,"sticky-notes.json");pendingPath=Path.Combine(dataDir,"sticky-notes.pending.json");log=error;
             try{notes=File.Exists(path)?(Codec.Read<List<StickyNote>>(File.ReadAllText(path))??new List<StickyNote>()):new List<StickyNote>();}catch(Exception e){log(e);DataRecovery.Preserve(path,"스티커 메모");notes=new List<StickyNote>();}
             notes.RemoveAll(n=>n==null||String.IsNullOrEmpty(n.id));
             saveTimer.Tick+=delegate{saveTimer.Stop();Save();};
+            retryTimer.Tick+=delegate{retryTimer.Stop();Save();};
+            RecoverPending();
         }
         internal int Count{get{return notes.Count;}}
         // Whole-app backup: every note (open or closed) with its text, colour and place.
@@ -38,7 +42,7 @@ namespace PetCalendarDesktop {
         }
         // Writes the file first (throws if it cannot), and only then swaps what is on screen.
         internal void Replace(List<StickyNote> next){
-            saveTimer.Stop();StateStore.Atomic(path,Codec.Json(next),null);
+            saveTimer.Stop();StateStore.Atomic(path,Codec.Json(next),null);ClearPending();retryTimer.Stop();retryDelay=1000;unsaved=false;
             foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();
             notes.Clear();notes.AddRange(next);Restore();
         }
@@ -70,7 +74,7 @@ namespace PetCalendarDesktop {
         }
         static float ScaleAt(Point p){try{using(var g=Graphics.FromHwnd(IntPtr.Zero))return g.DpiX/96f;}catch{return 1;}}
         StickyNoteWindow Open(StickyNote note){
-            var window=new StickyNoteWindow(note);windows[note.id]=window;
+            var window=new StickyNoteWindow(note);windows[note.id]=window;window.SetUnsaved(unsaved);
             window.Changed+=()=>{saveTimer.Stop();saveTimer.Start();};
             window.NewRequested+=()=>Create(window.Bounds);
             window.DeleteRequested+=()=>Delete(note);
@@ -94,8 +98,35 @@ namespace PetCalendarDesktop {
         }
         internal void ApplyFont(){foreach(var w in windows.Values)w.ApplyFont();}
         internal void SetVisible(bool visible){foreach(var w in windows.Values){if(visible)w.Show();else w.Hide();}}
-        void Save(){try{StateStore.Atomic(path,Codec.Json(notes),null);}catch(Exception e){log(e);}}
-        public void Dispose(){saveTimer.Stop();Save();saveTimer.Dispose();foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();}
+        // A failed write keeps every note on screen, marks the windows and retries; the file keeps the last copy that was written.
+        void Save(){
+            if(Write()){retryTimer.Stop();retryDelay=1000;SetUnsaved(false);return;}
+            SetUnsaved(true);retryTimer.Stop();retryTimer.Interval=retryDelay;retryTimer.Start();retryDelay=Math.Min(30000,retryDelay*2);
+        }
+        bool Write(){
+            try{StateStore.Atomic(path,Codec.Json(notes),null);ClearPending();return true;}
+            catch(Exception e){log(e);KeepPending();return false;}
+        }
+        // The newest text is also kept in sticky-notes.pending.json while the main file cannot be written, so a restart still has it.
+        void KeepPending(){try{StateStore.Atomic(pendingPath,Codec.Json(notes),null);}catch(Exception e){log(e);}}
+        void ClearPending(){try{if(File.Exists(pendingPath))File.Delete(pendingPath);}catch(Exception e){log(e);}}
+        // The pending copy wins only when it is newer than the main file (a later successful save makes it stale).
+        void RecoverPending(){
+            if(!File.Exists(pendingPath))return;
+            try{
+                if(File.Exists(path)&&File.GetLastWriteTimeUtc(path)>=File.GetLastWriteTimeUtc(pendingPath))return;
+                var pending=Codec.Read<List<StickyNote>>(File.ReadAllText(pendingPath))??new List<StickyNote>();
+                notes.Clear();notes.AddRange(pending.Where(n=>n!=null&&!String.IsNullOrEmpty(n.id)));
+            }catch(Exception e){log(e);DataRecovery.Preserve(pendingPath,"스티커 메모 임시 저장본");return;}
+            Save();
+        }
+        void SetUnsaved(bool value){unsaved=value;foreach(var w in windows.Values)w.SetUnsaved(value);}
+        // On exit the write gets a few more tries with short waits; if it still fails, the newest text stays in the pending file and the app closes.
+        public void Dispose(){
+            saveTimer.Stop();retryTimer.Stop();
+            bool saved=Write();for(int i=0;!saved&&i<3;i++){System.Threading.Thread.Sleep(300);saved=Write();}
+            saveTimer.Dispose();retryTimer.Dispose();foreach(var w in windows.Values.ToArray()){w.Close();w.Dispose();}windows.Clear();
+        }
     }
 
     internal sealed class StickyNoteWindow : Form {
@@ -104,7 +135,7 @@ namespace PetCalendarDesktop {
         static Color Bar(string c){return ColorTranslator.FromHtml(c=="pink"?"#ffc4d2":c=="green"?"#c7e8b6":c=="blue"?"#c2e0f7":"#ffe680");}
         readonly StickyNote note;readonly TextBox text=new TextBox();readonly TextScroll scroll;readonly ToolTip tips=new ToolTip();
         internal event Action Changed,NewRequested,DeleteRequested,CloseRequested;internal event Action<string> EventRequested,TaskRequested;
-        Rectangle addRect,colorRect,deleteRect,closeRect;string hover;bool loaded;
+        Rectangle addRect,colorRect,deleteRect,closeRect;string hover;bool loaded,unsaved;
         [DllImport("user32.dll")]static extern bool ReleaseCapture();
         [DllImport("user32.dll")]static extern IntPtr SendMessage(IntPtr window,int message,IntPtr wParam,IntPtr lParam);
         internal StickyNoteWindow(StickyNote value){
@@ -143,6 +174,8 @@ namespace PetCalendarDesktop {
         internal void Flash(string message){var p=PointToClient(Cursor.Position);tips.Show(message,this,Math.Max(0,Math.Min(Width-40,p.X)),Math.Max(BarHeight,p.Y-(int)(28*Sc)),1800);}
         int BarHeight{get{return (int)Math.Round(30*Sc);}}
         internal void FocusText(){Activate();text.Focus();text.SelectionStart=text.TextLength;}
+        // Shown in the title bar while the last save failed; cleared once the text is on disk.
+        internal void SetUnsaved(bool value){if(unsaved==value)return;unsaved=value;Invalidate(new Rectangle(0,0,Width,BarHeight));}
         internal void ApplyFont(){var old=text.Font;text.Font=DesktopTheme.UiFont(11+DesktopTheme.TextScale);if(old!=null&&old!=Control.DefaultFont)old.Dispose();Invalidate();}
         void ApplyColor(){BackColor=Fill(note.color);text.BackColor=BackColor;if(scroll!=null)scroll.Bar.BackColor=BackColor;text.ForeColor=DesktopTheme.Ink;Invalidate();}
         protected override void OnShown(EventArgs e){base.OnShown(e);Layout2();}
@@ -165,6 +198,7 @@ namespace PetCalendarDesktop {
                 if(id=="color"){var c=new Rectangle(r.X+(int)(5*s),r.Y+(int)(5*s),r.Width-(int)(10*s),r.Height-(int)(10*s));using(var b=new SolidBrush(Fill(Next(note.color))))g.FillEllipse(b,c);using(var pen=new Pen(Color.FromArgb(120,0,0,0),1.2f*s))g.DrawEllipse(pen,c);return;}
                 using(var f=new Font("Segoe UI",11f*s,FontStyle.Bold,GraphicsUnit.Pixel))TextRenderer.DrawText(g,label,f,r,Color.FromArgb(160,0,0,0),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);};
             icon(addRect,"add","+");icon(colorRect,"color","");icon(deleteRect,"delete","");icon(closeRect,"close","×");
+            if(unsaved){using(var f=DesktopTheme.UiFont(9+DesktopTheme.TextScale))TextRenderer.DrawText(g,"저장 안 됨 · 자동 재시도 중",f,new Rectangle((int)Math.Round(12*s),0,Math.Max(0,addRect.Left-(int)Math.Round(18*s)),BarHeight),Color.FromArgb(190,170,0,0),TextFormatFlags.Left|TextFormatFlags.VerticalCenter|TextFormatFlags.EndEllipsis|TextFormatFlags.NoPrefix);}
             // Folded corner.
             int fold=(int)(14*s);using(var b=new SolidBrush(Color.FromArgb(30,0,0,0)))g.FillPolygon(b,new[]{new Point(Width-fold,Height),new Point(Width,Height-fold),new Point(Width,Height)});
         }

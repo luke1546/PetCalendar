@@ -13,6 +13,7 @@ namespace PetCalendarDesktop {
     // R4 D-day finds the real next date, R5 .ics COUNT is kept exactly,
     // and a month typed one digit at a time ("0" then "1") never throws or stores a partial date.
     // R6 the month title, toolbar buttons and bottom-bar texts never overlap in small windows or with large text.
+    // R7 a sticky note whose autosave failed says so, saves again by itself once the file is free, and keeps its last saved text across a restart.
     internal static class ReliabilityTests {
         static int count;
         static void Check(bool value,string message){if(!value)throw new Exception(message);Console.WriteLine("PASS "+message);count++;}
@@ -25,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -469,6 +470,42 @@ namespace PetCalendarDesktop {
             Check(local.Events.Single().repeat=="none"&&local.Simplified==1,"a noon Feb 29 start with BYMONTHDAY=-2 (another UTC shift) is simplified");
             local=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:20240229T120000\r\nRRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=-1\r\nSUMMARY:외부 윤년 시각 규칙2\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
             Check(local.Events.Single().repeat=="yearly"&&local.Simplified==0,"a noon Feb 29 start with BYMONTHDAY=-1 keeps its yearly repeat");
+        }
+
+        static T Field<T>(object target,string name){return (T)target.GetType().GetField(name,BindingFlags.NonPublic|BindingFlags.Instance).GetValue(target);}
+        // Runs the message loop (so the note's timers fire) until the condition holds or the time runs out.
+        static bool Pump(Func<bool> condition,int milliseconds){var end=DateTime.Now.AddMilliseconds(milliseconds);while(!condition()&&DateTime.Now<end){Application.DoEvents();System.Threading.Thread.Sleep(20);}return condition();}
+
+        // R7: a failed sticky-note save is shown on its window, retried without another edit once the file is free,
+        // and a save that fails at exit leaves the last written copy in place, so a restart still shows that text.
+        static void StickyNoteSaveRetry(){
+            string dir=Temp();string file=Path.Combine(dir,"sticky-notes.json");string pending=Path.Combine(dir,"sticky-notes.pending.json");var errors=new List<Exception>();
+            try{
+                var notes=new StickyNotes(dir,errors.Add);notes.Create(null);
+                var window=Field<Dictionary<string,StickyNoteWindow>>(notes,"windows").Values.Single();var box=Field<TextBox>(window,"text");
+                box.Text="첫 줄";
+                Check(Pump(()=>File.Exists(file)&&File.ReadAllText(file).Contains("첫 줄"),3000),"a sticky note edit is written to its file");
+                using(Lock(file)){
+                    box.Text="잠긴 중 쓴 내용";
+                    Pump(()=>errors.Count>0&&Field<bool>(window,"unsaved"),3000);
+                    Check(errors.Count>0&&Field<bool>(window,"unsaved"),"a failed sticky note save marks its window as not saved");
+                    Check(File.Exists(pending)&&File.ReadAllText(pending).Contains("잠긴 중 쓴 내용"),"a failed sticky note save keeps the newest text in the pending copy");
+                }
+                Check(Pump(()=>!Field<bool>(window,"unsaved")&&File.ReadAllText(file).Contains("잠긴 중 쓴 내용"),10000),"a sticky note is saved again by itself once the file is free, without another edit");
+                Check(!File.Exists(pending),"the pending copy is removed once the note is saved to its file");
+                using(Lock(file)){
+                    box.Text="종료 중 내용";
+                    notes.Dispose();
+                }
+                var kept=Codec.Read<List<StickyNote>>(File.ReadAllText(file));
+                Check(kept.Single().text=="잠긴 중 쓴 내용","a failed save at exit keeps the last written text in the file");
+                Check(File.Exists(pending)&&File.ReadAllText(pending).Contains("종료 중 내용"),"a failed save at exit keeps the newest edit in the pending copy");
+                var again=new StickyNotes(dir,errors.Add);again.Restore();
+                var reopened=Field<Dictionary<string,StickyNoteWindow>>(again,"windows").Values.Single();
+                Check(Field<TextBox>(reopened,"text").Text=="종료 중 내용","the newest sticky note edit is restored after a restart");
+                Check(!File.Exists(pending)&&File.ReadAllText(file).Contains("종료 중 내용"),"the restored note is written back to its file and the pending copy removed");
+                again.Dispose();
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
         }
 
         // A reminder that came due while the app was closed is shown once after a restart; one older than 24 hours is not.

@@ -160,6 +160,12 @@ namespace PetCalendarDesktop {
             Check(Rules.Occurrences(new[]{e},e.startDate,e.repeatUntil,false).Count==4000,"the imported series has exactly 4000 dates");
             r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nRRULE:FREQ=DAILY;COUNT=500000\r\nSUMMARY:너무 긴 반복\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
             Check(r.Events.Single().repeat=="none"&&r.Simplified==1,"a COUNT the app cannot hold is reported, not silently cut");
+            // A COUNT that is zero, negative or not a number must not become an endless weekly series.
+            foreach(var bad in new[]{"0","-3","abc",""}){
+                r=IcsImport.Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260101\r\nRRULE:FREQ=WEEKLY;COUNT="+bad+"\r\nSUMMARY:잘못된 COUNT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n","work",null);
+                e=r.Events.Single();
+                Check(e.repeat=="none"&&e.repeatUntil==""&&r.Simplified==1,"COUNT='"+bad+"' is reported as simplified, not an endless repeat");
+            }
         }
 
         static async Task Saves(){

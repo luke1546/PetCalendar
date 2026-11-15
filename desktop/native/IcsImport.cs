@@ -158,7 +158,10 @@ namespace PetCalendarDesktop {
             e.repeat=repeat;
             string until,count;
             if(parts.TryGetValue("UNTIL",out until)){DateTime u;bool only;if(ParseWhen(until,new Dictionary<string,string>(),out u,out only))e.repeatUntil=Rules.Key(u.Date);}
-            else if(parts.TryGetValue("COUNT",out count)){int c;if(int.TryParse(count,out c)&&c>0){
+            else if(parts.TryGetValue("COUNT",out count)){int c;
+                // A COUNT that is not a positive number would leave the series endless: keep only the first date and report it.
+                if(!int.TryParse(count,out c)||c<=0){e.repeat="none";e.repeatUntil="";e.excludedDates=new string[0];result.Simplified++;result.SimplifiedTitles.Add(e.title);return;}
+                {
                 // The last date of the series: walk the app's own rule in ten-year steps until c dates
                 // have passed. A count that cannot be reached is not silently cut: only the first date is kept.
                 var probe=Codec.Read<CalendarEvent>(Codec.Json(e));probe.repeatUntil="";probe.excludedDates=new string[0];

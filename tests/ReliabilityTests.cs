@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TimeTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -367,6 +367,25 @@ namespace PetCalendarDesktop {
             Check(field.Value=="","a day typed as a lone 0 is not stored as 2026-01-00");
             type(new KeyPressEventArgs('5'));
             Check(field.Value=="2026-01-05","typing 05 into the day completes to 2026-01-05");
+        }
+
+        // The time field's AM/PM segment takes 오전/오후 typed in Korean as well as a/p, and digits still fill the hour.
+        static void TimeTyping(){
+            var flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            var keyDown=typeof(TimeField).GetMethod("OnKeyDown",flags);var keyPress=typeof(TimeField).GetMethod("OnKeyPress",flags);
+            Func<string,string> typed=text=>{
+                var field=new TimeField();field.Value="09:00";
+                keyDown.Invoke(field,new object[]{new KeyEventArgs(Keys.Left)});
+                foreach(var c in text)keyPress.Invoke(field,new object[]{new KeyPressEventArgs(c)});
+                return field.Value;
+            };
+            Check(typed("후")=="21:00","typing 후 in the AM/PM segment sets 오후 so 09:00 reads as 21:00");
+            Check(typed("오후")=="21:00","typing 오후 (오 then 후) ends on 오후 and reads 09:00 as 21:00");
+            Check(typed("오")=="09:00","typing 오 alone keeps 오전 and 09:00");
+            Check(typed("오후오")=="09:00","typing 오 after 오후 switches back to 오전");
+            Check(typed("p")=="21:00"&&typed("a")=="09:00","the English p and a keys still set 오후 and 오전");
+            Check(typed("1")=="01:00","a digit typed in the AM/PM segment still fills the hour");
+            Console.WriteLine("PASS the time field accepts Korean 오전/오후 keys next to the English a/p keys");
         }
 
         // R8: while the task due-date field has focus, Ctrl+C/V go to that field (not to schedule copy/paste),

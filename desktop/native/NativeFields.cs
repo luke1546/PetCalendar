@@ -155,7 +155,7 @@ namespace PetCalendarDesktop {
         }
         public void SetValue(string value){Value=value;Changed();}
         protected override void OnKeyPress(KeyPressEventArgs e){
-            if(focus==0){char c=char.ToLowerInvariant(e.KeyChar);if(c=='a'||c=='ㅇ'||c=='오'){parts[0]=0;Changed();e.Handled=true;return;}if(c=='p'){parts[0]=1;Changed();e.Handled=true;return;}if(char.IsDigit(e.KeyChar)){focus=1;}}
+            if(focus==0){char c=char.ToLowerInvariant(e.KeyChar);if(c=='a'||c=='ㅇ'||c=='오'){parts[0]=0;Changed();e.Handled=true;return;}if(c=='p'||c=='후'){parts[0]=1;Changed();e.Handled=true;return;}if(char.IsDigit(e.KeyChar)){focus=1;}}
             base.OnKeyPress(e);
         }
         protected override void OpenPicker(){

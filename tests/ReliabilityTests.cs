@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -601,6 +601,36 @@ namespace PetCalendarDesktop {
                 Check(!File.Exists(pending)&&File.ReadAllText(file).Contains("종료 중 내용"),"the restored note is written back to its file and the pending copy removed");
                 again.Dispose();
             }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+        }
+
+        // A sticky note saved on a monitor that is gone (or moved away) opens inside a working area and keeps that place; a note still on screen keeps its place.
+        static void StickyNoteBounds(){
+            var primary=new Rectangle(0,0,1920,1040);var second=new Rectangle(1920,0,1280,1000);
+            var fitted=StickyNotes.FitBounds(new Rectangle(4000,-900,240,220),new[]{primary,second},primary);
+            Check(primary.Contains(fitted)&&fitted.Size==new Size(240,220),"a sticky note saved off every monitor is moved into the primary working area at its size");
+            var unplugged=StickyNotes.FitBounds(new Rectangle(2500,300,240,220),new[]{primary},primary);
+            Check(primary.Contains(unplugged),"a sticky note saved on a monitor that was unplugged is moved onto the primary working area");
+            var visible=new Rectangle(2000,300,300,260);Check(StickyNotes.FitBounds(visible,new[]{primary,second},primary)==visible,"a sticky note still visible on the second monitor keeps its place and size");
+            var shrunk=StickyNotes.FitBounds(new Rectangle(100,100,2000,1500),new[]{primary},primary);
+            Check(shrunk.Size==primary.Size&&primary.Contains(shrunk),"a sticky note larger than the monitor is fitted to its working area");
+
+            string dir=Temp();var errors=new List<Exception>();var area=Screen.PrimaryScreen.WorkingArea;
+            try{
+                var file=Path.Combine(dir,"sticky-notes.json");
+                File.WriteAllText(file,"[{\"id\":\"off\",\"text\":\"off\",\"color\":\"yellow\",\"x\":"+(area.Right+5000)+",\"y\":"+(area.Bottom+5000)+",\"width\":240,\"height\":220,\"closed\":false},"
+                    +"{\"id\":\"here\",\"text\":\"here\",\"color\":\"pink\",\"x\":"+(area.Left+100)+",\"y\":"+(area.Top+120)+",\"width\":300,\"height\":260,\"closed\":false}]",new System.Text.UTF8Encoding(false));
+                var notes=new StickyNotes(dir,errors.Add);notes.Restore();
+                var windows=Field<Dictionary<string,StickyNoteWindow>>(notes,"windows");
+                var off=windows["off"].Bounds;var here=windows["here"].Bounds;
+                Check(Screen.AllScreens.Any(s=>s.WorkingArea.Contains(off)),"a sticky note saved off the monitor opens fully inside a working area");
+                Check(here==new Rectangle(area.Left+100,area.Top+120,300,260),"a sticky note still on the monitor opens at its saved place");
+                notes.Dispose();
+                var saved=Codec.Read<List<StickyNote>>(File.ReadAllText(file));
+                var kept=saved.Single(n=>n.id=="off");
+                Check(new Rectangle(kept.x,kept.y,kept.width,kept.height)==off,"the corrected place of an off-screen sticky note is saved for the next start");
+                var moved=saved.Single(n=>n.id=="here");Check(moved.x==area.Left+100&&moved.y==area.Top+120,"a sticky note kept on screen is saved at the same place");
+            }finally{try{Directory.Delete(dir,true);}catch(Exception){}}
+            Console.WriteLine("PASS sticky notes are opened inside a working area");
         }
 
         // A reminder that came due while the app was closed is shown once after a restart; one older than 24 hours is not.

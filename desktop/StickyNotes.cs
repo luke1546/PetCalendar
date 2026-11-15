@@ -73,7 +73,23 @@ namespace PetCalendarDesktop {
             notes.Add(note);Save();Open(note).FocusText();
         }
         static float ScaleAt(Point p){try{using(var g=Graphics.FromHwnd(IntPtr.Zero))return g.DpiX/96f;}catch{return 1;}}
+        // A saved place that shows on no monitor (one was unplugged or rearranged) is moved back into a working area, and the corrected place is saved.
+        bool FitToScreens(StickyNote note){
+            var areas=Screen.AllScreens.Select(s=>s.WorkingArea).ToArray();
+            var fitted=FitBounds(new Rectangle(note.x,note.y,note.width,note.height),areas,Screen.PrimaryScreen.WorkingArea);
+            if(fitted.X==note.x&&fitted.Y==note.y&&fitted.Width==note.width&&fitted.Height==note.height)return false;
+            note.x=fitted.X;note.y=fitted.Y;note.width=fitted.Width;note.height=fitted.Height;return true;
+        }
+        // The monitor the note overlaps (the primary one when it overlaps none); a note that already fits is returned unchanged.
+        internal static Rectangle FitBounds(Rectangle saved,Rectangle[] areas,Rectangle primary){
+            var rect=new Rectangle(saved.X,saved.Y,Math.Max(150,saved.Width),Math.Max(120,saved.Height));
+            var area=areas.FirstOrDefault(a=>a.IntersectsWith(rect));if(area.IsEmpty)area=primary;
+            rect.Width=Math.Min(rect.Width,area.Width);rect.Height=Math.Min(rect.Height,area.Height);
+            rect.X=Math.Max(area.Left,Math.Min(area.Right-rect.Width,rect.X));rect.Y=Math.Max(area.Top,Math.Min(area.Bottom-rect.Height,rect.Y));
+            return rect;
+        }
         StickyNoteWindow Open(StickyNote note){
+            if(FitToScreens(note))Save();
             var window=new StickyNoteWindow(note);windows[note.id]=window;window.SetUnsaved(unsaved);
             window.Changed+=()=>{saveTimer.Stop();saveTimer.Start();};
             window.NewRequested+=()=>Create(window.Bounds);

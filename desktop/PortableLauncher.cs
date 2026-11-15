@@ -10,7 +10,7 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("펫 캘린더")]
 [assembly: AssemblyProduct("PetCalendar")]
-[assembly: AssemblyVersion("4.0.16.0")]
+[assembly: AssemblyVersion("4.0.17.0")]
 static class PortableLauncher {
     static string Quote(string value){
         var result=new StringBuilder("\"");int slashes=0;

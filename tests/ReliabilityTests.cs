@@ -50,6 +50,7 @@ namespace PetCalendarDesktop {
             var endedPinned=Event("endedPinned","2026-11-01","daily","2026-11-14");endedPinned.pinnedDate="2026-11-10";
             Check(Rules.DdayOccurrence(endedPinned,"2026-11-16").startDate=="2026-11-14","a passed pinned occurrence of an ended series counts down to its last date");
             DdayChoiceFollowsToday();
+            DdayChoiceClicks();
         }
 
         // The D-day picker judges pinned dates by the real today, not by the date selected in the calendar:
@@ -66,6 +67,42 @@ namespace PetCalendarDesktop {
                     var list=new ChoiceList(view);list.Rebuild();
                     var rows=(List<Occurrence>)typeof(ChoiceList).GetField("rows",BindingFlags.NonPublic|BindingFlags.Instance).GetValue(list);
                     Check(rows.Count==1&&rows[0].startDate==Rules.AddDays(today,3),"the D-day picker keeps a pinned occurrence still ahead of today when the calendar is set later");
+                }
+            }finally{Directory.Delete(dir,true);}
+        }
+
+        // Only the left button picks a D-day row or expands "더 보기"; a right click on either must do nothing.
+        static void DdayChoiceClicks(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    // The save request never finishes, so the choice stays in its optimistic state and nothing is written.
+                    view.ApiCall=(method,path,body,version,force)=>new TaskCompletionSource<ApiResponse>().Task;
+                    string today=Rules.Key(DateTime.Today);
+                    view.state.events=new[]{Event("click1",Rules.AddDays(today,1)),Event("click2",Rules.AddDays(today,2))};
+                    // One visible row puts the "더 보기" row right below it, so both hit points are near the top.
+                    view.limits["dday"]=1;
+                    var list=new ChoiceList(view){Size=new Size(400,600)};list.Rebuild();
+                    var at=typeof(ChoiceList).GetMethod("At",BindingFlags.NonPublic|BindingFlags.Instance);
+                    var mouseUp=typeof(ChoiceList).GetMethod("OnMouseUp",BindingFlags.NonPublic|BindingFlags.Instance);
+                    Point? rowAt=null,moreAt=null;
+                    for(int y=0;y<600;y++){
+                        var p=new Point(20,y);var args=new object[]{p,false};int i=(int)at.Invoke(list,args);bool more=(bool)args[1];
+                        if(rowAt==null&&i==0&&!more)rowAt=p;
+                        if(moreAt==null&&more)moreAt=p;
+                    }
+                    Check(rowAt.HasValue&&moreAt.HasValue,"the D-day picker has a row and a more row to click");
+                    Action<MouseButtons,Point> click=(button,p)=>mouseUp.Invoke(list,new object[]{new MouseEventArgs(button,1,p.X,p.Y,0)});
+                    var before=view.state;
+                    click(MouseButtons.Right,moreAt.Value);
+                    Check(view.limits["dday"]==1,"a right click on the D-day more row does not expand the list");
+                    click(MouseButtons.Right,rowAt.Value);
+                    Check(!view.Saving&&ReferenceEquals(view.state,before)&&!view.state.events.Any(e=>e.pinned),"a right click on a D-day row does not choose it");
+                    click(MouseButtons.Left,moreAt.Value);
+                    Check(view.limits["dday"]==1+CalendarView.pageSizes["dday"],"a left click on the D-day more row still expands the list");
+                    click(MouseButtons.Left,rowAt.Value);
+                    Check(view.Saving&&view.state.events.Any(e=>e.pinned&&e.id=="click1"),"a left click on a D-day row still chooses it");
                 }
             }finally{Directory.Delete(dir,true);}
         }

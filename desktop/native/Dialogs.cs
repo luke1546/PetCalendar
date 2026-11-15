@@ -297,7 +297,7 @@ namespace PetCalendarDesktop {
         int At(Point p,out bool more){float s=Sc;more=false;int width=scroll.Visible?Width-(int)(12*s):Width;int y=(int)(4*s)-Offset;int i=0;foreach(var o in rows.Take(view.limits["dday"])){int h=RowHeight(o,width);if(p.Y>=y&&p.Y<y+h&&p.X<width)return i;y+=h+(int)(7*s);i++;}if(rows.Count>view.limits["dday"]&&p.Y>=y&&p.Y<y+Ui.Font(s,12,400).GetHeight()+22*s)more=true;return -1;}
         protected override void OnMouseMove(MouseEventArgs e){bool more;int i=At(e.Location,out more);if(i!=hover||more!=hoverMore){hover=i;hoverMore=more;Invalidate();}Cursor=i>=0||more?Cursors.Hand:Cursors.Default;}
         protected override void OnMouseLeave(EventArgs e){hover=-1;hoverMore=false;Invalidate();}
-        protected override void OnMouseUp(MouseEventArgs e){bool more;int i=At(e.Location,out more);if(more){view.limits["dday"]+=CalendarView.pageSizes["dday"];Invalidate();var form=FindForm() as DialogForm;if(form!=null)form.Relayout();return;}if(i>=0){var o=rows[i];view.ChooseDday(o.@event.id,o.startDate,false);}}
+        protected override void OnMouseUp(MouseEventArgs e){if(e.Button!=MouseButtons.Left)return;bool more;int i=At(e.Location,out more);if(more){view.limits["dday"]+=CalendarView.pageSizes["dday"];Invalidate();var form=FindForm() as DialogForm;if(form!=null)form.Relayout();return;}if(i>=0){var o=rows[i];view.ChooseDday(o.@event.id,o.startDate,false);}}
         protected override void OnMouseWheel(MouseEventArgs e){scroll.Offset=Offset;scroll.Wheel(e.Delta,Sc,()=>{Offset=scroll.Offset;Invalidate();});var h=e as HandledMouseEventArgs;if(h!=null)h.Handled=true;}
     }
     // ---------------- Day list ("+N개 더 보기") ----------------

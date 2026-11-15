@@ -25,7 +25,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>Saves()).Wait();
+                Dday();Ics();IcsDuplicates();LeapDayIcs();DateTyping();TaskShortcuts();ToolbarLayout();WeekYear();Backups();WheelSteps();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -317,6 +317,19 @@ namespace PetCalendarDesktop {
             Check(local.Events.Single().repeat=="yearly"&&local.Simplified==0,"a noon Feb 29 start with BYMONTHDAY=-1 keeps its yearly repeat");
         }
 
+        // A reminder that came due while the app was closed is shown once after a restart; one older than 24 hours is not.
+        static void AlarmCatchUp(){
+            string dir=Temp();var store=new StateStore(dir);var now=DateTime.Now;
+            var state=CalendarView.Clone(store.Snapshot);
+            state.events=new[]{Event("recent",Rules.Key(now.AddMinutes(-10)),reminder:0,time:now.AddMinutes(-10).ToString("HH:mm")),Event("stale",Rules.Key(now.AddHours(-25)),reminder:0,time:now.AddHours(-25).ToString("HH:mm"))};
+            store.Save(Codec.Json(state),h=>Task.FromResult(0)).GetAwaiter().GetResult();
+            var delivered=new List<string>();Action<List<Alarm>,bool,bool> record=(list,fresh,silent)=>{if(fresh)delivered.AddRange(list.Select(a=>a.eventId));};
+            using(var alarms=new AlarmService(store)){alarms.Delivered+=record;alarms.CheckAt(DateTime.UtcNow);}
+            Check(delivered.SequenceEqual(new[]{"recent"}),"a reminder missed while the app was closed is shown once after restart, and one older than 24 hours is not ("+string.Join(",",delivered)+")");
+            using(var alarms=new AlarmService(store)){alarms.Delivered+=record;alarms.CheckAt(DateTime.UtcNow);}
+            Check(delivered.Count==1,"a reminder already recorded in the ledger is not shown again after another restart");
+            try{Directory.Delete(dir,true);}catch(Exception){}
+        }
         static async Task Saves(){
             string dir=Temp();var store=new StateStore(dir);var failures=new List<Exception>();store.ListenerFailed+=failures.Add;
             string tomorrow=Rules.Key(DateTime.Today.AddDays(1));

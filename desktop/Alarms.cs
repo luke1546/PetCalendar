@@ -28,7 +28,8 @@ namespace PetCalendarDesktop {
         readonly object gate=new object();
         readonly System.Threading.Timer timer;
         AlarmLedger ledger;
-        long lastCheck=Rules.Epoch(DateTime.UtcNow)-60000;
+        // 0 makes the first check look back the full 24 hours, so reminders missed while the app was closed are shown once.
+        long lastCheck=0;
         bool disposed;
         public event Action<List<Alarm>,bool,bool> Delivered;
         public event Action<string,string> InApp;

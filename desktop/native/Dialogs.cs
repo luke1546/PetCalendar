@@ -359,7 +359,8 @@ namespace PetCalendarDesktop {
         public UpcomingDialog(CalendarView view):base(view,"다가오는 7일","한눈에 보기"){
             WidthCss=480;string today=Rules.Key(DateTime.Today);
             list=new DayList(view,Enumerable.Range(0,7).Select(i=>Rules.AddDays(today,i)).ToArray());Body.Add(new DayListDialog.DayListItem(list){Top=4});
-            Footer(new Control[0],new Control[]{add});add.Click+=delegate{View.OpenEvent(null,View.selected,false);};
+            // The new schedule goes on the selected date only when the list shows it; otherwise on today, so it always lands inside the list.
+            Footer(new Control[0],new Control[]{add});add.Click+=delegate{string day=View.selected;View.OpenEvent(null,String.CompareOrdinal(day,today)>=0&&String.CompareOrdinal(day,Rules.AddDays(today,6))<=0?day:today,false);};
         }
         public override void StateChanged(){list.Rebuild();if(IsHandleCreated)Relayout();}
     }

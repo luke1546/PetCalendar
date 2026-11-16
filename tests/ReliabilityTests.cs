@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TimeTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();UpcomingAddDate();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TimeTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -146,6 +146,26 @@ namespace PetCalendarDesktop {
             }finally{Directory.Delete(dir,true);}
         }
 
+        // The "다가오는 7일" dialog lists today plus six days. Its add button opens the editor on the selected date only when
+        // that date is in the list; a date outside it (past, or more than six days ahead) falls back to today.
+        static void UpcomingAddDate(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    string today=Rules.Key(DateTime.Today);
+                    Func<string,string> addDate=selected=>{
+                        view.selected=selected;var dialog=new UpcomingDialog(view);dialog.Show(null);
+                        try{Field<Btn>(dialog,"add").PerformClick();return Field<DateField>(DialogForm.Open.OfType<EventDialog>().Single(),"start").Value;}
+                        finally{foreach(var d in DialogForm.Open.ToArray())d.CloseDialog();}
+                    };
+                    Check(addDate(today)==today,"the upcoming dialog adds on the selected date when it is today");
+                    Check(addDate(Rules.AddDays(today,6))==Rules.AddDays(today,6),"the upcoming dialog adds on the selected date when it is the last listed day");
+                    Check(addDate(Rules.AddDays(today,7))==today,"the upcoming dialog adds on today when the selected date is past the seven listed days");
+                    Check(addDate(Rules.AddDays(today,-1))==today,"the upcoming dialog adds on today when the selected date is before the list");
+                }
+            }finally{Directory.Delete(dir,true);}
+        }
         // Moving a missed repeat to today: a series that already lands on today keeps that one occurrence (no copy),
         // a series that does not gets one copy, and the moved dates stay out of the series either way.
         static void OverdueRepeatToToday(){

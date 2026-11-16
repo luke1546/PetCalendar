@@ -26,7 +26,7 @@ namespace PetCalendarDesktop {
 
         [STAThread] static int Main(string[] args){
             try{
-                Dday();UpcomingAddDate();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TimeTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
+                Dday();UpcomingAddDate();UpcomingFollowsMidnight();OverdueRepeatToToday();Ics();IcsDuplicates();IcsRepeatDates();LeapDayIcs();DateTyping();TimeTyping();TaskShortcuts();TaskRowsReuse();ToolbarLayout();DayHeaderLayout();WeekYear();DayCellAccessibility();TaskCheckAccessibility();Backups();BackupFolderChange();BackupQueuedAfterFolderChange();WidgetBackupBounds();WheelSteps();PopupWheels();KeyboardTimePicker();StickyNoteSaveRetry();StickyNoteBounds();Task.Run(()=>AlarmCatchUp()).Wait();Task.Run(()=>Saves()).Wait();
                 Console.WriteLine(count+" reliability checks passed");return 0;
             }catch(Exception error){Console.WriteLine("FAIL "+(error is AggregateException?error.InnerException.Message:error.Message));return 1;}
         }
@@ -163,6 +163,30 @@ namespace PetCalendarDesktop {
                     Check(addDate(Rules.AddDays(today,6))==Rules.AddDays(today,6),"the upcoming dialog adds on the selected date when it is the last listed day");
                     Check(addDate(Rules.AddDays(today,7))==today,"the upcoming dialog adds on today when the selected date is past the seven listed days");
                     Check(addDate(Rules.AddDays(today,-1))==today,"the upcoming dialog adds on today when the selected date is before the list");
+                }
+            }finally{Directory.Delete(dir,true);}
+        }
+        // A window left open past midnight: the list moves to the new today (six days ahead), and the add button uses that range.
+        static void UpcomingFollowsMidnight(){
+            string dir=Temp();var store=new StateStore(dir);
+            try{
+                using(var form=new Form{ClientSize=new Size(1280,800)}){
+                    var view=new CalendarView(null,store,new UiPrefs(dir,true));view.Dock=DockStyle.Fill;form.Controls.Add(view);form.Show();
+                    string first=Rules.Key(DateTime.Today),next=Rules.AddDays(first,1);string current=first;
+                    var dialog=new UpcomingDialog(view,()=>current);dialog.Show(null);
+                    var list=Field<DayList>(dialog,"list");Func<string[]> shown=()=>Field<string[]>(list,"keys");
+                    Check(shown()[0]==first&&shown()[6]==Rules.AddDays(first,6),"the upcoming list starts on today and covers seven days");
+                    current=next;view.Render();
+                    Check(shown()[0]==next&&shown()[6]==Rules.AddDays(next,6),"the upcoming list moves to the new today after midnight while the window stays open");
+                    Func<string,string> addDate=selected=>{
+                        view.selected=selected;Field<Btn>(dialog,"add").PerformClick();
+                        try{return Field<DateField>(DialogForm.Open.OfType<EventDialog>().Single(),"start").Value;}
+                        finally{foreach(var d in DialogForm.Open.OfType<EventDialog>().ToArray())d.CloseDialog();}
+                    };
+                    Check(addDate(first)==next,"after midnight the add button does not use the old first day, which is now before the list");
+                    Check(addDate(Rules.AddDays(next,6))==Rules.AddDays(next,6),"after midnight the add button uses the selected date when it is the new last listed day");
+                    Check(addDate(Rules.AddDays(next,7))==next,"after midnight the add button falls back to the new today past the list");
+                    foreach(var d in DialogForm.Open.ToArray())d.CloseDialog();
                 }
             }finally{Directory.Delete(dir,true);}
         }

@@ -355,17 +355,20 @@ namespace PetCalendarDesktop {
     }
     // Schedules of the next seven days, grouped by date (opened from the "오늘의 일정" card or W).
     public sealed class UpcomingDialog : DialogForm {
-        readonly DayList list;readonly Btn add=new Btn(BtnKind.Primary,"일정 추가","plus");
-        public UpcomingDialog(CalendarView view):base(view,"다가오는 7일","한눈에 보기"){
-            WidthCss=480;string today=Rules.Key(DateTime.Today);
-            list=new DayList(view,Enumerable.Range(0,7).Select(i=>Rules.AddDays(today,i)).ToArray());Body.Add(new DayListDialog.DayListItem(list){Top=4});
+        readonly DayList list;readonly Func<string> todayKey;readonly Btn add=new Btn(BtnKind.Primary,"일정 추가","plus");
+        public UpcomingDialog(CalendarView view):this(view,()=>Rules.Key(DateTime.Today)){}
+        // todayKey is read again whenever the window refreshes, so a window left open past midnight moves to the new today.
+        internal UpcomingDialog(CalendarView view,Func<string> today):base(view,"다가오는 7일","한눈에 보기"){
+            WidthCss=480;todayKey=today;
+            list=new DayList(view,DatesFrom(today));Body.Add(new DayListDialog.DayListItem(list){Top=4});
             // The new schedule goes on the selected date only when the list shows it; otherwise on today, so it always lands inside the list.
-            Footer(new Control[0],new Control[]{add});add.Click+=delegate{string day=View.selected;View.OpenEvent(null,String.CompareOrdinal(day,today)>=0&&String.CompareOrdinal(day,Rules.AddDays(today,6))<=0?day:today,false);};
+            Footer(new Control[0],new Control[]{add});add.Click+=delegate{string[] shown=DatesFrom(todayKey);string day=View.selected;View.OpenEvent(null,shown.Contains(day)?day:shown[0],false);};
         }
-        public override void StateChanged(){list.Rebuild();if(IsHandleCreated)Relayout();}
+        static string[] DatesFrom(Func<string> today){string start=today();return Enumerable.Range(0,7).Select(i=>Rules.AddDays(start,i)).ToArray();}
+        public override void StateChanged(){list.SetDates(DatesFrom(todayKey));if(IsHandleCreated)Relayout();}
     }
     public sealed class DayList : Control {
-        readonly CalendarView view;readonly string[] keys;List<Occurrence> rows=new List<Occurrence>();List<string> days=new List<string>();int Offset;int hover=-1;bool hoverCheck;readonly ScrollModel scroll=new ScrollModel();
+        readonly CalendarView view;string[] keys;List<Occurrence> rows=new List<Occurrence>();List<string> days=new List<string>();int Offset;int hover=-1;bool hoverCheck;readonly ScrollModel scroll=new ScrollModel();
         public DayList(CalendarView owner,string date):this(owner,new[]{date}){}
         // Overdue list: rows come from a function, each row offers "오늘로".
         readonly Func<List<Occurrence>> source;readonly Action<Occurrence> moveToday;readonly string emptyText;bool hoverMove;
@@ -373,6 +376,8 @@ namespace PetCalendarDesktop {
         public DayList(CalendarView owner,string[] dates){view=owner;keys=dates;SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer|ControlStyles.ResizeRedraw|ControlStyles.Selectable,true);TabStop=true;Rebuild();}
         float Sc{get{return DeviceDpi/96f;}}
         public int ViewHeight(){return view.ViewportScreen().Height;}
+        // Shows other dates (the upcoming list moves to the new today at midnight).
+        internal void SetDates(string[] dates){keys=dates;Rebuild();}
         public void Rebuild(){
             rows=new List<Occurrence>();days=new List<string>();
             if(source!=null){foreach(var o in source()){rows.Add(o);days.Add(o.startDate);}Invalidate();return;}
